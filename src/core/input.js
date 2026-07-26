@@ -35,6 +35,10 @@ export class Input {
     this._lookSmooth = { x: 0, y: 0 };
     this.wheel = 0;
     this.pointerLocked = false;
+    /** Set when pointer lock is unavailable — mouse-look then needs a held button. */
+    this.dragLook = false;
+    this._dragging = false;
+    this._dragX = 0; this._dragY = 0;
     this.lastInputDevice = 'keyboard';
     this.anyInputAt = 0;
 
@@ -85,19 +89,30 @@ export class Input {
       this.lastInputDevice = 'mouse'; this.anyInputAt = performance.now();
       const code = 'Mouse' + e.button;
       this.rawDown.add(code); this.rawPressedThisFrame.add(code);
+      this._dragging = true; this._dragX = e.clientX; this._dragY = e.clientY;
       if (!this.uiCapture && settings.effectivePlatform === 'desktop') this.requestPointerLock();
     });
     addEventListener('mouseup', e => {
       const code = 'Mouse' + e.button;
       this.rawDown.delete(code); this.rawReleasedThisFrame.add(code);
+      this._dragging = false;
     });
     c.addEventListener('contextmenu', e => e.preventDefault());
 
     addEventListener('mousemove', e => {
-      if (!this.pointerLocked || this.uiCapture) return;
-      this._lookAccum.x += e.movementX || 0;
-      this._lookAccum.y += e.movementY || 0;
-      this.lastInputDevice = 'mouse';
+      if (this.uiCapture) return;
+      if (this.pointerLocked) {
+        this._lookAccum.x += e.movementX || 0;
+        this._lookAccum.y += e.movementY || 0;
+        this.lastInputDevice = 'mouse';
+      } else if (this.dragLook && this._dragging) {
+        // Pointer lock is unavailable (embedded page, or the browser refused
+        // it). Fall back to hold-and-drag to look so the game stays playable.
+        this._lookAccum.x += e.clientX - this._dragX;
+        this._lookAccum.y += e.clientY - this._dragY;
+        this._dragX = e.clientX; this._dragY = e.clientY;
+        this.lastInputDevice = 'mouse';
+      }
     });
 
     addEventListener('wheel', e => {
@@ -111,7 +126,12 @@ export class Input {
       if (!this.pointerLocked) { this.rawDown.delete('Mouse0'); this.rawDown.delete('Mouse2'); }
       this.onPointerLockChange?.(this.pointerLocked);
     });
-    document.addEventListener('pointerlockerror', () => { this.pointerLocked = false; });
+    document.addEventListener('pointerlockerror', () => {
+      this.pointerLocked = false;
+      this._lockRefused = true;
+      this.dragLook = true;
+      this.onPointerLockChange?.(false);
+    });
 
     addEventListener('gamepadconnected', e => {
       this.gamepadIndex = e.gamepad.index;
@@ -124,9 +144,20 @@ export class Input {
   }
 
   requestPointerLock() {
-    if (this.pointerLocked || settings.effectivePlatform !== 'desktop') return;
-    const p = this.canvas.requestPointerLock?.({ unadjustedMovement: true });
-    if (p && p.catch) p.catch(() => { try { this.canvas.requestPointerLock(); } catch (e) { } });
+    if (this.pointerLocked || this._lockRefused || settings.effectivePlatform !== 'desktop') return;
+    if (!this.canvas.requestPointerLock) { this.dragLook = true; return; }
+    try {
+      const p = this.canvas.requestPointerLock({ unadjustedMovement: true });
+      if (p && p.catch) p.catch(() => {
+        try { this.canvas.requestPointerLock(); }
+        catch (e) { this._lockRefused = true; this.dragLook = true; }
+      });
+    } catch (e) { this._lockRefused = true; this.dragLook = true; }
+    // If the lock has not arrived shortly, assume it was denied (embedded page).
+    clearTimeout(this._lockProbe);
+    this._lockProbe = setTimeout(() => {
+      if (!this.pointerLocked) this.dragLook = true;
+    }, 700);
   }
   exitPointerLock() { if (document.pointerLockElement) document.exitPointerLock(); }
 

@@ -1542,6 +1542,12 @@ export class UI {
       f.el.style.opacity = String(saturate(1 - f.t / 1.25));
     }
 
+    // ---- pointer-lock fallback hint ----
+    if (this.engine.input.dragLook && !this._dragHintShown && settings.effectivePlatform === 'desktop') {
+      this._dragHintShown = true;
+      this.notify('Hold the left mouse button to look', 'This page cannot capture the cursor', 'skill');
+    }
+
     // ---- HUD auto-hide ----
     if (settings.get('hudAutoHide')) {
       const idle = (performance.now() - this.engine.input.anyInputAt) > 6000 && !g.anyHostileNear(50);
