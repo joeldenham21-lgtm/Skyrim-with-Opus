@@ -110,43 +110,114 @@ export function buildHumanoid(mats, opts = {}) {
   const armMat = opts.armMat || cloth;
   const bootMat = opts.bootMat || leather;
 
-  part(pelvis, capsule(0.135 * scale * B, 0.10 * scale), legMat, 0, 0.02 * scale, 0);
-  part(spine, capsule(0.155 * scale * B, 0.16 * scale), torsoMat, 0, 0.09 * scale, 0, 0, 0, 0, 1.05, 1, 0.78);
-  part(chest, capsule(0.170 * scale * B * S, 0.16 * scale), torsoMat, 0, 0.08 * scale, 0, 0, 0, 0, 1.12, 1, 0.74);
-  // belt
-  part(spine, box(0.34 * scale * B, 0.05 * scale, 0.26 * scale * B), leather, 0, -0.01 * scale, 0);
+  const SEG = opts.detail === 'high' ? 14 : 10;
+  const cap = (r, h) => capsule(r, h, SEG);
+  const sph = (r) => sphere(r, SEG);
+  const hair = mats.hair || mats.fur || cloth;
 
-  // head: hood + a suggestion of a face in shadow
-  part(head, sphere(0.115 * scale, 12), skin, 0, 0.02 * scale, 0, 0, 0, 0, 0.92, 1.06, 0.98);
+  // --- torso: hips, a waisted midriff and a wider chest yoke ----------------
+  part(pelvis, cap(0.128 * scale * B, 0.09 * scale), legMat, 0, 0.02 * scale, 0, 0, 0, 0, 1.04, 1, 0.86);
+  part(spine, cap(0.142 * scale * B, 0.15 * scale), torsoMat, 0, 0.08 * scale, 0, 0, 0, 0, 1.06, 1, 0.76);
+  part(chest, cap(0.166 * scale * B * S, 0.15 * scale), torsoMat, 0, 0.07 * scale, 0, 0, 0, 0, 1.14, 1, 0.74);
+  // shoulder yoke — a straight capsule across the top of the chest reads as
+  // collarbones and stops the arms looking like they grow out of the ribs.
+  part(chest, cap(0.070 * scale * B, 0.30 * scale * S), torsoMat,
+    0, 0.115 * scale, -0.005 * scale, 0, 0, Math.PI / 2, 1, 1, 0.85);
+  // tunic skirt over the hips
+  if (opts.skirt !== false) {
+    part(pelvis, cap(0.170 * scale * B, 0.16 * scale), torsoMat,
+      0, -0.10 * scale, 0, 0, 0, 0, 1.0, 1, 0.80);
+  }
+  // belt + buckle
+  part(spine, box(0.33 * scale * B, 0.048 * scale, 0.25 * scale * B), leather, 0, -0.012 * scale, 0);
+  part(spine, box(0.055 * scale, 0.055 * scale, 0.022 * scale), iron,
+    0, -0.012 * scale, 0.128 * scale * B);
+  // chest strap running over one shoulder
+  if (opts.strap !== false) {
+    part(chest, box(0.052 * scale, 0.36 * scale, 0.018 * scale), leather,
+      0.055 * scale, 0.02 * scale, 0.115 * scale * B, 0.06, 0, 0.42);
+  }
+
+  // --- head -----------------------------------------------------------------
+  // Skull, jaw and brow as three pieces: a bare sphere reads as a ball on a
+  // stick from any angle a player actually looks at it from.
+  part(head, sph(0.104 * scale), skin, 0, 0.026 * scale, 0, 0, 0, 0, 0.94, 1.10, 1.00);
+  part(head, sph(0.076 * scale), skin, 0, -0.028 * scale, 0.026 * scale, 0, 0, 0, 0.92, 0.88, 1.02);
+  part(head, box(0.135 * scale, 0.030 * scale, 0.045 * scale), skin,
+    0, 0.055 * scale, 0.078 * scale, -0.22, 0, 0);
+  // eye sockets, in shadow — two small dark recesses do more than a face texture
+  for (const s of [1, -1]) {
+    part(head, sph(0.020 * scale), mats.bone || iron,
+      s * 0.040 * scale, 0.030 * scale, 0.082 * scale, 0, 0, 0, 1.2, 0.7, 0.5);
+  }
+  part(head, sph(0.026 * scale), skin, 0, 0.006 * scale, 0.092 * scale, 0, 0, 0, 0.6, 0.8, 0.8);
+
   if (opts.hood !== false) {
     const hoodMat = opts.hoodMat || cloth;
-    part(head, sphere(0.145 * scale, 12), hoodMat, 0, 0.03 * scale, -0.012 * scale, 0, 0, 0, 1.0, 1.05, 1.06);
-    // hood peak / cowl
-    part(head, capsule(0.10 * scale, 0.12 * scale, 8), hoodMat, 0, -0.02 * scale, -0.07 * scale, 0.5, 0, 0, 1.25, 1, 1.0);
+    part(head, sph(0.140 * scale), hoodMat, 0, 0.030 * scale, -0.020 * scale, 0, 0, 0, 1.0, 1.04, 1.02);
+    // cowl falling behind the neck
+    part(head, cap(0.098 * scale, 0.12 * scale), hoodMat, 0, -0.02 * scale, -0.075 * scale, 0.5, 0, 0, 1.25, 1, 1.0);
+    // the opening: a ring that frames the face
+    part(head, cap(0.030 * scale, 0.20 * scale), hoodMat,
+      0, 0.030 * scale, 0.082 * scale, 0, 0, Math.PI / 2, 1, 1, 0.6);
+  } else if (opts.hair !== false) {
+    part(head, sph(0.118 * scale), hair, 0, 0.030 * scale, -0.012 * scale, 0, 0, 0, 1.0, 1.02, 1.0);
+    // a fall of hair down the back of the neck
+    part(head, cap(0.075 * scale, 0.12 * scale), hair,
+      0, -0.045 * scale, -0.052 * scale, 0.22, 0, 0, 1.1, 1, 0.62);
+    if (opts.braids) {
+      for (const s of [1, -1]) {
+        part(head, cap(0.020 * scale, 0.18 * scale), hair,
+          s * 0.095 * scale, -0.070 * scale, -0.010 * scale, 0.18, 0, s * 0.14);
+      }
+    }
+  }
+  if (opts.beard) {
+    part(head, cap(0.062 * scale, 0.075 * scale), hair,
+      0, -0.055 * scale, 0.048 * scale, 0.26, 0, 0, 1.05, 1, 0.85);
   }
   if (opts.helmet) {
-    part(head, sphere(0.148 * scale, 12), iron, 0, 0.035 * scale, 0, 0, 0, 0, 1.0, 0.95, 1.02);
-    part(head, box(0.30 * scale, 0.035 * scale, 0.30 * scale), iron, 0, 0.10 * scale, 0);
-    // horns
+    part(head, sph(0.142 * scale), iron, 0, 0.035 * scale, 0, 0, 0, 0, 1.0, 0.95, 1.02);
+    part(head, box(0.29 * scale, 0.032 * scale, 0.29 * scale), iron, 0, 0.098 * scale, 0);
+    // nasal bar
+    part(head, box(0.026 * scale, 0.105 * scale, 0.022 * scale), iron,
+      0, 0.020 * scale, 0.128 * scale);
     for (const s of [1, -1]) {
-      part(head, capsule(0.022 * scale, 0.16 * scale, 6), mats.bone || iron,
-        s * 0.14 * scale, 0.10 * scale, 0, 0.2, 0, s * 1.0);
+      part(head, cap(0.020 * scale, 0.15 * scale), mats.bone || iron,
+        s * 0.135 * scale, 0.095 * scale, 0, 0.2, 0, s * 1.0);
     }
   }
 
-  // shoulders / arms
+  // --- arms -----------------------------------------------------------------
   for (const [sh, el, ha, side] of [[shoulderL, elbowL, handL, 1], [shoulderR, elbowR, handR, -1]]) {
-    if (opts.pauldrons) part(sh, sphere(0.095 * scale * S, 10), iron, 0, 0.0, 0, 0, 0, 0, 1.15, 0.8, 1.05);
-    part(sh, capsule(0.058 * scale * B, 0.20 * scale), armMat, 0, -0.14 * scale, 0);
-    part(el, capsule(0.050 * scale * B, 0.19 * scale), armMat, 0, -0.13 * scale, 0);
-    part(ha, sphere(0.055 * scale, 8), leather, 0, -0.03 * scale, 0, 0, 0, 0, 0.9, 1.1, 0.75);
+    if (opts.pauldrons) {
+      part(sh, sph(0.092 * scale * S), iron, 0, 0.005 * scale, 0, 0, 0, 0, 1.15, 0.8, 1.05);
+      part(sh, box(0.16 * scale * S, 0.022 * scale, 0.14 * scale), iron,
+        side * 0.03 * scale, -0.045 * scale, 0, 0, 0, side * 0.3);
+    } else {
+      // deltoid
+      part(sh, sph(0.062 * scale * B * S), armMat, 0, -0.012 * scale, 0, 0, 0, 0, 1.05, 1.15, 1.0);
+    }
+    part(sh, cap(0.055 * scale * B, 0.20 * scale), armMat, 0, -0.14 * scale, 0);
+    part(el, cap(0.047 * scale * B, 0.19 * scale), armMat, 0, -0.13 * scale, 0, 0, 0, 0, 1, 1, 0.94);
+    // cuff where the sleeve ends
+    part(el, cap(0.052 * scale * B, 0.035 * scale), leather, 0, -0.225 * scale, 0);
+    // hand: palm plus a thumb, which is what makes a fist read as a hand
+    part(ha, box(0.052 * scale, 0.085 * scale, 0.038 * scale), skin, 0, -0.035 * scale, 0);
+    part(ha, sph(0.026 * scale), skin, 0, -0.072 * scale, 0.004 * scale, 0, 0, 0, 1.0, 0.8, 1.0);
+    part(ha, cap(0.017 * scale, 0.030 * scale), skin,
+      side * 0.026 * scale, -0.038 * scale, 0.014 * scale, 0.4, 0, side * -0.5);
   }
 
-  // legs
+  // --- legs -----------------------------------------------------------------
   for (const [hp, kn, ft] of [[hipL, kneeL, footL], [hipR, kneeR, footR]]) {
-    part(hp, capsule(0.078 * scale * B, 0.30 * scale), legMat, 0, -0.21 * scale, 0);
-    part(kn, capsule(0.062 * scale * B, 0.28 * scale), legMat, 0, -0.20 * scale, 0);
-    part(ft, box(0.10 * scale, 0.07 * scale, 0.24 * scale), bootMat, 0, -0.03 * scale, 0.045 * scale);
+    part(hp, cap(0.082 * scale * B, 0.28 * scale), legMat, 0, -0.20 * scale, 0);
+    part(kn, cap(0.062 * scale * B, 0.26 * scale), legMat, 0, -0.19 * scale, 0);
+    // boot: shaft, foot and a raised toe
+    part(kn, cap(0.068 * scale * B, 0.10 * scale), bootMat, 0, -0.335 * scale, 0);
+    part(ft, box(0.096 * scale, 0.058 * scale, 0.215 * scale), bootMat, 0, -0.030 * scale, 0.040 * scale);
+    part(ft, box(0.098 * scale, 0.022 * scale, 0.225 * scale), leather, 0, -0.058 * scale, 0.042 * scale);
+    part(ft, sph(0.045 * scale), bootMat, 0, -0.028 * scale, 0.128 * scale, 0, 0, 0, 1.0, 0.85, 0.7);
   }
 
   // --- cloak (secondary motion) -------------------------------------------
@@ -274,26 +345,43 @@ export class Animator {
     j.pelvis.position.y += br * 0.010 * idleW * this.rig.scale;
 
     // ---- locomotion --------------------------------------------------------
+    // Sign convention, because getting it wrong makes everyone moonwalk:
+    // the rig faces +Z, so a POSITIVE rotation.x on a hip swings that thigh
+    // BACKWARD. Left leg reaches forward at p = pi/2 (heel strike) and pushes
+    // off at p = 3pi/2, so its swing phase is centred on p = 0.
     const legAmp = lerp(0.28, 0.95, sp) * (1 - this.swim);
     const armAmp = lerp(0.22, 0.72, sp) * (1 - this.swim);
-    j.hipL.rotation.x += sw * legAmp;
-    j.hipR.rotation.x += -sw * legAmp;
-    j.kneeL.rotation.x += Math.max(0, -Math.sin(p - 0.7)) * legAmp * 1.25;
-    j.kneeR.rotation.x += Math.max(0, -Math.sin(p + Math.PI - 0.7)) * legAmp * 1.25;
-    j.footL.rotation.x += -Math.max(0, Math.sin(p - 0.5)) * legAmp * 0.5;
-    j.footR.rotation.x += -Math.max(0, Math.sin(p + Math.PI - 0.5)) * legAmp * 0.5;
+    const swR = Math.sin(p + Math.PI);
+    j.hipL.rotation.x += -sw * legAmp;
+    j.hipR.rotation.x += -swR * legAmp;
 
-    j.shoulderL.rotation.x += -sw * armAmp;
-    j.shoulderR.rotation.x += sw * armAmp;
+    // Knee flexes through the swing (peaking just after toe-off) and gives a
+    // little on loading right after the heel lands.
+    const knee = (ph) => {
+      const swingF = Math.max(0, Math.cos(ph - 0.2));
+      const load = Math.max(0, Math.sin(ph + 0.35));
+      return (swingF * swingF * 1.45 + load * 0.22) * legAmp;
+    };
+    j.kneeL.rotation.x += knee(p);
+    j.kneeR.rotation.x += knee(p + Math.PI);
+
+    // Ankle: toes down at push-off, toes up just before the heel lands.
+    const ankle = (ph) => (Math.max(0, -Math.sin(ph)) * 0.55 - Math.max(0, Math.sin(ph)) * 0.25) * legAmp;
+    j.footL.rotation.x += ankle(p);
+    j.footR.rotation.x += ankle(p + Math.PI);
+
+    // Arms swing against the leg on the same side.
+    j.shoulderL.rotation.x += sw * armAmp;
+    j.shoulderR.rotation.x += swR * armAmp;
     j.shoulderL.rotation.z += 0.10 + sp * 0.05;
     j.shoulderR.rotation.z += -0.10 - sp * 0.05;
-    j.elbowL.rotation.x += -0.28 - sp * 0.45 - Math.max(0, sw) * 0.3;
-    j.elbowR.rotation.x += -0.28 - sp * 0.45 - Math.max(0, -sw) * 0.3;
+    j.elbowL.rotation.x += -0.28 - sp * 0.45 - Math.max(0, -sw) * 0.3;
+    j.elbowR.rotation.x += -0.28 - sp * 0.45 - Math.max(0, sw) * 0.3;
 
-    // vertical bob + counter-rotation
+    // vertical bob + counter-rotation (hips lead the forward leg, chest resists)
     j.pelvis.position.y += (-Math.abs(sw2) * 0.045 * sp) * this.rig.scale;
-    j.pelvis.rotation.y += sw * 0.10 * sp;
-    j.chest.rotation.y += -sw * 0.16 * sp;
+    j.pelvis.rotation.y += -sw * 0.10 * sp;
+    j.chest.rotation.y += sw * 0.16 * sp;
     j.pelvis.rotation.z += this.lean * 0.6;
     j.chest.rotation.z += this.lean * 0.5;
     j.spine.rotation.x += sp * 0.14;      // lean into the run
@@ -465,7 +553,9 @@ export class Animator {
     j.head.rotation.y += (s.headYaw ?? 0) * 0.5;
 
     // ---- cloak secondary motion ---------------------------------------------------
-    if (this.rig.cloak) this._cloak(dt, s);
+    // Simulating and re-uploading a cloth patch per actor per frame is not worth
+    // paying for on someone forty metres away.
+    if (this.rig.cloak && (s.near !== false)) this._cloak(dt, s);
   }
 
   _cloak(dt, s) {
@@ -552,10 +642,15 @@ export class QuadAnimator {
     const amp = lerp(0.20, 0.95, this.speed);
     for (const leg of this.rig.legs) {
       const off = (leg.front ? 0 : Math.PI * 0.55) + (leg.left ? 0 : Math.PI);
-      const a = Math.sin(p + off);
-      leg.hip.rotation.x = a * amp;
-      leg.knee.rotation.x = -Math.max(0, -Math.sin(p + off - 0.6)) * amp * 1.3;
-      leg.foot.rotation.x = Math.max(0, Math.sin(p + off - 0.4)) * amp * 0.4;
+      const ph = p + off;
+      // Same convention as the humanoid: +rotation.x swings a limb backward,
+      // and the swing phase (knee folded, foot off the ground) is centred on
+      // the moment the limb reaches its rearmost point and starts forward.
+      leg.hip.rotation.x = -Math.sin(ph) * amp;
+      const swing = Math.max(0, Math.cos(ph - 0.25));
+      // A foreleg folds its carpus backward; a hind leg folds its stifle forward.
+      leg.knee.rotation.x = (leg.front ? 1 : -1) * swing * swing * amp * 1.35;
+      leg.foot.rotation.x = (leg.front ? -1 : 1) * Math.max(0, -Math.sin(ph)) * amp * 0.35;
     }
     j.core.position.y = this.rig.height + (-Math.abs(Math.sin(p * 2)) * 0.05 * this.speed);
     j.core.rotation.x = this.speed * 0.10 + Math.sin(p * 2) * 0.04 * this.speed;

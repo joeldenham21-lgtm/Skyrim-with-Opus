@@ -338,9 +338,13 @@ export class Heightfield {
         const road = this.roadAt(x, z);
         // Conifers like mid altitudes, moisture, and gentle ground.
         const alt = smoothstep(10, 70, h) * (1 - smoothstep(230, 380, h));
+        // This has to read as "how much forest is here", not "could a tree
+        // grow here" — the terrain paints forest-floor humus with it, and at
+        // the old gain it saturated to 1.0 over every moist mid-altitude
+        // hillside, turning open meadows brown.
         const forest = saturate(
-          alt * (0.35 + moisture * 1.0) *
-          (this.nBiome.fbm2(x * 0.0011 + 300, z * 0.0011 + 300, 4) * 0.5 + 0.5) * 1.9 - 0.18
+          alt * (0.30 + moisture * 0.80) *
+          (this.nBiome.fbm2(x * 0.0011 + 300, z * 0.0011 + 300, 4) * 0.5 + 0.5) * 2.5 - 0.68
         );
         const o = (j * N + i) * 4;
         this.biomeData[o] = moisture * 255;

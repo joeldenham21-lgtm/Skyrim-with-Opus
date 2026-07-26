@@ -242,12 +242,24 @@ export class Player {
     this.speed01 = saturate(planar / sprintSpeed);
 
     // ---- facing ------------------------------------------------------------------
+    // The camera looks along (-sin yaw, -cos yaw) but the rig faces its own +Z,
+    // so the body faces the camera direction at yaw + PI.
+    const faceYaw = this.yaw + PI;
     const strafeLock = this.aiming || this.blocking || this.thirdPerson === false;
     if (strafeLock) {
-      this.moveYaw = dampAngle(this.moveYaw, this.yaw, 18, dt);
+      this.moveYaw = dampAngle(this.moveYaw, faceYaw, 18, dt);
+      this._turning = false;
     } else if (planar > 0.25) {
       const target = Math.atan2(this.vel.x, this.vel.z);
       this.moveYaw = dampAngle(this.moveYaw, target, 12, dt);
+      this._turning = false;
+    } else {
+      // Standing still: turn in place once the camera has swung well past the
+      // shoulder, so the body never ends up facing away from where you look.
+      const off = Math.abs((faceYaw - this.moveYaw + PI * 3) % TAU - PI);
+      if (off > 1.45) this._turning = true;
+      else if (off < 0.35) this._turning = false;
+      if (this._turning) this.moveYaw = dampAngle(this.moveYaw, faceYaw, 7, dt);
     }
 
     // ---- model + animation --------------------------------------------------------
@@ -264,7 +276,7 @@ export class Player {
       casting: this.casting,
       dead: stats.health <= 0,
       pitch: -this.pitch,
-      headYaw: strafeLock ? 0 : ((this.yaw - this.moveYaw + PI * 3) % TAU - PI) * 0.5,
+      headYaw: strafeLock ? 0 : ((faceYaw - this.moveYaw + PI * 3) % TAU - PI) * 0.5,
       vy: this.vel.y,
       turnRate: this.turnRate,
       windX: env.windX, windZ: env.windZ, windStrength: env.windStrength,
@@ -384,9 +396,11 @@ export class Player {
       this.camDistTarget = this.aiming ? 1.9 : (this.crouching ? 2.9 : 3.6);
       this.camDist = damp(this.camDist, this.camDistTarget, 8, dt);
 
+      // Direction from the player out to the camera — the opposite of where we
+      // are looking, so pitching UP has to swing the camera DOWN.
       const cp = Math.cos(this.pitch), spp = Math.sin(this.pitch);
       const dirX = Math.sin(this.yaw) * cp;
-      const dirY = spp;
+      const dirY = -spp;
       const dirZ = Math.cos(this.yaw) * cp;
 
       const shoulder = this.aiming ? 0.72 : this._shoulder;

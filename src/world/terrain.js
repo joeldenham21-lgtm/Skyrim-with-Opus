@@ -91,35 +91,41 @@ const TERRAIN_FRAG = /* glsl */`
   float rocky    = biome.g;
   float road     = biome.b;
   float forest   = biome.a;
+  // The road mask is baked at ~10 m per texel, so bilinear filtering smears a
+  // seven-metre track into a thirty-metre stain. Put the edge back.
+  road = smoothstep(0.34, 0.74, road);
 
   // ---- splat weights -------------------------------------------------------
   float macro = tfbm(vWPos.xz * 0.0035);
   float macro2 = tfbm(vWPos.xz * 0.021 + 11.0);
 
-  float steep = smoothstep(0.16, 0.52, vSteep + (macro2 - 0.5) * 0.22 + rocky * 0.12);
+  float steep = smoothstep(0.24, 0.62, vSteep + (macro2 - 0.5) * 0.22 + rocky * 0.12);
   float alt   = vWPos.y;
 
   float snowT = uSnowLine - uSnowAmount * 340.0 + (macro - 0.5) * 90.0;
   float wSnow = smoothstep(snowT, snowT + 90.0, alt) * (1.0 - smoothstep(0.34, 0.72, vSteep));
   wSnow = max(wSnow, uSnowAmount * (1.0 - smoothstep(0.22, 0.55, vSteep)) * smoothstep(-10.0, 40.0, alt) * 0.9);
 
-  float wRock = steep * (0.65 + rocky * 0.5);
+  float wRock = steep * (0.55 + rocky * 0.5);
   wRock = clamp(wRock, 0.0, 1.0);
 
-  float wDirt = clamp(road * 1.35 + (1.0 - moisture) * 0.30 * (1.0 - steep), 0.0, 1.0);
+  float wDirt = clamp(road * 1.35 + (1.0 - moisture) * 0.16 * (1.0 - steep), 0.0, 1.0);
 
 #if TERRAIN_MATS > 4
   float wSand = tstep(6.5, -1.0, alt - uSeaLevel) * (1.0 - steep * 0.8);
   wSand = max(wSand, tstep(2.2, -0.6, abs(alt - uLakeLevel)) * (1.0 - steep) * 0.85);
-  float wForest = forest * (1.0 - steep) * (1.0 - wSnow) * 0.95;
+  float wForest = forest * forest * (1.0 - steep) * (1.0 - wSnow) * 0.85;
 #else
   float wSand = 0.0;
   float wForest = 0.0;
   wDirt = clamp(wDirt + tstep(6.5, -1.0, alt - uSeaLevel) * 0.9, 0.0, 1.0);
 #endif
 
+  // Green is the ground colour of this province: let grass hold the meadows
+  // instead of being crowded out by four kinds of brown.
   float wGrass = clamp(1.0 - wRock - wSnow - wDirt - wSand - wForest, 0.0, 1.0);
   wGrass *= smoothstep(-2.0, 6.0, alt - uSeaLevel);
+  wGrass *= 1.0 + moisture * 0.55;
 
   float wsum = wGrass + wRock + wSnow + wDirt + wSand + wForest + 1e-4;
   wGrass /= wsum; wRock /= wsum; wSnow /= wsum; wDirt /= wsum; wSand /= wsum; wForest /= wsum;
@@ -154,9 +160,30 @@ const TERRAIN_FRAG = /* glsl */`
   nrm += (texture2D(tSandN, uvFlat).rgb * 2.0 - 1.0) * wSand;
 #endif
 
+  // ---- distance ------------------------------------------------------------
+  // Past a hundred metres a 2.6 m tile is well under a pixel, so it mips to its
+  // own average and the whole hillside goes flat. Blending in a second sample
+  // at ten times the scale keeps real structure out there; flattening the
+  // normal and floor-ing roughness kills the specular sparkle that reads as
+  // grain on distant slopes.
+  float camDist = length(vWPos - cameraPosition);
+  float farB = smoothstep(70.0, 300.0, camDist);
+  if (farB > 0.002){
+    vec2 uvFar = vWPos.xz / uTile.y;
+    vec3 albFar = albedoTex(tGrassA, uvFar) * (wGrass + wForest)
+                + albedoTex(tRockA,  uvFar) * (wRock + wDirt + wSand)
+                + albedoTex(tSnowA,  uvFar) * wSnow;
+    alb = mix(alb, albFar, farB * 0.8);
+    nrm = mix(nrm, vec3(0.0, 0.0, 1.0), farB);
+    orm.g = mix(orm.g, max(orm.g, 0.72), farB);
+  }
+
   // large-scale colour variation hides the tiling completely
   alb *= mix(1.0 - uMacro, 1.0 + uMacro, macro);
   alb *= 0.93 + 0.14 * macro2;
+  // A slight hue drift with the macro field: real ground is never one colour
+  // over a kilometre, and a pure brightness ramp still reads as flat.
+  alb *= mix(vec3(1.06, 1.00, 0.90), vec3(0.92, 1.02, 1.06), macro);
 
   // wetness darkens and smooths, and pools in the hollows
   float wet = uWetness * (0.55 + 0.45 * vOcc) * (1.0 - wSnow * 0.85);
@@ -202,8 +229,8 @@ export function makeTerrainMaterial(bakery, opts = {}) {
     uWetness: { value: 0 },
     uSeaLevel: { value: SEA_LEVEL },
     uLakeLevel: { value: opts.lakeLevel ?? 22 },
-    uTile: { value: new THREE.Vector2(2.6, 26) },
-    uMacro: { value: 0.30 },
+    uTile: { value: new THREE.Vector2(2.6, 27) },
+    uMacro: { value: 0.34 },
   };
   mat.userData.uniforms = uniforms;
 
@@ -409,7 +436,9 @@ export class Terrain {
     this.cache = new Map();        // key -> chunk (built, currently unused)
     this.maxCache = 220;
     this.buildQueue = [];
-    this.frameBudgetMs = 4.0;
+    // Generating a chunk costs ~1.5 ms of noise evaluation, so this is really
+    // "how many chunks may appear this frame". Phones get one.
+    this.frameBudgetMs = settings.effectivePlatform === 'mobile' ? 1.6 : 3.0;
     this._tmpBox = new THREE.Box3();
     this._tmpSphere = new THREE.Sphere();
     this._frustum = new THREE.Frustum();
@@ -509,11 +538,18 @@ export class Terrain {
     }
 
     // Build nearest-first, within a time budget so streaming never stutters.
+    // A frame that has already blown its deadline gets no discretionary work:
+    // piling chunk generation onto a slow frame is what turns one dropped
+    // frame into a visible stutter.
     this.buildQueue.sort((a, b) => a.dist - b.dist);
+    const target = 1 / Math.max(24, settings.get('targetFps'));
+    const behind = dt > target * 1.6 && this.active.size > 24;
+    const budget = behind ? 0 : this.frameBudgetMs;
     const t0 = performance.now();
     let built = 0;
     for (const job of this.buildQueue) {
-      if (built > 0 && performance.now() - t0 > this.frameBudgetMs) break;
+      if (budget <= 0 && built > 0) break;
+      if (built > 0 && performance.now() - t0 > budget) break;
       const chunk = this._acquire();
       chunk.key = job.key;
       chunk.lastUsed = frame;
@@ -533,9 +569,10 @@ export class Terrain {
     let guard = 0;
     do {
       const before = this.stats.queued;
+      const saved = this.frameBudgetMs;
       this.frameBudgetMs = 1e9;
       this.update(camera, 0, frame);
-      this.frameBudgetMs = 4.0;
+      this.frameBudgetMs = saved;
       if (this.stats.queued === 0) break;
       if (++guard > 12) break;
       if (performance.now() - t0 > maxMs) break;

@@ -354,7 +354,9 @@ export class World {
       0.055 + amb.r * 0.22 + e.snowCover * 0.30,
       0.048 + amb.g * 0.22 + e.snowCover * 0.32,
       0.040 + amb.b * 0.20 + e.snowCover * 0.36);
-    this.ambient.intensity = lerp(1.5, 0.55, e.cloudCover * 0.4) * (0.40 + dayF * 0.95) + night * 0.14;
+    // The PMREM environment map already lights everything with the live sky, so
+    // the hemisphere light is a fill on top of that, not a second sky.
+    this.ambient.intensity = (lerp(1.5, 0.55, e.cloudCover * 0.4) * (0.40 + dayF * 0.95) + night * 0.14) * 0.55;
     if (e.lightning > 0.01) this.ambient.intensity += e.lightning * 1.6;
 
     this.fill.position.copy(camera.position).add(new THREE.Vector3(-dir.x, 0.45, -dir.z).multiplyScalar(60));
@@ -380,7 +382,10 @@ export class World {
       .multiplyScalar(Math.max(fogLevel, 1e-4) * 2.0);
     e.godrayStrength = (0.10 + dayF * 0.30) * (0.35 + e.fogAmount * 1.1) * (1 - e.cloudCover * 0.35);
     e.bloomThreshold = lerp(0.75, 1.25, dayF);
-    e.exposureKey = lerp(0.16, 0.30, dayF);
+    // Auto-exposure target. 0.30 maps the average of the frame well above middle
+    // grey, which is why sunlit ground was reading as pale khaki instead of
+    // green: everything was simply printed too bright.
+    e.exposureKey = lerp(0.13, 0.19, dayF);
 
     // Sun direction in view space, for the foliage translucency term.
     e.sunDirView.copy(dir).transformDirection(camera.matrixWorldInverse);
@@ -401,8 +406,8 @@ export class World {
 
     this.terrain.update(camera, dt, frame);
     this.terrain.setEnv(e);
-    this.scatter.update(camera.position, e, this._loading ? 24 : 3);
-    this.grass.update(camera.position);
+    this.scatter.update(camera.position, e, this._loading ? 24 : 3, frame);
+    this.grass.update(camera.position, frame, this._loading ? 32 : 3);
     this.water.update(e, camera.position);
 
     // Underwater check for the post stack.
@@ -420,6 +425,7 @@ export class World {
     onProgress?.(0.5);
     for (let i = 0; i < 40; i++) if (!this.scatter.warmCells(camera.position, 12)) break;
     this.scatter.rebuild(camera.position);
+    for (let i = 0; i < 90; i++) if (!this.grass.warmTiles(camera.position, 12)) break;
     this.grass.rebuild(camera.position);
     onProgress?.(1);
     this._loading = false;

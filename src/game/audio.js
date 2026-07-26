@@ -248,50 +248,111 @@ export class Audio {
     if (fn) fn.call(this, opts);
   }
 
+  /** Random multiplier around 1 — the cheapest cure for machine-gun sameness. */
+  _vary(amount = 0.12) { return 1 + (this.rand.next() - 0.5) * 2 * amount; }
+
+  /**
+   * A footstep is three things happening within 30 ms: the heel landing (a
+   * pitched thud in the ground), the sole compressing whatever is underfoot,
+   * and a small scuff as the foot settles. One noise burst gives you a
+   * metronome; layering and detuning gives you walking.
+   */
   footstep(surface = 'grass', strength = 1) {
     if (!this.ready) return;
     const t = this._now();
     if (t - this._lastFootstep < 0.09) return;
     this._lastFootstep = t;
-    const v = 0.055 + strength * 0.10;
+    const v = (0.050 + strength * 0.095) * this._vary(0.18);
+    const p = this._vary(0.16);
+    const thud = (freq, dur, gain) => {
+      const o = this._osc('sine', freq * p, t, dur, gain);
+      o.o.frequency.exponentialRampToValueAtTime(freq * p * 0.55, t + dur);
+    };
     switch (surface) {
-      case 'snow': this._noiseBurst(t, 0.16, 900, 0.7, v * 0.9, this.busSfx, 'lowpass', 300); break;
-      case 'stone': this._noiseBurst(t, 0.08, 2600, 2.2, v * 1.1, this.busSfx, 'bandpass', 900); break;
-      case 'gravel': this._noiseBurst(t, 0.11, 2000, 1.1, v, this.busSfx, 'bandpass', 700); break;
-      case 'water': this._noiseBurst(t, 0.24, 1400, 0.6, v * 1.3, this.busSfx, 'lowpass', 260); break;
-      case 'wood': this._noiseBurst(t, 0.07, 420, 3.0, v * 1.2); this._osc('sine', 140, t, 0.09, v * 0.5); break;
-      case 'forest': this._noiseBurst(t, 0.13, 1500, 0.8, v * 0.85, this.busSfx, 'lowpass', 420); break;
-      default: this._noiseBurst(t, 0.12, 1100, 0.7, v, this.busSfx, 'lowpass', 380);
+      case 'snow':
+        this._noiseBurst(t, 0.19 * p, 780 * p, 0.6, v * 0.85, this.busSfx, 'lowpass', 240);
+        this._noiseBurst(t + 0.03, 0.13, 3200 * p, 1.0, v * 0.16, this.busSfx, 'highpass');
+        thud(78, 0.09, v * 0.30);
+        break;
+      case 'stone':
+        this._noiseBurst(t, 0.055 * p, 2800 * p, 2.4, v * 0.9, this.busSfx, 'bandpass', 1100);
+        this._noiseBurst(t + 0.018, 0.10, 5200 * p, 1.6, v * 0.22, this.busSfx, 'highpass');
+        thud(112, 0.10, v * 0.55);
+        break;
+      case 'gravel':
+        this._noiseBurst(t, 0.09 * p, 2100 * p, 1.0, v * 0.85, this.busSfx, 'bandpass', 620);
+        this._noiseBurst(t + 0.035 * p, 0.10, 3400 * p, 0.9, v * 0.35, this.busSfx, 'bandpass', 1400);
+        thud(92, 0.08, v * 0.35);
+        break;
+      case 'water':
+        this._noiseBurst(t, 0.26 * p, 1300 * p, 0.5, v * 1.2, this.busSfx, 'lowpass', 220);
+        this._noiseBurst(t + 0.05, 0.18, 2600, 0.8, v * 0.4, this.busSfx, 'bandpass', 900);
+        break;
+      case 'wood':
+        this._noiseBurst(t, 0.05, 480 * p, 2.6, v * 0.9);
+        thud(148 * p, 0.13, v * 0.75);
+        thud(232 * p, 0.07, v * 0.30);
+        break;
+      case 'forest':
+        this._noiseBurst(t, 0.12 * p, 1400 * p, 0.7, v * 0.8, this.busSfx, 'lowpass', 380);
+        this._noiseBurst(t + 0.028, 0.11, 4200 * p, 0.9, v * 0.26, this.busSfx, 'highpass');
+        thud(84, 0.09, v * 0.35);
+        break;
+      default:
+        this._noiseBurst(t, 0.10 * p, 1050 * p, 0.7, v * 0.85, this.busSfx, 'lowpass', 340);
+        this._noiseBurst(t + 0.03, 0.10, 2800 * p, 0.8, v * 0.22, this.busSfx, 'bandpass', 1200);
+        thud(88, 0.09, v * 0.40);
     }
   }
 
   sfx_swing({ heavy = false } = {}) {
     const t = this._now();
-    this._noiseBurst(t, heavy ? 0.34 : 0.22, heavy ? 700 : 1100, 1.4, heavy ? 0.20 : 0.13,
-      this.busSfx, 'bandpass', heavy ? 180 : 300);
+    const p = this._vary(0.14);
+    // The whoosh rises as the blade accelerates past you and falls away after.
+    const dur = (heavy ? 0.38 : 0.24) * p;
+    const n = this._noiseBurst(t, dur, (heavy ? 320 : 520) * p, 2.2,
+      heavy ? 0.18 : 0.12, this.busSfx, 'bandpass');
+    n.f.frequency.exponentialRampToValueAtTime((heavy ? 1500 : 2100) * p, t + dur * 0.45);
+    n.f.frequency.exponentialRampToValueAtTime((heavy ? 200 : 360) * p, t + dur);
+    if (heavy) this._osc('sine', 70 * p, t + dur * 0.4, 0.16, 0.07);
   }
   sfx_hitFlesh({ crit = false } = {}) {
     const t = this._now();
-    this._noiseBurst(t, 0.12, 380, 1.0, crit ? 0.32 : 0.22, this.busSfx, 'lowpass', 110);
-    this._osc('sine', crit ? 90 : 120, t, 0.14, crit ? 0.20 : 0.13);
+    const p = this._vary(0.12);
+    // wet slap, body thump, and a short tail of cloth
+    this._noiseBurst(t, 0.055 * p, 900 * p, 1.2, crit ? 0.26 : 0.17, this.busSfx, 'bandpass', 320);
+    this._noiseBurst(t + 0.01, 0.14 * p, 300 * p, 0.8, crit ? 0.28 : 0.19, this.busSfx, 'lowpass', 100);
+    const o = this._osc('sine', (crit ? 84 : 108) * p, t, 0.16, crit ? 0.22 : 0.14);
+    o.o.frequency.exponentialRampToValueAtTime((crit ? 48 : 62) * p, t + 0.16);
+    if (crit) this._noiseBurst(t + 0.03, 0.22, 1800, 0.7, 0.10, this.busSfx, 'bandpass', 500);
   }
   sfx_hitMetal() {
     const t = this._now();
-    for (const [f, g, d] of [[2400, 0.10, 0.5], [3600, 0.07, 0.36], [5200, 0.05, 0.25], [1500, 0.08, 0.7]]) {
-      const n = this._osc('triangle', f, t, d, g);
-      this._sendReverb(n.g, 0.4);
+    const p = this._vary(0.09);
+    // Inharmonic partials — a struck plate is not a harmonic series.
+    for (const [f, g, d] of [[2380, 0.085, 0.55], [3610, 0.060, 0.40], [5240, 0.040, 0.28],
+                             [1490, 0.070, 0.75], [7900, 0.022, 0.18]]) {
+      const n = this._osc('triangle', f * p * this._vary(0.02), t, d, g);
+      this._sendReverb(n.g, 0.45);
     }
-    this._noiseBurst(t, 0.09, 5200, 2.4, 0.12);
+    this._noiseBurst(t, 0.05, 6200 * p, 2.0, 0.13);
+    this._osc('sine', 190 * p, t, 0.09, 0.06);
   }
   sfx_hitStone() {
     const t = this._now();
-    this._noiseBurst(t, 0.16, 900, 1.6, 0.22, this.busSfx, 'bandpass', 250);
-    this._osc('square', 160, t, 0.10, 0.09);
+    const p = this._vary(0.14);
+    this._noiseBurst(t, 0.13 * p, 950 * p, 1.5, 0.20, this.busSfx, 'bandpass', 220);
+    this._noiseBurst(t, 0.035, 4200 * p, 1.8, 0.10, this.busSfx, 'highpass');
+    const o = this._osc('triangle', 168 * p, t, 0.12, 0.09);
+    o.o.frequency.exponentialRampToValueAtTime(96 * p, t + 0.12);
   }
   sfx_block() {
     const t = this._now();
-    this._noiseBurst(t, 0.13, 1800, 1.2, 0.22, this.busSfx, 'bandpass', 500);
-    this._osc('triangle', 320, t, 0.16, 0.13);
+    const p = this._vary(0.11);
+    this._noiseBurst(t, 0.10 * p, 1900 * p, 1.1, 0.20, this.busSfx, 'bandpass', 430);
+    const o = this._osc('triangle', 300 * p, t, 0.18, 0.12);
+    this._sendReverb(o.g, 0.35);
+    this._osc('sine', 96 * p, t, 0.13, 0.10);
   }
   sfx_bowDraw() {
     const t = this._now();
@@ -339,9 +400,17 @@ export class Audio {
   }
   sfx_ui({ kind = 'move' } = {}) {
     const t = this._now();
-    const f = kind === 'accept' ? 720 : kind === 'back' ? 380 : 520;
-    this._osc('sine', f, t, 0.09, 0.09, this.busUi);
-    if (kind === 'accept') this._osc('sine', f * 1.5, t + 0.03, 0.10, 0.06, this.busUi);
+    // Wood and parchment, not a phone notification: a short knock with a bit of
+    // body, plus a paper-dry noise tick on top.
+    const p = this._vary(0.06);
+    const f = (kind === 'accept' ? 260 : kind === 'back' ? 150 : 200) * p;
+    const o = this._osc('triangle', f, t, kind === 'accept' ? 0.16 : 0.10, 0.075, this.busUi);
+    o.o.frequency.exponentialRampToValueAtTime(f * 0.62, t + 0.09);
+    this._noiseBurst(t, 0.035, 2600 * p, 1.6, 0.045, this.busUi, 'bandpass');
+    if (kind === 'accept') {
+      const n = this._osc('sine', f * 3, t + 0.035, 0.22, 0.045, this.busUi);
+      this._sendReverb(n.g, 0.4);
+    }
   }
   sfx_loot() {
     const t = this._now();
@@ -434,17 +503,17 @@ export class Audio {
     this.musicGain.gain.value = 0.9;
     this.musicGain.connect(this.busMusic);
     const rv = ctx.createGain();
-    rv.gain.value = 0.5;
+    rv.gain.value = 0.62;
     this.musicGain.connect(rv);
     rv.connect(this.reverb);
 
-    // Sustained drone bed (two detuned saws through a lowpass).
+    // --- low strings: three saws, detuned in cents, behind a soft lowpass ----
     this.drone = { osc: [], gain: ctx.createGain(), filter: ctx.createBiquadFilter() };
     this.drone.gain.gain.value = 0;
     this.drone.filter.type = 'lowpass';
-    this.drone.filter.frequency.value = 500;
-    this.drone.filter.Q.value = 0.6;
-    for (const det of [-7, 5, 0]) {
+    this.drone.filter.frequency.value = 420;
+    this.drone.filter.Q.value = 0.4;
+    for (const det of [-9, 0, 7]) {
       const o = ctx.createOscillator();
       o.type = 'sawtooth';
       o.frequency.value = midiToFreq(this.key - 12);
@@ -455,21 +524,36 @@ export class Audio {
     }
     this.drone.filter.connect(this.drone.gain).connect(this.musicGain);
 
-    // Choir pad: three sine partials with slow vibrato.
-    this.pad = { osc: [], gain: ctx.createGain() };
+    // --- choir pad: sine partials through two vowel formants -----------------
+    this.pad = { osc: [], gain: ctx.createGain(), voices: [] };
     this.pad.gain.gain.value = 0;
+    const formant = (freq, q, g) => {
+      const f = ctx.createBiquadFilter();
+      f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q;
+      const gg = ctx.createGain(); gg.gain.value = g;
+      f.connect(gg).connect(this.pad.gain);
+      return f;
+    };
+    // "ah" formants — the difference between a choir and a bank of sine waves
+    const f1 = formant(700, 5, 0.9), f2 = formant(1220, 7, 0.5), f3 = formant(2600, 9, 0.18);
+    const mixIn = ctx.createGain();
+    mixIn.connect(f1); mixIn.connect(f2); mixIn.connect(f3);
+    const direct = ctx.createGain(); direct.gain.value = 0.35;
+    direct.connect(this.pad.gain);
+    mixIn.connect(direct);
     for (let i = 0; i < 4; i++) {
       const o = ctx.createOscillator();
-      o.type = i === 0 ? 'sine' : 'triangle';
+      o.type = i === 0 ? 'sawtooth' : 'triangle';
       o.frequency.value = midiToFreq(this.key + [0, 7, 12, 15][i]);
       const g = ctx.createGain();
-      g.gain.value = [0.5, 0.28, 0.2, 0.12][i];
-      o.connect(g).connect(this.pad.gain);
+      g.gain.value = [0.34, 0.24, 0.18, 0.10][i];
+      o.connect(g).connect(mixIn);
       o.start();
+      // Slow, slightly irregular vibrato per voice: singers do not agree.
       const lfo = ctx.createOscillator();
-      lfo.frequency.value = 4.2 + i * 0.35;
+      lfo.frequency.value = 3.6 + i * 0.47;
       const lg = ctx.createGain();
-      lg.gain.value = 3.5;
+      lg.gain.value = 4.5 + i * 1.2;
       lfo.connect(lg).connect(o.detune);
       lfo.start();
       this.pad.osc.push(o);
@@ -477,60 +561,186 @@ export class Audio {
     this.pad.gain.connect(this.musicGain);
 
     this.musicOn = true;
+    this.phrase = null;         // { notes, i, t } currently being played
+    this.phraseRest = 4;        // bars of silence before the next entry
     this._schedulerId = setInterval(() => this._scheduleMusic(), 60);
     this.nextNoteTime = ctx.currentTime + 0.2;
   }
 
-  /** Plucked/bowed lead note. */
-  _lead(t, midi, dur, vel) {
+  /**
+   * Bowed lead — a hardanger-ish fiddle. Three partials with a slow bow attack,
+   * vibrato that arrives after the note has settled, and a breath of bow noise
+   * on the front. A raw sawtooth through a filter sweep just sounds like a synth.
+   */
+  _bowed(t, midi, dur, vel) {
     const ctx = this.ctx;
-    const o = ctx.createOscillator();
-    o.type = 'sawtooth';
-    o.frequency.value = midiToFreq(midi);
+    const f0 = midiToFreq(midi);
+    const out = ctx.createGain();
+    out.gain.setValueAtTime(0.0001, t);
+    out.gain.exponentialRampToValueAtTime(Math.max(vel, 0.0002), t + 0.13);
+    out.gain.setValueAtTime(Math.max(vel, 0.0002), t + Math.max(0.14, dur * 0.62));
+    out.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+
+    const body = ctx.createBiquadFilter();
+    body.type = 'lowpass';
+    body.frequency.value = Math.min(6200, f0 * 7 + 700);
+    body.Q.value = 0.7;
+    body.connect(out);
+
+    // vibrato, fading in
+    const vib = ctx.createOscillator();
+    vib.frequency.value = 5.1;
+    const vibG = ctx.createGain();
+    vibG.gain.setValueAtTime(0, t);
+    vibG.gain.linearRampToValueAtTime(7, t + Math.min(0.5, dur * 0.5));
+    vib.connect(vibG);
+    vib.start(t); vib.stop(t + dur + 0.1);
+
+    for (const [mult, amp, type] of [[1, 1.0, 'sawtooth'], [2, 0.22, 'sine'], [3, 0.10, 'sine']]) {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.value = f0 * mult;
+      o.detune.value = (mult - 1) * 4;
+      vibG.connect(o.detune);
+      const g = ctx.createGain();
+      g.gain.value = amp;
+      o.connect(g).connect(body);
+      o.start(t); o.stop(t + dur + 0.1);
+    }
+    // rosin
+    this._noiseBurst(t, 0.09, f0 * 4, 1.4, vel * 0.30, out, 'bandpass');
+    out.connect(this.musicGain);
+    this._sendReverb(out, 0.5);
+  }
+
+  /** Plucked lute — for town and tavern colour. */
+  _pluck(t, midi, dur, vel) {
+    const ctx = this.ctx;
+    const f0 = midiToFreq(midi);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(vel, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     const f = ctx.createBiquadFilter();
     f.type = 'lowpass';
-    f.frequency.setValueAtTime(500, t);
-    f.frequency.linearRampToValueAtTime(2200, t + 0.10);
-    f.frequency.exponentialRampToValueAtTime(700, t + dur);
-    f.Q.value = 3.5;
+    f.frequency.setValueAtTime(f0 * 9 + 900, t);
+    f.frequency.exponentialRampToValueAtTime(f0 * 2.5 + 200, t + dur);
+    f.connect(g).connect(this.musicGain);
+    for (const [mult, amp] of [[1, 1.0], [2, 0.34], [3, 0.16], [4.02, 0.07]]) {
+      const o = ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.value = f0 * mult;
+      const gg = ctx.createGain(); gg.gain.value = amp;
+      o.connect(gg).connect(f);
+      o.start(t); o.stop(t + dur + 0.05);
+    }
+    this._noiseBurst(t, 0.02, f0 * 6, 2.0, vel * 0.5, g, 'bandpass');
+  }
+
+  /** A horn swell under combat. */
+  _horn(t, midi, dur, vel) {
+    const ctx = this.ctx;
+    const f0 = midiToFreq(midi);
     const g = ctx.createGain();
-    g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(vel, t + 0.06);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(Math.max(vel, 0.0002), t + dur * 0.35);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(f).connect(g).connect(this.musicGain);
-    o.start(t); o.stop(t + dur + 0.05);
-    // sympathetic fifth, quiet
-    const o2 = ctx.createOscillator();
-    o2.type = 'triangle';
-    o2.frequency.value = midiToFreq(midi + 7);
-    const g2 = ctx.createGain();
-    g2.gain.setValueAtTime(0, t);
-    g2.gain.linearRampToValueAtTime(vel * 0.22, t + 0.08);
-    g2.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.8);
-    o2.connect(g2).connect(this.musicGain);
-    o2.start(t); o2.stop(t + dur + 0.05);
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.setValueAtTime(f0 * 2.2, t);
+    f.frequency.linearRampToValueAtTime(f0 * 6.0, t + dur * 0.4);
+    f.frequency.linearRampToValueAtTime(f0 * 2.4, t + dur);
+    f.Q.value = 1.4;
+    f.connect(g).connect(this.musicGain);
+    for (const det of [-6, 6]) {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = f0;
+      o.detune.value = det;
+      o.connect(f);
+      o.start(t); o.stop(t + dur + 0.08);
+    }
+    this._sendReverb(g, 0.55);
   }
 
   _drum(t, kind, vel) {
+    const ctx = this.ctx;
     if (kind === 'kick') {
-      const o = this.ctx.createOscillator();
+      const o = ctx.createOscillator();
       o.type = 'sine';
-      o.frequency.setValueAtTime(120, t);
-      o.frequency.exponentialRampToValueAtTime(42, t + 0.14);
-      const g = this.ctx.createGain();
+      o.frequency.setValueAtTime(115, t);
+      o.frequency.exponentialRampToValueAtTime(40, t + 0.16);
+      const g = ctx.createGain();
       g.gain.setValueAtTime(vel, t);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.30);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.34);
       o.connect(g).connect(this.musicGain);
-      o.start(t); o.stop(t + 0.34);
-    } else {
-      this._noiseBurst(t, 0.16, kind === 'frame' ? 260 : 1800, 1.2, vel * 0.5, this.musicGain,
-        'bandpass', kind === 'frame' ? 120 : 900);
+      o.start(t); o.stop(t + 0.38);
+      return;
     }
+    // Frame drum: a short skin slap plus the shell's ringing body.
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(vel, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.26);
+    g.connect(this.musicGain);
+    this._noiseBurst(t, 0.10, kind === 'frame' ? 340 : 1900, 1.1, vel * 0.7, g, 'bandpass',
+      kind === 'frame' ? 150 : 900);
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(kind === 'frame' ? 190 : 420, t);
+    o.frequency.exponentialRampToValueAtTime(kind === 'frame' ? 96 : 300, t + 0.18);
+    const og = ctx.createGain();
+    og.gain.setValueAtTime(vel * 0.55, t);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+    o.connect(og).connect(g);
+    o.start(t); o.stop(t + 0.26);
+    this._sendReverb(g, 0.3);
   }
 
   setMood(mood, intensity = 1) {
     this.mood = mood;
     this.moodTarget = intensity;
+  }
+
+  /**
+   * Melodies are written, not rolled. Each motif is a list of
+   * [scale degree, beats] pairs, shaped so it opens, arches and cadences;
+   * picking notes at random out of a scale is what makes generative music
+   * sound like an accident rather than a tune.
+   */
+  _pickPhrase(m) {
+    const R = this.rand;
+    const CALM = [
+      [[0, 2], [2, 1], [3, 1], [2, 2], [0, 3], [null, 1]],
+      [[4, 2], [3, 1], [2, 1], [0, 4], [null, 2]],
+      [[0, 1], [2, 1], [4, 2], [3, 2], [2, 2], [0, 2]],
+      [[7, 3], [6, 1], [4, 2], [3, 2], [2, 4]],
+      [[2, 1], [3, 1], [4, 2], [2, 1], [0, 1], [-3, 4]],
+    ];
+    const SAD = [
+      [[4, 3], [3, 1], [2, 2], [1, 2], [0, 4]],
+      [[0, 2], [-2, 2], [0, 2], [2, 4], [null, 2]],
+      [[7, 4], [4, 2], [3, 2], [2, 4]],
+    ];
+    const TOWN = [
+      [[0, 1], [2, 1], [4, 1], [2, 1], [3, 2], [2, 2]],
+      [[4, 1], [4, 1], [3, 1], [2, 1], [0, 2], [2, 2]],
+      [[0, 1], [4, 1], [3, 1], [4, 1], [6, 2], [4, 2]],
+    ];
+    const WAR = [
+      [[0, 2], [0, 1], [3, 1], [2, 2], [4, 2]],
+      [[4, 1], [3, 1], [2, 1], [0, 1], [0, 4]],
+    ];
+    if (m.combat > 0.45) return R.pick(WAR);
+    if (m.town > 0.45) return R.pick(TOWN);
+    if (m.sad > 0.35 || m.night > 0.5) return R.pick(SAD);
+    return R.pick(CALM);
+  }
+
+  /** Scale degree (can be negative or > 7) to a midi note above a root. */
+  _degree(root, d) {
+    const n = this.scale.length;
+    const oct = Math.floor(d / n);
+    const idx = ((d % n) + n) % n;
+    return root + this.scale[idx] + oct * 12;
   }
 
   _scheduleMusic() {
@@ -545,29 +755,66 @@ export class Audio {
       // ---- harmony ---------------------------------------------------------
       if (beatInBar === 0) {
         this.bar++;
-        const prog = [0, 0, 5, 3, 0, 7, 5, 3];
+        // i - VI - III - VII, the standard modal turn, with a longer tonic.
+        const prog = [0, 0, 8, 8, 3, 3, 10, 10];
         this.chordRoot = this.key + prog[this.bar % prog.length];
-        for (const o of this.drone.osc) o.frequency.setTargetAtTime(midiToFreq(this.chordRoot - 12), t, 0.35);
-        const padTones = [0, 3, 7, 10];
-        this.pad.osc.forEach((o, i) => o.frequency.setTargetAtTime(midiToFreq(this.chordRoot + padTones[i] + 12), t, 0.5));
+        for (const o of this.drone.osc) o.frequency.setTargetAtTime(midiToFreq(this.chordRoot - 12), t, 0.45);
+        // Voice the pad by moving each part to its nearest chord tone rather
+        // than transposing the whole stack in parallel.
+        const tones = [0, 3, 7, 10];
+        this.pad.osc.forEach((o, i) => {
+          const target = this.chordRoot + tones[i] + 12;
+          const cur = o.frequency.value;
+          let best = target, bestD = Infinity;
+          for (const oct of [-12, 0, 12]) {
+            const f = midiToFreq(target + oct);
+            const d = Math.abs(Math.log2(f / Math.max(cur, 1)));
+            if (d < bestD) { bestD = d; best = target + oct; }
+          }
+          o.frequency.setTargetAtTime(midiToFreq(best), t, 0.9);
+        });
+
+        // ---- melodic phrasing ----------------------------------------------
+        const wantsMelody = m.explore * 0.55 + m.town * 0.9 + m.sad * 0.7 + m.combat * 0.5 + m.night * 0.25;
+        if (!this.phrase) {
+          this.phraseRest -= 1;
+          if (this.phraseRest <= 0 && this.rand.next() < wantsMelody) {
+            this.phrase = { notes: this._pickPhrase(m), i: 0, next: t, oct: this.rand.bool(0.3) ? 24 : 12 };
+          }
+        }
       }
 
-      // ---- lead ------------------------------------------------------------
-      const leadChance = m.explore * 0.28 + m.town * 0.42 + m.sad * 0.30 + m.combat * 0.16;
-      if (this.rand.next() < leadChance && (beatInBar % 2 === 0 || this.rand.bool(0.3))) {
-        const deg = this.scale[this.rand.int(0, this.scale.length - 1)];
-        const oct = this.rand.bool(0.35) ? 24 : 12;
-        this._lead(t, (this.chordRoot ?? this.key) + deg + oct, spb * this.rand.float(1.1, 2.6),
-          0.055 * (0.5 + leadChance));
+      // ---- play the phrase, note by note ------------------------------------
+      if (this.phrase && t >= this.phrase.next - 1e-4) {
+        const p = this.phrase;
+        const [deg, beats] = p.notes[p.i];
+        const dur = beats * spb * 0.92;
+        if (deg !== null) {
+          const midi = this._degree(this.chordRoot ?? this.key, deg) + p.oct;
+          const vel = 0.052 * (0.75 + this.rand.float(0, 0.35));
+          if (m.town > 0.45) this._pluck(t, midi, dur, vel * 1.4);
+          else this._bowed(t, midi, dur * 1.05, vel);
+          // an octave-below shadow on the strong notes
+          if (beats >= 3 && this.rand.bool(0.5)) this._bowed(t + 0.02, midi - 12, dur, vel * 0.35);
+        }
+        p.next = t + beats * spb;
+        p.i++;
+        if (p.i >= p.notes.length) {
+          this.phrase = null;
+          this.phraseRest = 2 + this.rand.int(0, 3);
+        }
       }
 
       // ---- percussion --------------------------------------------------------
       const drive = m.combat;
       if (drive > 0.05) {
-        if (beatInBar % 4 === 0) this._drum(t, 'kick', 0.28 * drive);
-        if (beatInBar % 4 === 2) this._drum(t, 'frame', 0.22 * drive);
-        if (this.rand.next() < 0.22 * drive) this._drum(t, 'frame', 0.10 * drive);
+        if (beatInBar % 4 === 0) this._drum(t, 'kick', 0.30 * drive);
+        if (beatInBar % 4 === 2) this._drum(t, 'frame', 0.20 * drive);
+        if (this.rand.next() < 0.18 * drive) this._drum(t, 'frame', 0.09 * drive);
         if (beatInBar === 6 && this.rand.bool(0.5)) this._drum(t, 'kick', 0.20 * drive);
+        if (beatInBar === 0 && this.rand.bool(0.35)) {
+          this._horn(t, (this.chordRoot ?? this.key) - 12, spb * 4, 0.05 * drive);
+        }
       } else if (m.danger > 0.2 && beatInBar === 0) {
         this._drum(t, 'kick', 0.12 * m.danger);
       }

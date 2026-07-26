@@ -440,7 +440,7 @@ export function makeHouse(B, x, y, z, rot, opts = {}) {
   const slabLen = Math.hypot(rise, w / 2) + 0.35;
   for (const sx of [-1, 1]) {
     B.mesh(new THREE.BoxGeometry(slabLen, 0.16, d + 1.0), roofMat,
-      sx * (w / 4 + 0.1), 0.6 + wallH + rise / 2, 0, 0, 0, sx * slope, g);
+      sx * (w / 4 + 0.1), 0.6 + wallH + rise / 2, 0, 0, 0, -sx * slope, g);
   }
   // gable ends
   for (const sz of [-1, 1]) {
@@ -454,12 +454,40 @@ export function makeHouse(B, x, y, z, rot, opts = {}) {
     tri.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0.5, 1], 2));
     B.mesh(tri, wallMat, 0, 0.6 + wallH, sz * d / 2, 0, sz > 0 ? 0 : Math.PI, 0, g);
   }
-  // ridge beam
+  // ridge beam, capped along the peak
   B.mesh(new THREE.BoxGeometry(0.2, 0.2, d + 1.1), P.plank, 0, 0.6 + wallH + rise, 0, 0, 0, 0, g);
+  B.mesh(new THREE.BoxGeometry(0.42, 0.10, d + 1.2), roofMat, 0, 0.6 + wallH + rise + 0.14, 0, 0, 0, 0, g);
+
+  // Rafter ends poking out under the eaves, and a wall plate they sit on —
+  // without them the roof reads as two slabs balanced on a box.
+  for (const sx of [-1, 1]) {
+    B.mesh(new THREE.BoxGeometry(0.14, 0.12, d + 0.9), P.plank,
+      sx * (w / 2 + 0.16), 0.6 + wallH - 0.02, 0, 0, 0, 0, g);
+    for (let i = -2; i <= 2; i++) {
+      B.mesh(new THREE.BoxGeometry(0.5, 0.09, 0.12), P.plank,
+        sx * (w / 2 + 0.30), 0.6 + wallH + 0.10, i * (d / 5), 0, 0, sx * 0.30, g);
+    }
+  }
+  // Door frame and lintel.
+  B.mesh(new THREE.BoxGeometry(doorW + 0.34, 0.14, 0.16), P.plank, 0, 0.6 + 2.28, d / 2 + 0.03, 0, 0, 0, g);
+  for (const sx of [-1, 1]) {
+    B.mesh(new THREE.BoxGeometry(0.15, 2.3, 0.16), P.plank, sx * (doorW / 2 + 0.08), 0.6 + 1.15, d / 2 + 0.03, 0, 0, 0, g);
+  }
+  // Shutters beside each window.
+  for (const sz of [-2.2, 1.6]) for (const sx of [-1, 1]) {
+    for (const s2 of [-1, 1]) {
+      B.mesh(new THREE.BoxGeometry(0.05, 0.95, 0.34), P.plank,
+        sx * (w / 2 + 0.05), 2.2, sz + s2 * 0.66, 0, 0, 0, g);
+    }
+  }
 
   // chimney
   if (opts.chimney !== false) {
-    B.mesh(new THREE.BoxGeometry(0.9, wallH + rise + 0.8, 0.9), stoneMat, w / 2 - 1.0, 0.6 + (wallH + rise + 0.8) / 2, -d / 2 + 1.4, 0, 0, 0, g);
+    const cx2 = w / 2 - 1.0, cz2 = -d / 2 + 1.4;
+    B.mesh(new THREE.BoxGeometry(0.9, wallH + rise + 0.8, 0.9), stoneMat, cx2, 0.6 + (wallH + rise + 0.8) / 2, cz2, 0, 0, 0, g);
+    // a flared cap so the stack has a top instead of just ending
+    B.mesh(new THREE.BoxGeometry(1.15, 0.18, 1.15), stoneMat, cx2, 0.6 + wallH + rise + 0.86, cz2, 0, 0, 0, g);
+    B.mesh(new THREE.BoxGeometry(0.62, 0.22, 0.62), stoneMat, cx2, 0.6 + wallH + rise + 1.05, cz2, 0, 0, 0, g);
   }
 
   // door

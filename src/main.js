@@ -288,7 +288,7 @@ class Engine {
     this.pipeline.applyJitter(this.camera);
     this.camera.updateMatrixWorld(true);
 
-    if ((this.frame & 7) === 0) this.sky.updateEnvironment(this.world.scene);
+    this.sky.updateEnvironment(this.world.scene);   // one cube face per call
 
     const env = this.world.env;
     env.timeSec = this.world.env.timeSec;
@@ -325,6 +325,7 @@ class Engine {
 // ---------------------------------------------------------------------------
 
 const engine = new Engine();
+engine.settings = settings;      // handy for the test harnesses
 window.WYRMHOLD = engine;
 engine.boot().catch(err => {
   console.error(err);

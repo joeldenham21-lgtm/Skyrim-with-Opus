@@ -113,32 +113,42 @@ export function makePine(rand, opts = {}) {
     off, Math.round(height / 2.2));
 
   const foliage = [];
-  const levels = opts.levels ?? Math.round(lerp(8, 14, rand.next()));
-  const startT = 0.16;
+  const levels = opts.levels ?? Math.round(lerp(11, 17, rand.next()));
+  const startT = 0.20;
   for (let l = 0; l < levels; l++) {
     const t = startT + (1 - startT) * (l / (levels - 1));
     const y = t * height;
     const [ox, oz] = off(t);
-    // conical silhouette, fullest at a third of the way up
-    const taper = Math.pow(1 - t, 0.82) * (t < 0.25 ? t / 0.25 : 1);
-    const radius = height * 0.22 * taper + 0.25;
-    const count = Math.max(3, Math.round(lerp(4, 8, taper)));
-    const baseA = rand.float(0, TAU);
+    // Conical silhouette: widest a fifth of the way up, drawn to a spire.
+    const taper = Math.pow(1 - t, 0.95) * (t < 0.30 ? 0.35 + 0.65 * (t / 0.30) : 1);
+    const radius = height * 0.20 * taper + 0.18;
+    const count = Math.max(4, Math.round(lerp(5, 9, taper)));
+    const baseA = rand.float(0, TAU) + l * 0.7;      // spiral, so tiers interleave
     for (let i = 0; i < count; i++) {
-      const a = baseA + i / count * TAU + rand.float(-0.2, 0.2);
-      const r = radius * rand.float(0.55, 1.0);
-      const cw = radius * rand.float(0.9, 1.35);
-      const ch = radius * rand.float(0.85, 1.25);
-      const px = ox + Math.cos(a) * r * 0.42;
-      const pz = oz + Math.sin(a) * r * 0.42;
-      const pitch = -Math.PI / 2 + rand.float(0.18, 0.55);   // branches droop
-      foliage.push(cardPart(px, y, pz, cw * 2.0, ch * 2.0, a, pitch, 0, -0.25));
-      foliage.push(cardPart(px, y + ch * 0.18, pz, cw * 1.7, ch * 1.7, a + Math.PI / 2.2, pitch * 0.9, 0, -0.2));
+      const A = baseA + i / count * TAU + rand.float(-0.16, 0.16);
+      // cardPart's length axis ends up along (sin yaw, 0, cos yaw) once pitched
+      // flat, so this is the yaw that sends a branch out along angle A.
+      const yaw = Math.PI / 2 - A;
+      const len = radius * rand.float(0.80, 1.15);
+      const wide = len * rand.float(0.34, 0.48);
+      const r0 = radius * 0.12;
+      const px = ox + Math.cos(A) * r0;
+      const pz = oz + Math.sin(A) * r0;
+      // A real conifer branch leaves the trunk near-level and droops at the tip.
+      const pitch = -Math.PI / 2 + rand.float(0.20, 0.46);
+      foliage.push(cardPart(px, y, pz, wide, len, yaw, pitch, 0, -len * 0.30));
+      // A second card rolled about the branch axis gives it thickness without
+      // doubling the silhouette.
+      foliage.push(cardPart(px, y + len * 0.06, pz, wide * 0.82, len * 0.88,
+        yaw, pitch + 0.16, 1.15, -len * 0.26));
     }
   }
-  // crown
-  foliage.push(cardPart(off(1)[0], height * 0.9, off(1)[1], height * 0.10, height * 0.16, rand.float(0, TAU), 0));
-  foliage.push(cardPart(off(1)[0], height * 0.9, off(1)[1], height * 0.10, height * 0.16, rand.float(0, TAU) + 1.57, 0));
+  // spire
+  const [tx, tz] = off(1);
+  for (let k = 0; k < 3; k++) {
+    foliage.push(cardPart(tx, height * 0.86, tz,
+      height * 0.075, height * 0.17, k * 1.05, 0, 0, 0));
+  }
 
   return { trunk: mergeParts([trunk]), foliage: mergeParts(foliage), height };
 }
@@ -265,8 +275,32 @@ export function makeFern(rand) {
   return mergeParts(cards);
 }
 
-/** A clump of tapered grass blades, built from real geometry (no alpha test). */
-export function makeGrassClump(rand, blades = 4, height = 0.55) {
+/**
+ * A tuft of grass: three cutout cards crossed through the same root, plus a
+ * couple of real blades so the silhouette still holds up when you stand on it.
+ * Cards carry the alpha-cut blade texture; the geometric blades fill the very
+ * near field where a card's flatness would show.
+ */
+export function makeGrassClump(rand, cards = 3, height = 0.42) {
+  const parts = [];
+  const spread = 0.16;
+  for (let i = 0; i < cards; i++) {
+    const yaw = (i / cards) * Math.PI + rand.float(-0.18, 0.18);
+    const h = height * rand.float(0.85, 1.35);
+    const w = h * rand.float(1.5, 2.2);
+    const ox = rand.float(-spread, spread), oz = rand.float(-spread, spread);
+    parts.push(cardPart(ox, 0, oz, w, h, yaw, rand.float(-0.10, 0.10), 0, rand.float(-0.06, 0.06)));
+    // A second, shorter card sitting inside the first thickens the tuft's core.
+    if (i === 0) {
+      parts.push(cardPart(ox * 0.4, 0, oz * 0.4, w * 0.62, h * 0.66,
+        yaw + 1.05, 0.12, 0, 0.04));
+    }
+  }
+  return mergeParts(parts);
+}
+
+/** Solid tapered blades — used for the closest LOD ring only. */
+export function makeGrassBlades(rand, blades = 4, height = 0.55) {
   const pos = [], nor = [], uv = [], idx = [];
   let vo = 0;
   for (let b = 0; b < blades; b++) {
@@ -311,8 +345,9 @@ export const windUniforms = {
   uWindDir: { value: new THREE.Vector2(1, 0.35) },
   uWindStrength: { value: 0.35 },
   uGustiness: { value: 0.5 },
-  uFadeStart: { value: 400 },
-  uFadeEnd: { value: 480 },
+  // Rotated every frame so the dissolve pattern is different each time and TAA
+  // resolves it to a smooth fade. A fixed hash converges to permanent grain.
+  uDither: { value: 0 },
   uCamPos: { value: new THREE.Vector3() },
   uSunDirView: { value: new THREE.Vector3(0, 1, 0) },
   uSunColor: { value: new THREE.Color(1, 1, 1) },
@@ -325,7 +360,7 @@ export const windUniforms = {
  * translucency term so leaves glow when the sun is behind them.
  * `flex` scales how much the top of the object moves.
  */
-export function applyWind(material, { flex = 1, translucency = 0, snowTint = 0, heightRef = 4, gradient = 0, mapSize = 512 } = {}) {
+export function applyWind(material, { flex = 1, translucency = 0, snowTint = 0, heightRef = 4, gradient = 0, mapSize = 512, fade = [400, 480] } = {}) {
   const prev = material.onBeforeCompile;
   material.onBeforeCompile = (shader, renderer) => {
     if (prev) prev.call(material, shader, renderer);
@@ -336,6 +371,11 @@ export function applyWind(material, { flex = 1, translucency = 0, snowTint = 0, 
     shader.uniforms.uSnowTint = { value: snowTint };
     shader.uniforms.uGradLow = { value: 1 - gradient };
     shader.uniforms.uMapSize = { value: mapSize };
+    // Fade range is per-material: grass has to dissolve inside a hundred
+    // metres, a pine at six hundred. `setFade` retunes it when settings change.
+    shader.uniforms.uFadeStart = { value: fade[0] };
+    shader.uniforms.uFadeEnd = { value: fade[1] };
+    material.userData.windShader = shader;
 
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
@@ -387,6 +427,7 @@ export function applyWind(material, { flex = 1, translucency = 0, snowTint = 0, 
         uniform float uSnowCover;
         uniform float uGradLow;
         uniform float uMapSize;
+        uniform float uDither;
         varying float vFade;
         varying float vFoliageH;`)
       .replace('#include <alphatest_fragment>', `
@@ -403,9 +444,14 @@ export function applyWind(material, { flex = 1, translucency = 0, snowTint = 0, 
         }
         #endif`)
       .replace('#include <dithering_fragment>', `#include <dithering_fragment>
-        {
-          // Dithered distance fade — objects dissolve instead of popping.
-          float dth = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+        if (vFade < 0.999) {
+          // Dithered distance fade — objects dissolve instead of popping. The
+          // threshold pattern is an ordered 4x4 matrix rotated every frame, so
+          // the temporal filter averages it into a smooth fade instead of
+          // leaving a fixed screen-door pattern behind.
+          vec2 c = floor(mod(gl_FragCoord.xy, 4.0));
+          float bayer = mod(dot(c, vec2(1.0, 4.0)) * 5.0 + c.y * 3.0, 16.0) / 16.0;
+          float dth = fract(bayer + uDither);
           if (vFade < dth) discard;
         }`)
       .replace('#include <color_fragment>', `#include <color_fragment>
@@ -500,7 +546,8 @@ export class ScatterSystem {
       bark: { flex: 0.10, heightRef: 14 },
       needle: { flex: 0.55, translucency: 0.40, snowTint: 1, heightRef: 14, gradient: 0.25, mapSize: bakery.get('needles').size },
       leaf: { flex: 0.75, translucency: 0.60, snowTint: 0.8, heightRef: 12, gradient: 0.2, mapSize: bakery.get('leaves').size },
-      grass: { flex: 1.6, translucency: 0.85, snowTint: 1, heightRef: 0.6, gradient: 0.55 },
+      grass: { flex: 1.6, translucency: 0.85, snowTint: 1, heightRef: 0.6, gradient: 0.30,
+        mapSize: bakery.get('grassTuft').size, fade: [60, 84] },
       fern: { flex: 1.1, translucency: 0.8, snowTint: 0.7, heightRef: 1.2, gradient: 0.45, mapSize: bakery.get('foliage').size },
     };
     this.windOf = windOf;
@@ -512,7 +559,9 @@ export class ScatterSystem {
       alphaTest: 0.22, side: THREE.DoubleSide,
     }), windOf.leaf);
     this.rockMat = mk('rock');
-    this.grassMat = applyWind(mk('grass', { side: THREE.DoubleSide }), windOf.grass);
+    this.grassMat = applyWind(mk('grassTuft', {
+      alphaTest: 0.30, side: THREE.DoubleSide,
+    }), windOf.grass);
     this.fernMat = applyWind(mk('foliage', {
       alphaTest: 0.22, side: THREE.DoubleSide,
     }), windOf.fern);
@@ -557,7 +606,7 @@ export class ScatterSystem {
     const pineFilter = (b, slope, h) => {
       if (h < 3 || h > 400) return 0;
       if (slope > 0.44) return 0;
-      return b.forest * (1 - saturate((h - 250) / 130));
+      return saturate(b.forest * 1.7) * (1 - saturate((h - 250) / 130));
     };
     for (let i = 0; i < 3; i++) {
       addTree('pine' + i, pines[i], Math.round(900 * clamp(budget, 0.3, 1.6)), {
@@ -570,7 +619,7 @@ export class ScatterSystem {
     const birch = makeBirch(rand, { height: 11 });
     addTree('birch', birch, Math.round(320 * clamp(budget, 0.3, 1.6)), {
       radius: 480 * budget, density: 0.00055,
-      filter: (b, slope, h) => (h < 4 || h > 190 || slope > 0.36) ? 0 : b.moisture * b.forest * 0.9,
+      filter: (b, slope, h) => (h < 4 || h > 190 || slope > 0.36) ? 0 : b.moisture * saturate(b.forest * 1.6) * 0.9,
       scale: [0.8, 1.3], foliageMat: this.leafMat,
       groupSeed: 2, variantIndex: 0, variants: 1,
     });
@@ -612,7 +661,7 @@ export class ScatterSystem {
     this.types.push(new ScatterType('fern', {
       geometry: fern, material: this.fernMat, capacity: Math.round(1400 * clamp(budget, 0.3, 1.6)),
       radius: 140 * budget, density: 0.010,
-      filter: (b, slope, h) => (h < 1 || slope > 0.55) ? 0 : b.forest * b.moisture * 1.4,
+      filter: (b, slope, h) => (h < 1 || slope > 0.55) ? 0 : saturate(b.forest * 1.6) * b.moisture * 1.4,
       scale: [0.7, 1.4], tintVariation: true, castShadow: false,
       depthMaterial: this.depthOf.get(this.fernMat),
       groupSeed: 6, variantIndex: 0, variants: 1,
@@ -781,17 +830,26 @@ export class ScatterSystem {
     return true;
   }
 
-  update(camPos, env, warmBudget = 3) {
+  update(camPos, env, warmBudget = 3, frame = 0) {
     const built = warmBudget > 0 ? this.warmCells(camPos, warmBudget) : false;
     const ci = Math.floor(camPos.x / (CELL * 0.5));
     const cj = Math.floor(camPos.z / (CELL * 0.5));
     const key = ci + ':' + cj;
-    if (key !== this._lastCell || this._dirty || built) {
+    // A refill walks every cached instance and re-uploads every instance
+    // buffer, so newly warmed cells are coalesced instead of forcing one per
+    // frame for as long as the world is streaming.
+    if (built) this._pendingRefill = true;
+    const stale = this._pendingRefill && (frame - (this._lastRefill || 0)) > 10;
+    if (key !== this._lastCell || this._dirty || stale) {
       this._lastCell = key;
       this._dirty = false;
+      this._pendingRefill = false;
+      this._lastRefill = frame;
       this.rebuild(camPos);
     }
     windUniforms.uTime.value = env.timeSec;
+    // Golden-ratio rotation: every frame gets a different dissolve threshold.
+    windUniforms.uDither.value = (frame * 0.6180339887) % 1;
     windUniforms.uWindDir.value.set(env.windX, env.windZ);
     windUniforms.uWindStrength.value = 0.10 + env.windStrength * 0.75;
     windUniforms.uCamPos.value.copy(camPos);
@@ -812,7 +870,7 @@ export class ScatterSystem {
 // Grass — a denser, shorter-range system of its own
 // ---------------------------------------------------------------------------
 
-const GRASS_TILE = 24;
+const GRASS_TILE = 12;
 
 export class GrassField {
   constructor(hf, scatter) {
@@ -821,7 +879,8 @@ export class GrassField {
     this.group = new THREE.Group();
     this.group.name = 'grass';
     const rand = new Rand(4242);
-    this.geometry = makeGrassClump(rand, 5, 0.55);
+    this.geometry = makeGrassClump(rand, 4, 0.34);
+    this.tileCache = new Map();
     this.capacity = 30000;
     this.mesh = new THREE.InstancedMesh(this.geometry, this.material, this.capacity);
     this.mesh.frustumCulled = false;
@@ -836,53 +895,119 @@ export class GrassField {
     this._dirty = true;
   }
 
+  /**
+   * Generates one tile's worth of tufts. Candidates are rejected against the
+   * baked height map — the analytic field is ~30x more expensive, and running
+   * it over twenty thousand candidates in one go is a visible freeze every time
+   * you walk a tile's width.
+   */
+  _buildTile(ti, tj) {
+    const hf = this.hf;
+    const ox = ti * GRASS_TILE, oz = tj * GRASS_TILE;
+    const perTile = Math.round(GRASS_TILE * GRASS_TILE * 2.6);
+    const list = [];
+    for (let k = 0; k < perTile; k++) {
+      const x = ox + hash2(ti + k * 131, tj, 12345) * GRASS_TILE;
+      const z = oz + hash2(ti, tj + k * 977, 54321) * GRASS_TILE;
+      const yF = hf.fastHeight(x, z);
+      if (yF < 0.6) continue;
+      const slope = hf.fastSlope(x, z);
+      if (slope > 0.44) continue;
+      const b = hf.sampleBiome(x, z);
+      if (b.road > 0.35) continue;
+      const chance = saturate((0.30 + b.moisture * 1.20) * (1 - slope * 1.4)) * (1 - saturate((yF - 260) / 90));
+      if (hash2(ti + k, tj - k, 777) > chance) continue;
+      if (hf.isWater(x, z)) continue;
+      const y = hf.heightAt(x, z);
+      if (y < 0.5) continue;
+      list.push({
+        x, y: y - 0.035, z,
+        s: lerp(0.62, 1.10, hash2(ti - k, tj + k, 246)),
+        sy: lerp(0.78, 1.24, hash2(k, ti, 909)),
+        yaw: hash2(ti * 3, tj * 5 + k, 802) * TAU,
+        t: hash2(ti + k * 3, tj + k * 7, 313),
+        dry: saturate(1 - b.moisture),
+      });
+    }
+    return list;
+  }
+
+  _tile(ti, tj) {
+    const key = ti + ':' + tj;
+    let d = this.tileCache.get(key);
+    if (!d) {
+      d = this._buildTile(ti, tj);
+      this.tileCache.set(key, d);
+      if (this.tileCache.size > 700) {
+        const it = this.tileCache.keys();
+        for (let i = 0; i < 240; i++) { const k = it.next().value; if (k !== undefined) this.tileCache.delete(k); }
+      }
+    }
+    return d;
+  }
+
+  /** Builds a couple of missing tiles per frame, nearest first. */
+  warmTiles(camPos, budget = 2) {
+    const range = 26 + 58 * settings.get('grassDistance');
+    const tiles = Math.ceil(range / GRASS_TILE);
+    const tx = Math.floor(camPos.x / GRASS_TILE), tz = Math.floor(camPos.z / GRASS_TILE);
+    const todo = [];
+    for (let j = -tiles; j <= tiles; j++) {
+      for (let i = -tiles; i <= tiles; i++) {
+        if (this.tileCache.has((tx + i) + ':' + (tz + j))) continue;
+        const cx = (tx + i) * GRASS_TILE + GRASS_TILE / 2, cz = (tz + j) * GRASS_TILE + GRASS_TILE / 2;
+        const d = Math.hypot(cx - camPos.x, cz - camPos.z);
+        if (d > range + GRASS_TILE) continue;
+        todo.push({ i: tx + i, j: tz + j, d });
+      }
+    }
+    if (!todo.length) return false;
+    todo.sort((a, b) => a.d - b.d);
+    for (let n = 0; n < Math.min(budget, todo.length); n++) this._tile(todo[n].i, todo[n].j);
+    return true;
+  }
+
   rebuild(camPos) {
     const density = settings.get('grassDensity');
     const range = 26 + 58 * settings.get('grassDistance');
     if (density <= 0.001) { this.mesh.count = 0; return; }
 
-    const hf = this.hf;
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
     const v = new THREE.Vector3(), sv = new THREE.Vector3(), col = new THREE.Color();
     const arr = this.mesh.instanceMatrix.array;
     const carr = this.mesh.instanceColor.array;
     let n = 0;
 
-    const perTile = Math.round(GRASS_TILE * GRASS_TILE * 0.9 * density);
     const tx = Math.floor(camPos.x / GRASS_TILE), tz = Math.floor(camPos.z / GRASS_TILE);
     const tiles = Math.ceil(range / GRASS_TILE);
+    const near = Math.min(range * 0.35, 18);
 
     for (let j = -tiles; j <= tiles && n < this.capacity; j++) {
       for (let i = -tiles; i <= tiles && n < this.capacity; i++) {
-        const ox = (tx + i) * GRASS_TILE, oz = (tz + j) * GRASS_TILE;
-        if (Math.hypot(ox + GRASS_TILE / 2 - camPos.x, oz + GRASS_TILE / 2 - camPos.z) > range + GRASS_TILE) continue;
-        for (let k = 0; k < perTile && n < this.capacity; k++) {
-          const h1 = hash2(tx + i + k * 131, tz + j, 12345);
-          const h2 = hash2(tx + i, tz + j + k * 977, 54321);
-          const x = ox + h1 * GRASS_TILE, z = oz + h2 * GRASS_TILE;
-          if (Math.hypot(x - camPos.x, z - camPos.z) > range) continue;
-          if (hf.isWater(x, z)) continue;
-          const slope = hf.slopeAt(x, z, 1.5);
-          if (slope > 0.42) continue;
-          const y = hf.heightAt(x, z);
-          if (y < 0.5) continue;
-          const b = hf.sampleBiome(x, z);
-          if (b.road > 0.35) continue;
-          const chance = saturate((0.25 + b.moisture * 1.15) * (1 - slope * 1.4)) * (1 - saturate((y - 260) / 90));
-          if (hash2(tx + i + k, tz + j - k, 777) > chance) continue;
+        const list = this.tileCache.get((tx + i) + ':' + (tz + j));
+        if (!list) continue;
+        for (let k = 0; k < list.length && n < this.capacity; k++) {
+          const it = list[k];
+          const d = Math.hypot(it.x - camPos.x, it.z - camPos.z);
+          if (d > range) continue;
+          // Spend the instance budget where it is visible: full density under
+          // your feet, thinning with distance where a tuft is a few pixels.
+          if (d > near) {
+            const keep = density * (1 - 0.55 * saturate((d - near) / (range - near)));
+            if ((k * 0.6180339887 % 1) > keep) continue;
+          } else if (density < 1 && (k * 0.6180339887 % 1) > density) continue;
 
-          const s = lerp(0.65, 1.5, hash2(tx + i - k, tz + j + k, 246));
-          e.set(0, hash2(tx + i * 3, tz + j * 5 + k, 802) * TAU, 0);
+          e.set(0, it.yaw, 0);
           q.setFromEuler(e);
-          v.set(x, y - 0.04, z);
-          sv.set(s, s * lerp(0.8, 1.5, hash2(k, tx + i, 909)), s);
+          v.set(it.x, it.y, it.z);
+          const s = it.s;
+          sv.set(s, s * it.sy, s);
           m.compose(v, q, sv);
           m.toArray(arr, n * 16);
-          const t = hash2(tx + i + k * 3, tz + j + k * 7, 313);
-          const dry = saturate(1 - b.moisture);
-          col.setRGB(lerp(0.72, 1.18, t) * lerp(1.0, 1.25, dry),
-                     lerp(0.80, 1.16, 1 - t),
-                     lerp(0.70, 1.02, (t * 5) % 1) * lerp(1.0, 0.72, dry));
+          const t = it.t, dry = it.dry;
+          col.setRGB(lerp(0.74, 1.16, t) * lerp(1.0, 1.22, dry),
+                     lerp(0.82, 1.14, 1 - t),
+                     lerp(0.72, 1.02, (t * 5) % 1) * lerp(1.0, 0.74, dry));
           carr[n * 3] = col.r; carr[n * 3 + 1] = col.g; carr[n * 3 + 2] = col.b;
           n++;
         }
@@ -893,15 +1018,20 @@ export class GrassField {
     this.mesh.instanceColor.needsUpdate = true;
   }
 
-  update(camPos) {
+  update(camPos, frame = 0, warmBudget = 2) {
+    const built = this.warmTiles(camPos, warmBudget);
+    if (built) this._pendingRefill = true;
     const key = Math.floor(camPos.x / 8) + ':' + Math.floor(camPos.z / 8);
-    if (key !== this._lastTile || this._dirty) {
+    const stale = this._pendingRefill && (frame - (this._lastRefill || 0)) > 10;
+    if (key !== this._lastTile || this._dirty || stale) {
       this._lastTile = key;
       this._dirty = false;
+      this._pendingRefill = false;
+      this._lastRefill = frame;
       this.rebuild(camPos);
     }
   }
 
-  markDirty() { this._dirty = true; }
+  markDirty() { this._dirty = true; this.tileCache.clear(); }
   dispose() { this.geometry.dispose(); this.mesh.dispose(); }
 }

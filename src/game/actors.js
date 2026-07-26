@@ -448,6 +448,7 @@ export class Actor {
       turnRate: 0,
       windX: this.world.env.windX, windZ: this.world.env.windZ,
       windStrength: this.world.env.windStrength,
+      near: distP < 40,
     });
     if (this.anim.stepEvent) {
       this.anim.stepEvent = null;

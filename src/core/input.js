@@ -272,9 +272,14 @@ export class Input {
     this._lookAccum.x = 0; this._lookAccum.y = 0;
 
     if (this.touch.look.x || this.touch.look.y) {
-      lx += this.touch.look.x * sens * 1.35;
-      ly += this.touch.look.y * sens * 1.35 * (settings.get('invertY') ? -1 : 1);
+      // Touch gets its own speed: a thumb drag covers far fewer pixels than a
+      // mouse sweep, so mouse sensitivity feels like turning in treacle.
+      const ts = settings.get('sensitivity') * 0.0022 * settings.get('touchSensitivity');
+      const inv = (settings.get('invertY') !== settings.get('invertTouchY')) ? -1 : 1;
+      lx += this.touch.look.x * ts;
+      ly += this.touch.look.y * ts * inv;
       this.touch.look.x = 0; this.touch.look.y = 0;
+      this._lookWasTouch = true;
     }
     if (Math.hypot(this.gpAxes.rx, this.gpAxes.ry) > 0.02) {
       const gs = settings.get('sensitivity') * 2.6 * dt;
@@ -283,7 +288,9 @@ export class Input {
     }
     if (capture) { lx = 0; ly = 0; }
 
-    const sm = settings.get('smoothing');
+    // A thumb is already a low-pass filter; extra smoothing just reads as lag.
+    const sm = settings.get('smoothing') * (this._lookWasTouch ? 0.3 : 1);
+    this._lookWasTouch = false;
     if (sm > 0.001) {
       const lambda = 60 * (1 - sm) + 8;
       this._lookSmooth.x = damp(this._lookSmooth.x, lx / Math.max(dt, 1e-4), lambda, dt);

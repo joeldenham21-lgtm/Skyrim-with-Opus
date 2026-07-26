@@ -756,6 +756,56 @@ export const RECIPES = {
     }`
   },
 
+  // A tuft of individual blades on a transparent card. Grass built from solid
+  // tapered geometry reads as a green cone at any distance; a cutout card with
+  // real gaps between blades reads as grass.
+  grassTuft: {
+    tier: 'prop', bump: 0.6, cutout: true, glsl: /* glsl */`
+    float bladeMask(vec2 uv, out float alongOut, out float idOut){
+      float m = 0.0; alongOut = 0.0; idOut = 0.0;
+      for (int i = 0; i < 26; i++){
+        float fi = float(i);
+        vec2 r = vhash2(vec2(fi, 11.0), vec2(64.0));
+        float r2 = vhash(vec2(fi, 29.0), vec2(64.0));
+        float rootX = 0.06 + r.x * 0.88;
+        float h     = 0.42 + r.y * 0.56;          // blade height
+        float lean  = (r2 - 0.5) * 0.62;          // sideways drift at the tip
+        float w     = 0.006 + r.y * 0.010;
+        // Blades are cut off below the card's base so the tuft has no seam.
+        float t = clamp(uv.y / max(h, 1e-3), 0.0, 1.0);
+        if (uv.y > h) continue;
+        // quadratic bend, strongest near the tip
+        float x = rootX + lean * t * t;
+        float halfW = w * (1.0 - t * 0.86) + 0.0015;
+        if (abs(uv.x - x) < halfW){
+          m = 1.0;
+          alongOut = t;
+          idOut = r2;
+        }
+      }
+      return m;
+    }
+    float cut(vec2 uv){ float a, id; return bladeMask(uv, a, id); }
+    void surf(vec2 uv, out vec3 alb, out float rough, out float metal, out float ao, out float h){
+      float along, id;
+      float m = bladeMask(uv, along, id);
+      // Dark and slightly blue at the root, warmer and paler at the tip; every
+      // blade gets its own bias so a lawn is not one flat colour.
+      vec3 root = vec3(0.030, 0.058, 0.026);
+      vec3 mid  = vec3(0.078, 0.150, 0.048);
+      vec3 tip  = vec3(0.150, 0.205, 0.074);
+      vec3 dry  = vec3(0.205, 0.176, 0.078);
+      alb = mix(root, mid, sstep(0.0, 0.45, along));
+      alb = mix(alb, tip, sstep(0.4, 1.0, along));
+      alb = mix(alb, dry, sstep(0.62, 0.95, id) * along * 0.8);
+      alb *= 0.80 + 0.44 * id;
+      rough = 0.72;
+      metal = 0.0;
+      ao = mix(0.42, 1.0, along);
+      h = m * (0.35 + along * 0.4);
+    }`
+  },
+
   fur: {
     tier: 'prop', bump: 1.4, glsl: /* glsl */`
     void surf(vec2 uv, out vec3 alb, out float rough, out float metal, out float ao, out float h){

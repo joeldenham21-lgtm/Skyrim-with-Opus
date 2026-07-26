@@ -55,9 +55,11 @@ const float HM = 1200.0;
 
 // --- 3D value noise built from the shared 2D toolbox -------------------------
 float hash13(vec3 p){
-  p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
-  p *= 17.0;
-  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+  // Hoskins hash — the obvious p.x*p.y*p.z form leaves visible lattice planes
+  // in the cloud field, which is what made the old clouds look like popcorn.
+  p = fract(p * 0.1031);
+  p += dot(p, p.zyx + 31.32);
+  return fract((p.x + p.y) * p.z);
 }
 float noise3(vec3 x){
   vec3 i = floor(x), f = fract(x);
@@ -205,72 +207,101 @@ vec3 moonDisc(vec3 dir, vec3 mdir, float radius, float phase, vec3 tint, float c
 }
 
 // --- clouds -----------------------------------------------------------------
-float cloudShape(vec3 p){
-  vec3 q = p * 0.00042;
-  q.xz += uWind * uTime * uCloudSpeed * 0.00004;
+// The layer is a spherical shell around the planet, not a flat slab: that is
+// what makes cloud bottoms converge and compress into a band as they approach
+// the horizon instead of stopping dead in mid-air.
+
+float cloudDensity(vec3 p, float hRel){
+  vec3 q = p * 0.00030;
+  q.xz += uWind * uTime * uCloudSpeed * 0.00003;
+
   float base = fbm3(q, 4);
-  // billow detail
-  float det = fbm3(q * 5.3 + vec3(0.0, uTime * 0.006, 0.0), 3);
-  float shape = base - (1.0 - uCloudCover) * 0.72;
-  shape = max(0.0, shape);
-  shape *= smoothstep(0.0, 0.28, shape);
-  shape -= det * 0.18 * (1.0 - uCloudCover * 0.5);
-  return max(0.0, shape) * uCloudDensity;
+  // Coverage decides how much of the noise range survives.
+  float cov = clamp(uCloudCover, 0.0, 1.0);
+  float thr = mix(0.66, 0.20, cov);
+  float shape = smoothstep(thr, thr + 0.22, base);
+  if (shape <= 0.0) return 0.0;
+
+  // Flat bottom, billowing top; overcast skies sit thicker and lower.
+  float prof = smoothstep(0.0, 0.08, hRel) * (1.0 - smoothstep(mix(0.40, 0.72, cov), 1.0, hRel));
+  shape *= prof;
+  if (shape <= 0.0) return 0.0;
+
+  // Erode the edges with higher-frequency billows — cauliflower, not blobs.
+  float det = fbm3(q * 6.5 + vec3(0.0, uTime * 0.004, 0.0), 3);
+  float er = det * mix(0.62, 0.18, hRel) * (1.0 - cov * 0.35);
+  shape = clamp((shape - er) / max(1.0 - er, 1e-3), 0.0, 1.0);
+
+  return shape * uCloudDensity;
 }
 
 vec4 clouds(vec3 ro, vec3 rd, vec3 sunDir, vec3 sunCol, vec3 skyCol){
-  if (uCloudSteps <= 0 || rd.y < -0.06) return vec4(0.0);
-  float base = uCloudHeight;
-  float top  = uCloudHeight + 1400.0 + 900.0 * uCloudDensity;
-  float t0 = (base - ro.y) / max(rd.y, 0.001);
-  float t1 = (top  - ro.y) / max(rd.y, 0.001);
-  if (t1 < 0.0) return vec4(0.0);
-  t0 = max(t0, 0.0);
-  float span = min(t1 - t0, 46000.0);
-  if (span <= 0.0) return vec4(0.0);
+  if (uCloudSteps <= 0 || rd.y < -0.02) return vec4(0.0);
+
+  float thick = 1500.0 + 1100.0 * uCloudDensity;
+  float r0 = RE + uCloudHeight;
+  float r1 = r0 + thick;
+  vec3 po = vec3(0.0, RE + max(ro.y, 1.0), 0.0);
+
+  vec2 hitIn = raySphere(po, rd, r0);
+  vec2 hitOut = raySphere(po, rd, r1);
+  float t0 = max(hitIn.y, 0.0);        // leaving the inner shell = cloud base
+  float t1 = max(hitOut.y, 0.0);       // leaving the outer shell = cloud top
+  if (t1 <= t0) return vec4(0.0);
+  float span = min(t1 - t0, 160000.0);
 
   int steps = uCloudSteps;
-  float dt = span / float(steps);
   float mu = dot(rd, sunDir);
-  float ph = mix(hg(mu, 0.76), hg(mu, -0.28), 0.4) * 4.0;
+  // Strong forward lobe for the silver lining, weak back lobe for the body.
+  float ph = mix(hg(mu, 0.80), hg(mu, -0.20), 0.35) * 4.0;
 
   vec3 acc = vec3(0.0);
   float trans = 1.0;
-  float t = t0 + dt * fract(sin(dot(vUv, vec2(12.9898, 78.233))) * 43758.5453);
+  // Extinction per metre at full density — clouds are optically thick, so a
+  // hundred metres of one is already nearly opaque.
+  const float SIGMA = 0.022;
+  // Steps grow with distance: fine detail overhead, cheap sampling at the rim.
+  float growth = 1.0 + 2.6 / float(steps);
+  float dt = span * (growth - 1.0) / (pow(growth, float(steps)) - 1.0);
+  float jitter = fract(sin(dot(vUv, vec2(12.9898, 78.233))) * 43758.5453);
+  float t = t0 + dt * jitter;
 
   for (int i = 0; i < 64; i++){
-    if (i >= steps || trans < 0.01) break;
-    vec3 p = ro + rd * t;
-    float hRel = clamp((p.y - base) / (top - base), 0.0, 1.0);
-    // vertical profile: flat bottom, rounded top
-    float prof = smoothstep(0.0, 0.12, hRel) * (1.0 - smoothstep(0.55, 1.0, hRel));
-    float d = cloudShape(p) * prof;
-    if (d > 0.001){
-      // light march toward the sun
+    if (i >= steps || trans < 0.012) break;
+    vec3 p = po + rd * t;
+    float hRel = clamp((length(p) - r0) / thick, 0.0, 1.0);
+    float d = cloudDensity(vec3(p.x, hRel * thick, p.z), hRel);
+    if (d > 0.002){
+      // Short light march toward the sun through the local neighbourhood.
       float ld = 0.0;
-      float ls = 220.0;
+      float ls = 90.0, lt = ls * 0.5;
       for (int j = 0; j < 6; j++){
         if (j >= uLightSteps) break;
-        vec3 lp = p + sunDir * (ls * float(j) + ls * 0.5);
-        float lhRel = clamp((lp.y - base) / (top - base), 0.0, 1.0);
-        float lprof = smoothstep(0.0, 0.12, lhRel) * (1.0 - smoothstep(0.55, 1.0, lhRel));
-        ld += cloudShape(lp) * lprof * ls;
+        vec3 lp = p + sunDir * lt;
+        float lh = clamp((length(lp) - r0) / thick, 0.0, 1.0);
+        ld += cloudDensity(vec3(lp.x, lh * thick, lp.z), lh) * SIGMA * ls;
+        lt += ls; ls *= 1.9;
       }
-      float beer = exp(-ld * 0.55);
-      float powder = 1.0 - exp(-d * dt * 2.2);
-      vec3 lum = sunCol * ph * beer * (0.35 + 0.65 * powder) * 3.2
-               + skyCol * (0.35 + 0.65 * hRel) * 1.5;
-      // rain clouds go dark and heavy
-      lum *= mix(1.0, 0.34, uRainAmount);
-      float dens = d * dt * 0.6;
-      float a = 1.0 - exp(-dens);
+      // Three-lobe multiple-scattering approximation: without it the interior
+      // of every cloud is black instead of luminous grey.
+      float beer = exp(-ld) + 0.45 * exp(-ld * 0.14) + 0.22 * exp(-ld * 0.035);
+      float powder = 1.0 - exp(-d * SIGMA * dt * 2.0);
+      vec3 lum = sunCol * ph * beer * (0.35 + 0.65 * powder) * 1.25
+               + skyCol * (0.28 + 0.72 * hRel) * 1.15;
+      lum *= mix(1.0, 0.30, uRainAmount);
+      float a = 1.0 - exp(-d * SIGMA * dt);
       acc += lum * a * trans;
       trans *= 1.0 - a;
     }
     t += dt;
+    dt *= growth;
   }
-  float fade = smoothstep(-0.06, 0.09, rd.y);
-  return vec4(acc, (1.0 - trans)) * fade;
+  // Distant cloud melts into the same haze the land does.
+  float haze = 1.0 - exp(-t0 * 0.000012);
+  float alpha = 1.0 - trans;
+  acc = mix(acc, skyCol * 1.15 * alpha, haze * 0.75);
+  float fade = smoothstep(-0.02, 0.012, rd.y);
+  return vec4(acc, alpha) * fade;
 }
 
 // --- aurora -----------------------------------------------------------------
@@ -323,7 +354,7 @@ void main(){
     float limb = 1.0 - 0.45 * pow(clamp(sunAng / sunR, 0.0, 1.0), 2.0);
     vec3 sunTint = mix(vec3(1.0, 0.44, 0.16), vec3(1.0, 0.96, 0.90), smoothstep(-0.02, 0.22, sunUp));
     sky += core * limb * sunTint * uSunIntensity * 26.0;
-    sky += exp(-sunAng * 90.0) * sunTint * uSunIntensity * 1.6;
+    sky += exp(-sunAng * 110.0) * sunTint * uSunIntensity * 0.9;
   }
 
   if (night > 0.001){
@@ -520,8 +551,11 @@ export class Sky {
     // The level must track the *sun*, not just "is it day": at dusk the ground
     // loses its key light entirely, and a fog colour that stays at noon
     // brightness turns every distant hill into a flat salmon cut-out.
+    // Aerial perspective has to sit at the brightness of the horizon sky it is
+    // standing in for — roughly 0.17 in this buffer at midday. At several times
+    // that, every distant hill turns into a flat white wall.
     const fogDay = saturate((h + 0.09) / 0.26);
-    const level = (0.030 + fogDay * 0.62) * SKY_SCALE * 7.0;
+    const level = (0.030 + fogDay * 0.62) * SKY_SCALE * 1.9;
     // Warming only the red channel over a blue base gives magenta, not sunset.
     // Interpolate the whole hue instead: cool blue by day, orange at dusk.
     const dayR = 0.36, dayG = 0.44, dayB = 0.58;
@@ -548,10 +582,35 @@ export class Sky {
    * most a few times per second, and only when the sky has actually changed.
    */
   updateEnvironment(scene, force = false) {
-    this._envAge++;
-    if (!force && this._envAge < 20) return;
+    // Doing all six faces and the PMREM convolution in one frame is a visible
+    // hitch, and it used to allocate a fresh PMREM target every time. Instead
+    // one face is drawn per call and the convolution runs when the cube is
+    // complete, into a target that is allocated exactly once.
+    this._envAge = (this._envAge || 0) + 1;
+    if (!force) {
+      if (this._envAge < 4) return;
+      this._envAge = 0;
+      this._envFace = (this._envFace || 0);
+      this._renderEnvFaces(this._envFace, 1);
+      this._envFace++;
+      if (this._envFace >= 6) {
+        this._envFace = 0;
+        this._convolveEnv(scene);
+      }
+      return;
+    }
     this._envAge = 0;
+    this._envFace = 0;
+    this._renderEnvFaces(0, 6);
+    this._convolveEnv(scene);
+  }
 
+  _convolveEnv(scene) {
+    this._envTarget = this.pmrem.fromCubemap(this.cubeRT.texture, this._envTarget || null);
+    scene.environment = this._envTarget.texture;
+  }
+
+  _renderEnvFaces(first, count) {
     const renderer = this.renderer;
     const prevTarget = renderer.getRenderTarget();
     const u = this.material.uniforms;
@@ -577,7 +636,8 @@ export class Sky {
     ];
     u.uProjInv.value.copy(cam.projectionMatrixInverse);
 
-    for (let i = 0; i < 6; i++) {
+    for (let k = 0; k < count; k++) {
+      const i = (first + k) % 6;
       cam.position.set(0, 0, 0);
       cam.up.set(ups[i][0], ups[i][1], ups[i][2]);
       cam.lookAt(dirs[i][0], dirs[i][1], dirs[i][2]);
@@ -593,11 +653,6 @@ export class Sky {
     u.uProjInv.value.copy(savedProj);
     u.uCamRot.value.copy(savedRot);
     renderer.setRenderTarget(prevTarget);
-
-    const old = this._envTarget;
-    this._envTarget = this.pmrem.fromCubemap(this.cubeRT.texture);
-    scene.environment = this._envTarget.texture;
-    if (old) old.dispose();
   }
 
   dispose() {

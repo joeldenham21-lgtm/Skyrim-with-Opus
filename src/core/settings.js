@@ -23,7 +23,7 @@ export const PRESETS = {
       foliageDistance: 0.4, textureQuality: 0, anisotropy: 1, waterQuality: 'low',
       volumetrics: 'off', particleQuality: 0.35, antialiasing: 'off', ssao: 'off',
       ssr: false, bloom: true, bloomIntensity: 0.5, godrays: false, dof: 'off',
-      motionBlur: 0, filmGrain: 0, chromatic: 0, vignette: 0.25, sharpen: 0.2,
+      motionBlur: 0, filmGrain: 0, chromatic: 0, vignette: 0.16, sharpen: 0.45,
       lensFlare: false, cloudQuality: 'off', maxLights: 4, decals: false, wetness: false,
     }
   },
@@ -31,23 +31,23 @@ export const PRESETS = {
     label: 'Low', blurb: 'Smooth on mid-range phones and laptops.',
     values: {
       renderScale: 0.72, maxRenderPixels: 1382400, shadows: 'low', shadowDistance: 90,
-      viewDistance: 0.6, terrainDetail: 0.75, grassDensity: 0.25, grassDistance: 0.4,
+      viewDistance: 0.6, terrainDetail: 0.75, grassDensity: 0.4, grassDistance: 0.5,
       foliageDistance: 0.55, textureQuality: 1, anisotropy: 2, waterQuality: 'low',
       volumetrics: 'off', particleQuality: 0.5, antialiasing: 'fxaa', ssao: 'off',
       ssr: false, bloom: true, bloomIntensity: 0.6, godrays: true, dof: 'off',
-      motionBlur: 0, filmGrain: 0.1, chromatic: 0, vignette: 0.3, sharpen: 0.3,
+      motionBlur: 0, filmGrain: 0, chromatic: 0, vignette: 0.18, sharpen: 0.55,
       lensFlare: true, cloudQuality: 'low', maxLights: 6, decals: true, wetness: false,
     }
   },
   medium: {
     label: 'Medium', blurb: 'The balanced default. 60fps on most hardware.',
     values: {
-      renderScale: 0.85, maxRenderPixels: 2073600, shadows: 'medium', shadowDistance: 140,
-      viewDistance: 0.78, terrainDetail: 0.9, grassDensity: 0.55, grassDistance: 0.6,
+      renderScale: 0.9, maxRenderPixels: 2073600, shadows: 'medium', shadowDistance: 140,
+      viewDistance: 0.78, terrainDetail: 0.9, grassDensity: 0.7, grassDistance: 0.7,
       foliageDistance: 0.75, textureQuality: 2, anisotropy: 4, waterQuality: 'medium',
       volumetrics: 'low', particleQuality: 0.75, antialiasing: 'taa', ssao: 'low',
       ssr: false, bloom: true, bloomIntensity: 0.7, godrays: true, dof: 'off',
-      motionBlur: 0.25, filmGrain: 0.15, chromatic: 0.15, vignette: 0.35, sharpen: 0.35,
+      motionBlur: 0.2, filmGrain: 0, chromatic: 0, vignette: 0.2, sharpen: 0.6,
       lensFlare: true, cloudQuality: 'medium', maxLights: 10, decals: true, wetness: true,
     }
   },
@@ -55,11 +55,11 @@ export const PRESETS = {
     label: 'High', blurb: 'Full effect stack at 1440p. Modern GPU recommended.',
     values: {
       renderScale: 1.0, maxRenderPixels: 3686400, shadows: 'high', shadowDistance: 220,
-      viewDistance: 1.0, terrainDetail: 1.0, grassDensity: 0.85, grassDistance: 0.85,
+      viewDistance: 1.0, terrainDetail: 1.0, grassDensity: 1.0, grassDistance: 0.9,
       foliageDistance: 1.0, textureQuality: 3, anisotropy: 8, waterQuality: 'high',
       volumetrics: 'medium', particleQuality: 1.0, antialiasing: 'taa', ssao: 'high',
       ssr: true, bloom: true, bloomIntensity: 0.75, godrays: true, dof: 'off',
-      motionBlur: 0.4, filmGrain: 0.18, chromatic: 0.22, vignette: 0.4, sharpen: 0.4,
+      motionBlur: 0.25, filmGrain: 0.03, chromatic: 0.05, vignette: 0.22, sharpen: 0.6,
       lensFlare: true, cloudQuality: 'high', maxLights: 16, decals: true, wetness: true,
     }
   },
@@ -71,7 +71,7 @@ export const PRESETS = {
       foliageDistance: 1.25, textureQuality: 4, anisotropy: 16, waterQuality: 'ultra',
       volumetrics: 'high', particleQuality: 1.25, antialiasing: 'taa', ssao: 'high',
       ssr: true, bloom: true, bloomIntensity: 0.8, godrays: true, dof: 'cinematic',
-      motionBlur: 0.5, filmGrain: 0.2, chromatic: 0.28, vignette: 0.42, sharpen: 0.35,
+      motionBlur: 0.3, filmGrain: 0.04, chromatic: 0.06, vignette: 0.24, sharpen: 0.55,
       lensFlare: true, cloudQuality: 'ultra', maxLights: 24, decals: true, wetness: true,
     }
   },
@@ -83,7 +83,7 @@ export const PRESETS = {
       foliageDistance: 1.5, textureQuality: 4, anisotropy: 16, waterQuality: 'ultra',
       volumetrics: 'high', particleQuality: 1.5, antialiasing: 'taa', ssao: 'high',
       ssr: true, bloom: true, bloomIntensity: 0.85, godrays: true, dof: 'cinematic',
-      motionBlur: 0.6, filmGrain: 0.26, chromatic: 0.35, vignette: 0.5, sharpen: 0.25,
+      motionBlur: 0.35, filmGrain: 0.05, chromatic: 0.08, vignette: 0.26, sharpen: 0.5,
       lensFlare: true, cloudQuality: 'ultra', maxLights: 32, decals: true, wetness: true,
     }
   },
@@ -234,7 +234,7 @@ export const SCHEMA = [
         default: 'taa',
       },
       { key: 'taaStrength', type: T.slider, label: 'Temporal Blend', min: 0.5, max: 0.98, step: 0.01, default: 0.9, fmt: v => v.toFixed(2), showIf: s => s.get('antialiasing') === 'taa' },
-      { key: 'sharpen', type: T.slider, label: 'Contrast-Adaptive Sharpen', min: 0, max: 1, step: 0.05, default: 0.4, fmt: v => v === 0 ? 'Off' : `${Math.round(v * 100)}%` },
+      { key: 'sharpen', type: T.slider, label: 'Contrast-Adaptive Sharpen', min: 0, max: 1, step: 0.05, default: 0.6, fmt: v => v === 0 ? 'Off' : `${Math.round(v * 100)}%` },
     ]
   },
   {
@@ -244,7 +244,7 @@ export const SCHEMA = [
       { key: 'ssaoIntensity', type: T.slider, label: 'AO Intensity', min: 0, max: 2, step: 0.05, default: 1, fmt: v => `${Math.round(v * 100)}%`, showIf: s => s.get('ssao') !== 'off' },
       { key: 'ssr', type: T.toggle, label: 'Screen-Space Reflections', default: true },
       { key: 'godrays', type: T.toggle, label: 'Light Shafts / God Rays', default: true },
-      { key: 'motionBlur', type: T.slider, label: 'Motion Blur', min: 0, max: 1, step: 0.05, default: 0.4, fmt: v => v === 0 ? 'Off' : `${Math.round(v * 100)}%` },
+      { key: 'motionBlur', type: T.slider, label: 'Motion Blur', min: 0, max: 1, step: 0.05, default: 0.25, fmt: v => v === 0 ? 'Off' : `${Math.round(v * 100)}%` },
       { key: 'dof', type: T.select, label: 'Depth of Field', options: [['off', 'Off'], ['dialogue', 'Dialogue Only'], ['cinematic', 'Cinematic (always)']], default: 'dialogue' },
     ]
   },
@@ -266,9 +266,9 @@ export const SCHEMA = [
       { key: 'bloom', type: T.toggle, label: 'Bloom', default: true },
       { key: 'bloomIntensity', type: T.slider, label: 'Bloom Intensity', min: 0, max: 1.5, step: 0.05, default: 0.75, fmt: v => `${Math.round(v * 100)}%`, showIf: s => s.get('bloom') },
       { key: 'lensFlare', type: T.toggle, label: 'Lens Flare & Dirt', default: true },
-      { key: 'chromatic', type: T.slider, label: 'Chromatic Aberration', min: 0, max: 1, step: 0.05, default: 0.22, fmt: v => v === 0 ? 'Off' : `${Math.round(v * 100)}%` },
-      { key: 'vignette', type: T.slider, label: 'Vignette', min: 0, max: 1, step: 0.05, default: 0.4, fmt: v => v === 0 ? 'Off' : `${Math.round(v * 100)}%` },
-      { key: 'filmGrain', type: T.slider, label: 'Film Grain', min: 0, max: 0.6, step: 0.02, default: 0.18, fmt: v => v === 0 ? 'Off' : v.toFixed(2) },
+      { key: 'chromatic', type: T.slider, label: 'Chromatic Aberration', min: 0, max: 1, step: 0.05, default: 0.05, fmt: v => v === 0 ? 'Off' : `${Math.round(v * 100)}%` },
+      { key: 'vignette', type: T.slider, label: 'Vignette', min: 0, max: 1, step: 0.05, default: 0.22, fmt: v => v === 0 ? 'Off' : `${Math.round(v * 100)}%` },
+      { key: 'filmGrain', type: T.slider, label: 'Film Grain', min: 0, max: 0.6, step: 0.02, default: 0.03, fmt: v => v === 0 ? 'Off' : v.toFixed(2) },
     ]
   },
 
@@ -291,7 +291,9 @@ export const SCHEMA = [
     items: [
       { key: 'sensitivity', type: T.slider, label: 'Look Sensitivity', min: 0.1, max: 3, step: 0.05, default: 1, fmt: v => v.toFixed(2) },
       { key: 'sensitivityAds', type: T.slider, label: 'Sensitivity While Aiming', min: 0.1, max: 2, step: 0.05, default: 0.65, fmt: v => v.toFixed(2) },
+      { key: 'touchSensitivity', type: T.slider, label: 'Touch Look Speed', min: 0.5, max: 6, step: 0.1, default: 2.6, fmt: v => v.toFixed(1), tip: 'How far the camera swings per centimetre of drag. Only affects the touch look area.' },
       { key: 'invertY', type: T.toggle, label: 'Invert Vertical Look', default: false },
+      { key: 'invertTouchY', type: T.toggle, label: 'Invert Vertical Touch Look', default: false },
       { key: 'smoothing', type: T.slider, label: 'Look Smoothing', min: 0, max: 1, step: 0.05, default: 0.15, fmt: v => v === 0 ? 'Raw' : `${Math.round(v * 100)}%` },
       { key: 'gamepadDeadzone', type: T.slider, label: 'Gamepad Dead Zone', min: 0, max: 0.5, step: 0.01, default: 0.16, fmt: v => v.toFixed(2) },
       { key: 'aimAssist', type: T.slider, label: 'Aim Assist', min: 0, max: 1, step: 0.05, default: 0.35, fmt: v => v === 0 ? 'Off' : `${Math.round(v * 100)}%`, tip: 'Softly biases projectiles toward a target you are already looking at. Defaults higher on touch.' },
