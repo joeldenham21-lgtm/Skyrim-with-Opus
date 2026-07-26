@@ -4,6 +4,13 @@ An open-world action RPG in the frozen north, built as a spiritual successor to 
 It runs in a browser, needs no build step, and **ships with zero art assets** — every
 mountain, tree, texture, sound and note of music is generated at runtime by code.
 
+## ▶ Play now
+
+**[Play WYRMHOLD](https://claude.ai/code/artifact/cb9e9f58-8dc8-4e6b-bcde-66266962b119)** — a one-file build of
+the whole game. Nothing to install; press **BEGIN**.
+
+Or run it locally from source:
+
 ```
 git clone <this repo> && cd Skyrim-with-Opus
 node serve.js
@@ -185,6 +192,22 @@ screenshots and run a 40-case functional test over combat, quests, dialogue,
 dungeons, saves, weather and the dragon.
 
 ---
+
+## Hosting it yourself
+
+The repository is a static site, so any file host works.
+
+**GitHub Pages** — a workflow is included at `.github/workflows/pages.yml`, but
+GitHub will not let an Actions token switch Pages on for a repository. Enable it
+once by hand — **Settings → Pages → Build and deployment → Source: GitHub
+Actions** — and then re-run the workflow. Every later push deploys automatically
+to `https://<user>.github.io/Skyrim-with-Opus/`.
+
+**One-file build** — `node tools/build/bundle.mjs` (needs `esbuild`) inlines
+every module, the vendored three.js and the stylesheet into a single ~1 MB
+`dist/wyrmhold.html` that runs from anywhere, including embedded in another
+page. If pointer lock is unavailable there — as it is inside most embeds — the
+game detects it and switches mouse-look to hold-and-drag.
 
 ## Licence
 

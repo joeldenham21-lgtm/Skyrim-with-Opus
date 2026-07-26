@@ -1,0 +1,17 @@
+const PW = process.env.PLAYWRIGHT || 'playwright';
+const pw = (await import(PW)).default ?? await import(PW);
+const { chromium } = pw;
+const browser = await chromium.launch({ args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader','--no-sandbox'] });
+const page = await browser.newPage({ viewport:{width:900,height:520} });
+const logs=[];
+page.on('console', m=>{const t=m.text(); if(!t.includes('GPU stall')&&!t.includes('deprecated')) logs.push('['+m.type()+'] '+t);});
+page.on('pageerror', e=>logs.push('[pageerror] '+e.message));
+await page.goto(process.argv[2], { waitUntil:'domcontentloaded' });
+await page.waitForFunction("window.WYRMHOLD && window.WYRMHOLD.ui", { timeout: 420000 }).catch(()=>logs.push('[timeout]'));
+const fatal = await page.evaluate(`(()=>{const f=document.getElementById('fatal');return f&&!f.classList.contains('hidden')?document.getElementById('fatal-msg').textContent:null})()`);
+await page.waitForTimeout(4000);
+await page.screenshot({path: process.argv[3]||'/tmp/sf.png'});
+console.log(logs.join('\n'));
+console.log('fatal:', fatal);
+console.log('booted:', await page.evaluate("!!(window.WYRMHOLD&&window.WYRMHOLD.ui)"));
+await browser.close();

@@ -423,6 +423,18 @@ export class Settings {
   consumeDirty(tag) { if (this.dirty.has(tag)) { this.dirty.delete(tag); return true; } return false; }
 
   // -- persistence ----------------------------------------------------------
+  /** True if this page is allowed to persist anything at all. */
+  get canPersist() {
+    if (this._canPersist === undefined) {
+      try { localStorage.setItem('wyrmhold.probe', '1'); localStorage.removeItem('wyrmhold.probe'); this._canPersist = true; }
+      catch (e) { this._canPersist = false; }
+    }
+    return this._canPersist;
+  }
+  hasStoredSettings() {
+    try { return !!localStorage.getItem(STORE_KEY); } catch (e) { return false; }
+  }
+
   saveDeferred() {
     clearTimeout(this._saveT);
     this._saveT = setTimeout(() => this.save(), 350);

@@ -908,6 +908,7 @@ export class Game {
   // Save / load
   // -------------------------------------------------------------------------
   save(slot = 'auto') {
+    if (!settings.canPersist) { this.notify('Saving unavailable', 'This page cannot store data', 'skill'); return false; }
     try {
       const data = {
         v: 1, t: Date.now(),

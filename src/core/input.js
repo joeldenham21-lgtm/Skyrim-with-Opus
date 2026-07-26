@@ -90,6 +90,8 @@ export class Input {
       const code = 'Mouse' + e.button;
       this.rawDown.add(code); this.rawPressedThisFrame.add(code);
       this._dragging = true; this._dragX = e.clientX; this._dragY = e.clientY;
+      // Keyboard events only reach an embedded page once it has focus.
+      try { c.focus({ preventScroll: true }); } catch (err) { }
       if (!this.uiCapture && settings.effectivePlatform === 'desktop') this.requestPointerLock();
     });
     addEventListener('mouseup', e => {

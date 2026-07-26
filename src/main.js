@@ -77,7 +77,9 @@ class Engine {
 
     settings.load();
     settings.autoDetect(gl);
-    if (!localStorage.getItem('wyrmhold.settings.v1')) settings.applyPreset(settings.deviceTier);
+    // Sandboxed/embedded pages can throw on any localStorage access, which
+    // would kill the boot before a single frame is drawn.
+    if (!settings.hasStoredSettings()) settings.applyPreset(settings.deviceTier);
     settings.resolvePlatform();
 
     this.renderer = new THREE.WebGLRenderer({
