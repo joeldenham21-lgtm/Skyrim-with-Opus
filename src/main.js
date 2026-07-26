@@ -317,6 +317,8 @@ class Engine {
     });
 
     this.input.endFrame();
+    // A frame reached the screen: from here on, errors are logged, not fatal.
+    window.__wyrmholdRunning = true;
   };
 }
 

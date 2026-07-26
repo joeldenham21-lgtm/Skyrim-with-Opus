@@ -49,6 +49,8 @@ export class Input {
     this.gamepadIndex = -1;
     this.gpAxes = { lx: 0, ly: 0, rx: 0, ry: 0, lt: 0, rt: 0 };
     this._gpPrev = [];
+    /** Set when the Gamepad API is denied by permissions policy (embeds). */
+    this._gpBlocked = false;
 
     /** When true (menus/dialogue open), gameplay actions are suppressed. */
     this.uiCapture = false;
@@ -172,8 +174,18 @@ export class Input {
 
   // -------------------------------------------------------------------------
   _pollGamepad(dt) {
-    if (!navigator.getGamepads) return;
-    const pads = navigator.getGamepads();
+    if (!navigator.getGamepads || this._gpBlocked) return;
+    // Embedded pages (iframes without an allow="gamepad" grant) throw a
+    // SecurityError here. Give up on pads rather than taking the game down.
+    let pads;
+    try {
+      pads = navigator.getGamepads();
+    } catch (e) {
+      this._gpBlocked = true;
+      this.gpConnected = false;
+      return;
+    }
+    if (!pads) return;
     let pad = this.gamepadIndex >= 0 ? pads[this.gamepadIndex] : null;
     if (!pad) { for (const p of pads) if (p && p.connected) { pad = p; this.gamepadIndex = p.index; break; } }
     if (!pad) { this.gpConnected = false; return; }

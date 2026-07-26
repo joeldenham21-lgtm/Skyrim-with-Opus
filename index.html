@@ -59,6 +59,9 @@
 <script type="module">
   // Surface early failures (bad import, no WebGL2) instead of a black screen.
   const fatal = (msg, stack) => {
+    // Once the game is drawing frames, a stray runtime error is not worth
+    // replacing a live world with an error card — log it and keep playing.
+    if (window.__wyrmholdRunning) { console.error('[wyrmhold]', msg, stack || ''); return; }
     const el = document.getElementById('fatal');
     if (!el || !el.classList.contains('hidden')) return;
     document.getElementById('fatal-msg').textContent = msg || 'Unknown error';

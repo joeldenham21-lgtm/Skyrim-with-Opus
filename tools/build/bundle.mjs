@@ -57,6 +57,8 @@ ${body}
 <script>
 (function () {
   var fatal = function (msg, stack) {
+    // Once frames are on screen, log instead of replacing the world.
+    if (window.__wyrmholdRunning) { console.error('[wyrmhold]', msg, stack || ''); return; }
     var el = document.getElementById('fatal');
     if (!el || !el.classList.contains('hidden')) return;
     document.getElementById('fatal-msg').textContent = msg || 'Unknown error';
