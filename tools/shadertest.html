@@ -1,0 +1,51 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>shader smoke test</title>
+<script type="importmap">{"imports":{"three":"../vendor/three/three.module.min.js","three/addons/csm/CSM.js":"../vendor/three/csm/CSM.js"}}</script>
+<style>body{margin:0;background:#111;color:#eee;font:12px monospace}canvas{display:block}#log{position:fixed;left:0;top:0;padding:6px;white-space:pre;z-index:9}</style>
+</head><body><div id="log"></div><script type="module">
+const log = m => { document.getElementById('log').textContent += m + "\n"; console.log(m); };
+window.__done = false; window.__errors = [];
+const oldErr = console.error;
+console.error = (...a)=>{ window.__errors.push(a.map(String).join(' ')); oldErr(...a); };
+window.addEventListener('error', e => { window.__errors.push('ERR '+e.message); });
+try {
+  const THREE = await import('three');
+  const { TextureBakery, RECIPES, makeNoiseTexture, makeLensDirt } = await import('../src/render/textures.js');
+  const { Sky } = await import('../src/render/sky.js');
+  const canvas = document.createElement('canvas');
+  canvas.width = 960; canvas.height = 540;
+  document.body.appendChild(canvas);
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias:false, powerPreference:'high-performance' });
+  renderer.setSize(960,540,false);
+  log('WebGL2: ' + renderer.capabilities.isWebGL2);
+  const bakery = new TextureBakery(renderer);
+  const names = TextureBakery.bakeOrder();
+  log('recipes: ' + names.length);
+  const t0 = performance.now();
+  for (const n of names) { const t=performance.now(); bakery.bake(n, 1, 4); log('  baked '+n+' '+(performance.now()-t).toFixed(1)+'ms'); }
+  log('bake total ' + (performance.now()-t0).toFixed(0) + 'ms');
+
+  // Render sky
+  const sky = new Sky(renderer);
+  sky.setQuality('high');
+  const cam = new THREE.PerspectiveCamera(70, 960/540, 0.1, 1000);
+  cam.position.set(0,2,0); cam.lookAt(30, 6, 0); cam.updateMatrixWorld(true); cam.updateProjectionMatrix();
+  const env = {
+    sunDir: new THREE.Vector3(0.55,0.16,0.3).normalize(),
+    moonDir: new THREE.Vector3(-0.3,0.5,-0.4).normalize(),
+    moon2Dir: new THREE.Vector3(0.5,0.4,-0.7).normalize(),
+    time: 12, cloudCover:0.55, cloudDensity:1.0, cloudHeight:2200, turbidity:0.4,
+    windX:1, windZ:0.4, aurora:0, stars:1, moonPhase:0.4, moon2Phase:0.7,
+    fogAmount:0.35, fogColor:new THREE.Color(0.6,0.66,0.75), rain:0, sunIntensity:22
+  };
+  sky.update(env, cam);
+  const scene = new THREE.Scene();
+  sky.updateEnvironment(scene, true);
+  log('env ok: ' + !!scene.environment);
+  renderer.setRenderTarget(null);
+  renderer.render(sky.scene, sky.camera);
+  log('sky drawn');
+  const gl = renderer.getContext();
+  log('glError: ' + gl.getError());
+  window.__done = true;
+} catch (e) { window.__errors.push('FATAL '+e.message+'\n'+e.stack); log('FATAL '+e.message); window.__done=true; }
+</script></body></html>

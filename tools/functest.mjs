@@ -1,0 +1,23 @@
+// Point PLAYWRIGHT at your playwright install if it is not resolvable by name.
+const PW = process.env.PLAYWRIGHT || 'playwright';
+const pw = (await import(PW)).default ?? await import(PW);
+import fs from 'fs';
+const { chromium } = pw;
+const browser = await chromium.launch({ args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader','--no-sandbox'] });
+const page = await browser.newPage({ viewport:{width:900,height:520} });
+const logs=[];
+page.on('console', m => { const t=m.text(); if(!t.includes('GPU stall')&&!t.includes('deprecated')) logs.push('['+m.type()+'] '+t); });
+page.on('pageerror', e => logs.push('[pageerror] '+e.message+'\n'+(e.stack||'').split('\n').slice(0,4).join('\n')));
+await page.goto('http://localhost:8080/', { waitUntil:'domcontentloaded' });
+await page.waitForFunction("window.WYRMHOLD && window.WYRMHOLD.ui", { timeout: 420000 });
+await page.evaluate(fs.readFileSync('/tmp/hooks.js','utf8'));
+await page.waitForFunction("window.__hooksReady", { timeout: 20000 });
+await page.evaluate(fs.readFileSync('/tmp/functest.js','utf8'));
+await page.waitForFunction("window.__testsDone", { timeout: 180000 }).catch(()=>logs.push('[timeout] tests did not finish'));
+const res = await page.evaluate("window.__results||[]");
+console.log(res.join('\n'));
+console.log('--- console ---');
+console.log(logs.join('\n'));
+const fails = res.filter(r=>!r.startsWith('PASS')).length;
+console.log(`\n${res.filter(r=>r.startsWith('PASS')).length} passed, ${fails} failed`);
+await browser.close();

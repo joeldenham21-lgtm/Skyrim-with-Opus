@@ -1,0 +1,107 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>render test</title>
+<script type="importmap">{"imports":{"three":"../vendor/three/three.module.min.js","three/addons/csm/CSM.js":"../vendor/three/csm/CSM.js"}}</script>
+<style>html,body{margin:0;background:#000;overflow:hidden}canvas{display:block;width:100vw;height:100vh}
+#log{position:fixed;left:4px;top:4px;color:#9f9;font:11px monospace;white-space:pre;z-index:9;text-shadow:0 0 3px #000}</style>
+</head><body><canvas id="viewport"></canvas><div id="log"></div><script type="module">
+const logEl=document.getElementById('log');
+const log=m=>{logEl.textContent+=m+"\n";console.log(m);};
+window.__done=false; window.__errors=[];
+window.addEventListener('error',e=>{window.__errors.push('ERR '+e.message+'\n'+(e.error&&e.error.stack||''))});
+window.addEventListener('unhandledrejection',e=>{window.__errors.push('REJ '+e.reason)});
+const origErr = console.error; console.error=(...a)=>{window.__errors.push('console.error: '+a.map(x=>x&&x.message||String(x)).join(' ')); origErr(...a);};
+try{
+const THREE = await import('three');
+const {settings} = await import('../src/core/settings.js');
+const {TextureBakery} = await import('../src/render/textures.js');
+const {buildPalette} = await import('../src/render/materials.js');
+const {Sky} = await import('../src/render/sky.js');
+const {Pipeline} = await import('../src/render/pipeline.js');
+const {World, LAYER_WATER} = await import('../src/world/world.js');
+const {Player} = await import('../src/game/player.js');
+const {Input} = await import('../src/core/input.js');
+
+const canvas=document.getElementById('viewport');
+const W=Number(new URLSearchParams(location.search).get('w')||960),H=Number(new URLSearchParams(location.search).get('h')||540);
+canvas.width=W;canvas.height=H;
+const renderer=new THREE.WebGLRenderer({canvas,antialias:false});
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.toneMapping=THREE.NoToneMapping;
+renderer.setPixelRatio(1);
+renderer.info.autoReset=false;
+settings.applyPreset(new URLSearchParams(location.search).get('preset')||'medium');
+settings.set('platform','desktop'); settings.resolvePlatform();
+settings.set('textureQuality',1);
+const qp=new URLSearchParams(location.search);
+for(const kv of (qp.get('set')||'').split(',')){ if(!kv) continue; const [k,v]=kv.split(':');
+  settings.set(k, v==='true'?true:v==='false'?false:(isNaN(Number(v))?v:Number(v))); }
+log('overrides: '+(qp.get('set')||'none'));
+log('preset '+settings.get('preset'));
+const bakery=new TextureBakery(renderer);
+for(const n of TextureBakery.bakeOrder()) bakery.bake(n,1,4);
+log('baked');
+const palette=buildPalette(bakery);
+const t0=performance.now();
+const world=new World(renderer,bakery,{seed:20260726});
+log('world built '+(performance.now()-t0).toFixed(0)+'ms');
+const sky=new Sky(renderer); world.sky=sky; sky.setQuality(settings.get('cloudQuality'));
+const input=new Input(canvas);
+const player=new Player(world,input,palette);
+const camera=player.camera; camera.layers.enableAll();
+world.setupShadows(camera);
+for(const m of palette.all()) world.registerMaterial(m);
+player.spawn(-120,300);
+camera.aspect=W/H; camera.updateProjectionMatrix();
+camera.position.set(player.pos.x, player.pos.y+3, player.pos.z+6);
+const yawQ=Number(qp.get('yaw')||0), pitchQ=Number(qp.get('pitch')||0);
+camera.lookAt(player.pos.x+Math.sin(yawQ)*60, player.pos.y+6+pitchQ*40, player.pos.z-Math.cos(yawQ)*60);
+camera.updateMatrixWorld(true);
+const tp=performance.now();
+world.preload(camera,()=>{});
+log('preload '+(performance.now()-tp).toFixed(0)+'ms chunks='+world.terrain.stats.chunks+' inst='+world.scatter.stats.instances);
+const pipeline=new Pipeline(renderer,world.scene,camera,sky);
+pipeline.applySettings();
+pipeline.setSize(W,H,1.0);
+world.setTime(Number(new URLSearchParams(location.search).get('hour')||9.5));
+world.forceWeather('fair',true);
+let frames=0;
+function frame(){
+  const dt=1/60;
+  renderer.info.reset();
+  world.update(dt,camera,frames);
+  camera.updateProjectionMatrix();
+  pipeline.applyJitter(camera);
+  camera.updateMatrixWorld(true);
+  if((frames&7)===0) sky.updateEnvironment(world.scene);
+  const env=world.env;
+  pipeline.render(dt,env,{
+    renderOpaque:(target)=>{camera.layers.set(0);renderer.setRenderTarget(target);renderer.render(world.scene,camera);},
+    renderWater:(target,tex)=>{world.water.setOpaqueTexture(tex,pipeline._targets.opaque.width,pipeline._targets.opaque.height);
+      camera.layers.set(LAYER_WATER);renderer.setRenderTarget(target);renderer.render(world.scene,camera);camera.layers.enableAll();},
+  });
+  frames++;
+  if(frames===Number(new URLSearchParams(location.search).get('frames')||14)){
+    log('drawcalls='+renderer.info.render.calls+' tris='+renderer.info.render.triangles);
+    // read back auto-exposure and average scene luminance
+    try{
+      const probe=new THREE.WebGLRenderTarget(1,1,{type:THREE.UnsignedByteType});
+      const px=new Uint8Array(4);
+      const readScaled=(tex,scale)=>{pipeline.blit.u.tDiffuse.value=tex;pipeline.blit.u.uScale.value=scale;
+        pipeline.blit.render(renderer,probe);renderer.readRenderTargetPixels(probe,0,0,1,1,px);
+        pipeline.blit.u.uScale.value=1;return [px[0],px[1],px[2]].map(v=>v/255/scale);};
+      const ex=readScaled(pipeline._expTex||pipeline._targets.exposureA.texture,0.08);
+      log('autoExposure='+ex[0].toFixed(3));
+      const bl=readScaled(pipeline._targets.bloom[pipeline._activeBloom-1].texture,0.5);
+      log('bloomSmallest='+bl.map(v=>v.toFixed(3)).join(','));
+      const sc=readScaled(pipeline._targets.bloom[Math.min(3,pipeline._activeBloom-1)].texture,0.5);
+      log('bloomMid='+sc.map(v=>v.toFixed(3)).join(','));
+      probe.dispose();
+    }catch(e){log('probe failed '+e.message);}
+    log('glError='+renderer.getContext().getError());
+    window.__done=true;
+    return;
+  }
+  requestAnimationFrame(frame);
+}
+frame();
+}catch(e){window.__errors.push('FATAL '+e.message+'\n'+e.stack);log('FATAL '+e.message);window.__done=true;}
+</script></body></html>

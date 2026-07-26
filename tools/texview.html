@@ -1,0 +1,39 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>texview</title>
+<script type="importmap">{"imports":{"three":"../vendor/three/three.module.min.js"}}</script>
+<style>html,body{margin:0;background:#222}canvas{display:block}</style></head>
+<body><canvas id="c"></canvas><script type="module">
+window.__done=false;window.__errors=[];
+window.addEventListener('error',e=>window.__errors.push(e.message));
+const THREE=await import('three');
+const {TextureBakery}=await import('../src/render/textures.js');
+const qp=new URLSearchParams(location.search);
+const which=qp.get('map')||'albedo';
+const names=TextureBakery.bakeOrder();
+const COLS=6, CELL=180;
+const rows=Math.ceil(names.length/COLS);
+const W=COLS*CELL, H=rows*CELL;
+const c=document.getElementById('c'); c.width=W; c.height=H;
+const renderer=new THREE.WebGLRenderer({canvas:c,antialias:false});
+renderer.setPixelRatio(1); renderer.setSize(W,H,false);
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+const bakery=new TextureBakery(renderer);
+for(const n of names) bakery.bake(n,1,4);
+const scene=new THREE.Scene();
+const cam=new THREE.OrthographicCamera(0,W,H,0,-10,10);cam.position.z=5;cam.updateProjectionMatrix();cam.updateMatrixWorld(true);
+const canvas2=document.createElement('canvas');
+names.forEach((n,i)=>{
+  const x=(i%COLS)*CELL, y=Math.floor(i/COLS)*CELL;
+  const tex=bakery.get(n)[which];
+  const showAlpha=qp.get('alpha')==='1';
+  const mat=showAlpha?new THREE.MeshBasicMaterial({map:tex,transparent:true,alphaTest:0.35}):new THREE.MeshBasicMaterial({map:tex});
+  const g=new THREE.PlaneGeometry(CELL-8,CELL-8);
+  const m=new THREE.Mesh(g,mat);
+  m.position.set(x+CELL/2, H-(y+CELL/2), 0);
+  scene.add(m);
+});
+renderer.render(scene,cam);
+// label with 2d overlay
+const ctx=document.createElement('canvas');
+window.__labels=names;
+window.__done=true;
+</script></body></html>

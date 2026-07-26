@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#05070a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="description" content="WYRMHOLD — an open-world action RPG in the frozen north. Photoreal procedural rendering, no downloads.">
+<title>WYRMHOLD — Crown of the North</title>
+<link rel="stylesheet" href="./src/ui/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128302;</text></svg>">
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.min.js",
+    "three/addons/csm/CSM.js": "./vendor/three/csm/CSM.js"
+  }
+}
+</script>
+</head>
+<body>
+
+<canvas id="viewport" tabindex="-1"></canvas>
+
+<!-- ============ BOOT / LOADING ============ -->
+<div id="boot" class="overlay">
+  <div class="boot-bg"></div>
+  <div class="boot-inner">
+    <div class="rune-ring"><div class="rune-ring-in"></div></div>
+    <h1 class="title">WYRMHOLD</h1>
+    <div class="subtitle">Crown of the North</div>
+    <div class="bar"><div id="boot-bar" class="bar-fill"></div></div>
+    <div id="boot-status" class="boot-status">Waking the old stones&hellip;</div>
+    <div id="boot-tip" class="boot-tip"></div>
+  </div>
+</div>
+
+<!-- ============ ROOT FOR ALL RUNTIME UI ============ -->
+<div id="ui-root"></div>
+
+<!-- ============ ORIENTATION / FATAL ============ -->
+<div id="rotate" class="overlay hidden">
+  <div class="rotate-inner"><div class="rotate-icon">&#128241;</div><h2>Turn your device</h2><p>WYRMHOLD is played in landscape.</p></div>
+</div>
+
+<div id="fatal" class="overlay hidden">
+  <div class="fatal-inner">
+    <h2>The Void Stares Back</h2>
+    <p id="fatal-msg"></p>
+    <pre id="fatal-stack"></pre>
+    <button id="fatal-reload" class="btn">Reload</button>
+  </div>
+</div>
+
+<noscript><div class="overlay"><div class="boot-inner"><h1 class="title">WYRMHOLD</h1><p>JavaScript is required.</p></div></div></noscript>
+
+<script type="module">
+  // Surface early failures (bad import, no WebGL2) instead of a black screen.
+  const fatal = (msg, stack) => {
+    const el = document.getElementById('fatal');
+    if (!el || !el.classList.contains('hidden')) return;
+    document.getElementById('fatal-msg').textContent = msg || 'Unknown error';
+    document.getElementById('fatal-stack').textContent = stack || '';
+    el.classList.remove('hidden');
+    document.getElementById('boot')?.classList.add('hidden');
+  };
+  document.getElementById('fatal-reload').onclick = () => location.reload();
+  window.addEventListener('error', e => fatal(e.message, e.error && e.error.stack));
+  window.addEventListener('unhandledrejection', e => fatal(String(e.reason && e.reason.message || e.reason), e.reason && e.reason.stack));
+  import('./src/main.js').catch(err => fatal(err.message, err.stack));
+</script>
+</body>
+</html>
