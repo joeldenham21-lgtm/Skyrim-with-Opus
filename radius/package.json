@@ -1,0 +1,19 @@
+{
+  "name": "radius",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RADIUS — a first-person survival horror set in the Pechorsk Restricted Zone. Browser, WebGL, fully procedural: no asset downloads.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --watch --serve",
+    "smoke": "node tools/smoke.mjs"
+  },
+  "dependencies": {
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.24.0"
+  },
+  "license": "MIT"
+}

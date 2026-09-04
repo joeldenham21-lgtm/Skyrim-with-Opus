@@ -1,0 +1,106 @@
+/* RADIUS core UI — paper, ink, one amber accent. Everything low-contrast so it never fights the image. */
+:root {
+  --ink: #1a1917; --paper: #d9d3c4; --paper-dim: rgba(217, 211, 196, 0.72); --amber: #e0a458; --amber-dim: rgba(224, 164, 88, 0.55);
+  --red: #a23b2a; --hair: rgba(217, 211, 196, 0.22);
+  --mono: 'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace; --display: 'Oswald', 'Franklin Gothic Medium', 'Arial Narrow', sans-serif;
+}
+html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; color: var(--paper); font-family: var(--mono); font-size: 13px; -webkit-font-smoothing: antialiased; }
+#gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: none; }
+#ui { position: fixed; inset: 0; pointer-events: none; user-select: none; }
+#ui * { box-sizing: border-box; }
+.hud { position: absolute; transition: opacity 0.25s ease; }
+.hud.hidden { opacity: 0; }
+.caps { text-transform: uppercase; letter-spacing: 0.14em; }
+.small { font-size: 11px; }
+.dim { color: var(--paper-dim); }
+.amber { color: var(--amber); }
+
+/* crosshair: a single dot with four hairlines that open with spread */
+#crosshair { left: 50%; top: 50%; width: 0; height: 0; }
+#crosshair .dot { position: absolute; left: -1.5px; top: -1.5px; width: 3px; height: 3px; background: var(--paper); opacity: 0.85; border-radius: 50%; box-shadow: 0 0 2px rgba(0,0,0,0.8); }
+#crosshair .h { position: absolute; background: var(--paper); opacity: 0.55; box-shadow: 0 0 2px rgba(0,0,0,0.8); }
+#crosshair .h.t { left: -0.5px; top: calc(-1 * var(--s) - 6px); width: 1px; height: 6px; }
+#crosshair .h.b { left: -0.5px; top: var(--s); width: 1px; height: 6px; }
+#crosshair .h.l { top: -0.5px; left: calc(-1 * var(--s) - 6px); height: 1px; width: 6px; }
+#crosshair .h.r { top: -0.5px; left: var(--s); height: 1px; width: 6px; }
+#crosshair.ads .h { opacity: 0; } #crosshair.ads .dot { opacity: 0.5; }
+
+/* interaction prompt */
+#prompt { left: 50%; bottom: 17%; transform: translateX(-50%); text-align: center; white-space: nowrap; }
+#prompt .key { display: inline-block; min-width: 18px; padding: 1px 5px; border: 1px solid var(--hair); margin-right: 8px; color: var(--amber); font-size: 11px; line-height: 15px; }
+#prompt .ring { display: block; margin: 8px auto 0; width: 120px; height: 2px; background: var(--hair); }
+#prompt .ring i { display: block; height: 100%; background: var(--amber); width: 0; transition: width 0.05s linear; }
+
+/* notifications: paper slips top-left */
+#notify { left: 28px; top: 28px; width: 380px; }
+#notify .slip { background: rgba(20, 19, 17, 0.55); border-left: 2px solid var(--amber-dim); padding: 7px 10px; margin-bottom: 6px; font-size: 12px; line-height: 1.45; color: var(--paper); animation: slipIn 0.35s ease both; backdrop-filter: blur(2px); }
+#notify .slip.out { animation: slipOut 0.6s ease both; }
+#notify .slip .code { color: var(--amber); letter-spacing: 0.12em; font-size: 10px; text-transform: uppercase; display: block; margin-bottom: 2px; }
+@keyframes slipIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+@keyframes slipOut { to { opacity: 0; transform: translateY(-4px); } }
+
+/* objective: top-right, tiny */
+#objective { right: 28px; top: 28px; max-width: 360px; text-align: right; font-size: 11px; line-height: 1.5; color: var(--paper-dim); }
+#objective .code { color: var(--amber); letter-spacing: 0.12em; text-transform: uppercase; font-size: 10px; display: block; }
+#objective .dist { color: var(--paper); }
+
+/* compass strip: top center */
+#compass { left: 50%; top: 18px; transform: translateX(-50%); width: 320px; height: 22px; overflow: hidden; -webkit-mask-image: linear-gradient(90deg, transparent, #000 25%, #000 75%, transparent); mask-image: linear-gradient(90deg, transparent, #000 25%, #000 75%, transparent); }
+#compass .strip { position: absolute; top: 0; left: 0; height: 100%; white-space: nowrap; }
+#compass .tick { position: absolute; top: 12px; width: 1px; height: 5px; background: var(--hair); }
+#compass .card { position: absolute; top: 2px; transform: translateX(-50%); font-size: 10px; letter-spacing: 0.1em; color: var(--paper-dim); }
+#compass .card.n { color: var(--paper); }
+#compass .mark { position: absolute; top: 1px; transform: translateX(-50%); width: 6px; height: 6px; background: var(--amber); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+#compass .center { position: absolute; left: 50%; top: 0; width: 1px; height: 8px; background: var(--amber); }
+
+/* ammo readout: bottom-right, shows briefly */
+#ammo { right: 34px; bottom: 34px; text-align: right; font-size: 14px; letter-spacing: 0.08em; }
+#ammo .big { font-family: var(--display); font-weight: 400; font-size: 30px; line-height: 1; letter-spacing: 0.04em; color: var(--paper); }
+#ammo .mags { font-size: 11px; color: var(--paper-dim); margin-top: 3px; }
+#ammo .mags b { color: var(--paper); font-weight: 500; }
+#ammo .jam { color: var(--red); font-size: 11px; letter-spacing: 0.16em; margin-top: 4px; }
+#ammo .state { color: var(--amber); font-size: 10px; letter-spacing: 0.16em; margin-top: 4px; text-transform: uppercase; }
+
+/* watch: bottom-left, held on Tab */
+#watch { left: 34px; bottom: 34px; width: 250px; padding: 12px 14px; background: rgba(20, 19, 17, 0.62); border: 1px solid var(--hair); backdrop-filter: blur(3px); font-size: 11px; line-height: 1.6; }
+#watch .row { display: flex; justify-content: space-between; }
+#watch .row .k { color: var(--paper-dim); letter-spacing: 0.12em; text-transform: uppercase; font-size: 10px; }
+#watch .bar { height: 4px; background: var(--hair); margin: 3px 0 8px; position: relative; }
+#watch .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--paper); }
+#watch .bar.hp i { background: var(--amber); }
+#watch .bar.low i { background: var(--red); }
+#watch .tide { font-family: var(--display); font-size: 22px; letter-spacing: 0.06em; color: var(--paper); line-height: 1.1; }
+#watch .tide.soon { color: var(--red); }
+#watch .bleed { color: var(--red); letter-spacing: 0.14em; font-size: 10px; text-transform: uppercase; }
+
+/* status glyphs: bottom-left minimal when the watch is closed */
+#status { left: 34px; bottom: 34px; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--paper-dim); line-height: 1.8; }
+#status .bleed { color: var(--red); }
+#status .lowhp { color: var(--red); }
+#status .torch { color: var(--amber); }
+
+/* hit / damage direction indicator */
+#dmgdir { left: 50%; top: 50%; width: 0; height: 0; }
+#dmgdir .arc { position: absolute; left: -90px; top: -90px; width: 180px; height: 180px; border-radius: 50%; border: 2px solid transparent; border-top-color: rgba(162, 59, 42, 0.85); opacity: 0; }
+
+/* fades */
+#fade { position: absolute; inset: 0; background: #000; opacity: 1; transition: opacity 1.2s ease; }
+#fade.clear { opacity: 0; }
+#fade.white { background: #fff; }
+
+/* advisory / hint line: bottom center small */
+#hint { left: 50%; bottom: 8%; transform: translateX(-50%); font-size: 11px; color: var(--paper-dim); letter-spacing: 0.06em; white-space: nowrap; text-align: center; }
+
+/* generic panel look for menus (menus.js builds on these) */
+.panel { position: absolute; background: rgba(16, 15, 14, 0.86); border: 1px solid var(--hair); color: var(--paper); padding: 22px 26px; backdrop-filter: blur(4px); pointer-events: auto; }
+.panel h1 { font-family: var(--display); font-weight: 300; font-size: 44px; letter-spacing: 0.22em; margin: 0 0 4px; color: var(--paper); text-transform: uppercase; }
+.panel h2 { font-family: var(--mono); font-weight: 500; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--amber); margin: 0 0 14px; }
+.panel .stamp { display: inline-block; border: 1px solid var(--amber-dim); color: var(--amber); padding: 2px 8px; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; transform: rotate(-2deg); }
+.btn { display: block; width: 100%; text-align: left; background: transparent; border: 0; border-top: 1px solid var(--hair); color: var(--paper); font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; padding: 10px 6px; cursor: pointer; }
+.btn:hover, .btn:focus { color: var(--amber); outline: none; background: rgba(224, 164, 88, 0.06); }
+.btn:last-child { border-bottom: 1px solid var(--hair); }
+.btn[disabled] { color: rgba(217, 211, 196, 0.3); cursor: default; }
+.btn .price { float: right; color: var(--paper-dim); }
+.kv { display: flex; justify-content: space-between; font-size: 11px; padding: 3px 0; color: var(--paper-dim); }
+.kv b { color: var(--paper); font-weight: 500; }
+.hair { border: 0; border-top: 1px solid var(--hair); margin: 12px 0; }
