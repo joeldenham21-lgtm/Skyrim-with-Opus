@@ -175,6 +175,9 @@ function loop(now) {
   const t = ctx.elapsed;
   try {
     if (ctx.mode === 'playing' && ctx.input.rawPressed('pause')) { if (ctx.panels.isOpen) ctx.panels.close(); else game.pause(); }
+    else if (ctx.mode === 'playing' && !ctx.panels.isOpen && ctx.input.pressed('inventory')) ctx.panels.open('inventory');
+    else if (ctx.mode === 'playing' && !ctx.panels.isOpen && ctx.input.pressed('map')) ctx.panels.open('map');
+    else if (ctx.mode === 'playing' && ctx.panels.isOpen && (ctx.input.rawPressed('inventory') || ctx.input.rawPressed('map'))) ctx.panels.close();
     else if (ctx.mode === 'paused' && ctx.input.rawPressed('pause')) game.resume();
     const playing = ctx.mode === 'playing' || ctx.mode === 'dead';
     if (playing) {

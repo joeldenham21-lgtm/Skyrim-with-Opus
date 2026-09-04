@@ -39,7 +39,12 @@ export function createState() {
         return true;
       } catch (e) { console.warn('load failed', e); return false; }
     },
+    // persist settings without touching a saved game
+    saveSettings() {
+      try { const raw = localStorage.getItem(KEY); const d = raw ? JSON.parse(raw) : null; if (d && d.version === 1) { d.settings = state.data.settings; localStorage.setItem(KEY, JSON.stringify(d)); } else { localStorage.setItem(KEY + '.settings', JSON.stringify(state.data.settings)); } } catch {}
+    },
     loadSettingsOnly() {
+      try { const raw = localStorage.getItem(KEY + '.settings'); if (raw) Object.assign(state.data.settings, JSON.parse(raw)); } catch {}
       try { const raw = localStorage.getItem(KEY); if (!raw) return; const d = JSON.parse(raw); if (d.settings) Object.assign(state.data.settings, d.settings); } catch {}
     },
     reset() { const s = state.data.settings; state.data = defaultData(); state.data.settings = s; state.loaded = false; },
