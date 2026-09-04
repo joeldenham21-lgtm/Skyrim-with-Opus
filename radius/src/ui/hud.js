@@ -16,6 +16,9 @@ export function createHud(ctx) {
   const status = el('status');
   const hint = el('hint', 'hud hidden');
   const fade = el('fade', 'hud');
+  const dmgdir = el('dmgdir', 'hud', '<div class="arc"></div>');
+  const dmgArc = dmgdir.querySelector('.arc');
+  let dmgT = 0, dmgAngle = 0;
   const strip = compass.querySelector('.strip');
   // compass strip: 3 copies for wrap
   let stripHtml = '';
@@ -26,6 +29,7 @@ export function createHud(ctx) {
   const mark = document.createElement('div'); mark.className = 'mark'; mark.style.display = 'none'; strip.appendChild(mark);
 
   let spread = 4, ammoT = 0, hintT = 0, objectiveTarget = null, objectiveText = '', gameVisible = true;
+  ctx.events.on('playerDamaged', (amount, info) => { if (info && info.source) api.damageFrom(info.source); });
   const api = {
     // ---- prompt ----
     prompt(text, holdProgress = 0) {
@@ -63,7 +67,17 @@ export function createHud(ctx) {
     fadeOut(white = false) { fade.classList.toggle('white', white); fade.classList.remove('clear'); },
     fadeIn() { fade.classList.add('clear'); },
     setGameVisible(v) { gameVisible = v; for (const e of [crosshair, compass, status, objective]) e.classList.toggle('hidden', !v); if (!v) { prompt.classList.add('hidden'); watch.classList.add('hidden'); ammo.classList.add('hidden'); } },
-    elements: { crosshair, prompt, notify, objective, compass, ammo, watch, status, hint, fade },
+    // brief arc toward where damage came from (source: Vector3 | { position }) — fades over ~1.2 s
+    damageFrom(source) {
+      const pos = source && (source.position || source);
+      if (!pos || pos.x === undefined) return;
+      const p = ctx.player;
+      const dx = pos.x - p.position.x, dz = pos.z - p.position.z;
+      const bearing = Math.atan2(dx, -dz);            // world bearing, 0 = north
+      dmgAngle = bearing + p.yaw;                       // relative to view (yaw rotates the view left)
+      dmgT = 1.2;
+    },
+    elements: { crosshair, prompt, notify, objective, compass, ammo, watch, status, hint, fade, dmgdir },
     update(dt) {
       if (!gameVisible) return;
       const d = ctx.state.data, p = ctx.player;
@@ -108,6 +122,7 @@ export function createHud(ctx) {
         const html = parts.join('<br>'); if (status.innerHTML !== html) status.innerHTML = html;
       }
       if (hintT > 0) { hintT -= dt; if (hintT <= 0) hint.classList.add('hidden'); }
+      if (dmgT > 0) { dmgT -= dt; dmgArc.style.opacity = Math.min(1, dmgT / 0.5).toFixed(2); dmgArc.style.transform = `rotate(${(dmgAngle * 180 / Math.PI).toFixed(1)}deg)`; } else if (dmgArc.style.opacity !== '0') dmgArc.style.opacity = '0';
     },
   };
   return api;

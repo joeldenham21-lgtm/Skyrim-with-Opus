@@ -202,7 +202,11 @@ function loop(now) {
     ctx.renderer.info.reset();
     ctx.post.render();
   } catch (e) {
-    if (!ctx._errorLogged) { ctx._errorLogged = true; console.error('[loop]', e); }
+    // log each distinct error once so a broken module is visible in smoke tests without flooding the console
+    ctx._errors = ctx._errors || new Set();
+    const key = String(e && e.stack ? e.stack.split('\n').slice(0, 2).join(' | ') : e);
+    if (!ctx._errors.has(key) && ctx._errors.size < 8) { ctx._errors.add(key); console.error('[loop]', e); }
+    ctx._errorLogged = true;
   }
   ctx.input.endFrame();
 }
