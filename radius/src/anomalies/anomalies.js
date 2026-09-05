@@ -404,7 +404,8 @@ class Electric extends Anomaly {
     ctx.vfx.light(_w, 0x9ff0ff, 60, 0.3, 20);
     _u.copy(pl.position); _u.y += 1.0;
     ctx.vfx.spark(_u, UP, 36, [0.55, 0.92, 1.0]);
-    pl.damage(60, { kind: 'shock', bleed: false, anomaly: this, what: 'electric' });
+    // kind 'anomaly' so the Committee's card reads anomalous exposure (the 'shock' line is written for Fragments)
+    pl.damage(60, { kind: 'anomaly', what: 'electric', shock: true, bleed: false, anomaly: this });
     ctx.post.shock(0.8); ctx.post.shake(0.7);
     pl.lockMovement(0.6);
   }

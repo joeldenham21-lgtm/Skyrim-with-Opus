@@ -28,6 +28,9 @@ export function computeHeight(x, z) {
   const dm = Math.hypot(x - m.x, z - m.z) / m.r;
   const marsh = 1 - smoothstep(0.55, 1.15, dm);
   h = lerp(h, -1.6 + 0.5 * fbm2(x * 0.05, z * 0.05, 3), marsh * 0.92);
+  // outside the marsh the ground never sinks under the water table: a soft floor so only the marsh floods
+  const floor = lerp(0.9 + 0.7 * fbm2(x * 0.03 + 5, z * 0.03, 2), -4, marsh);
+  h = floor + Math.log1p(Math.exp(Math.max(-30, Math.min(30, h - floor))));
   // church hill
   const c = poi('church');
   const dc = Math.hypot(x - c.x, z - c.z);
@@ -67,7 +70,10 @@ function baseHeightSmooth(x, z) {
   let h = 11 * fbm2(wx * 0.0055, wz * 0.0055, 3);
   const m = poi('marsh');
   const dm = Math.hypot(x - m.x, z - m.z) / m.r;
-  h = lerp(h, -1.0, (1 - smoothstep(0.55, 1.15, dm)) * 0.92);
+  const marshW = (1 - smoothstep(0.55, 1.15, dm)) * 0.92;
+  h = lerp(h, -1.0, marshW);
+  const floor = lerp(0.9 + 0.7 * fbm2(x * 0.03 + 5, z * 0.03, 2), -4, marshW);
+  h = floor + Math.log1p(Math.exp(Math.max(-30, Math.min(30, h - floor))));
   const c = poi('church'); const dc = Math.hypot(x - c.x, z - c.z);
   h += 15 * Math.pow(1 - smoothstep(0, 75, dc), 2);
   const edge = Math.max(Math.abs(x), Math.abs(z)) / HALF;

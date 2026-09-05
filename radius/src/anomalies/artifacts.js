@@ -5,10 +5,14 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { fogUniforms } from '../render/fog.js';
 import { glowTexture } from '../render/textures.js';
 import { noise2 } from '../core/rng.js';
-import { clamp, clamp01, lerp, TAU } from '../core/math.js';
+import { buildHands, handEuler } from '../weapons/gunmesh.js';
+import { clamp, clamp01, damp, lerp, easeOutCubic, TAU } from '../core/math.js';
 
-const _v = new THREE.Vector3(), _w = new THREE.Vector3();
+const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _reachDir = new THREE.Vector3(0, -0.3, -1);
 const UP = new THREE.Vector3(0, 1, 0);
+// the reach: the left glove comes up from below the frame and opens toward the artifact while E is held
+const REACH_REST = new THREE.Vector3(-0.17, -0.3, -0.16), REACH_LEN = 0.5;
+const REACH_R0 = handEuler([0.35, -0.35, -0.85], [-0.55, -0.35, 0.75]), REACH_R1 = handEuler([0.1, -0.55, -0.85], [-0.4, -0.5, 0.75]);
 const TYPES = ['pearl', 'ember', 'tear', 'crown'];
 const DEF = {
   pearl: { id: 'art_pearl', name: 'PEARL', light: 0x9fd0ff, lightI: 1.6, lightD: 7, hover: 0.32, spark: [0.6, 0.85, 1.0] },
@@ -141,7 +145,22 @@ export function createArtifacts(ctx) {
     a.light = new THREE.PointLight(d.light, d.lightI, d.lightD, 1.9); a.light.visible = false; a.light.position.y = 0.05; root.add(a.light);
     root.position.copy(a.position); root.position.y += d.hover;
     a.root = root; ctx.scene.add(root);
-    a.unregister = ctx.interact.register({ position: root.position, radius: 2.3, prompt: 'PICK UP · ' + d.name, hold: 0.6, onInteract: () => pick(a) });
+    a.unregister = ctx.interact.register({ position: root.position, radius: 2.3, prompt: 'PICK UP · ' + d.name, hold: 0.6, onInteract: () => pick(a), artifact: a });
+  }
+  // the reach hand rides under hands.pivot (sway and bob) only while a hold is in progress or still retracting
+  let reach = null, reachK = 0;
+  function updateReach(dt) {
+    const cur = ctx.interact.current, target = cur && cur.artifact && !cur.artifact.picked ? cur.artifact : null;
+    const want = target ? ctx.interact.holdProgress : 0;
+    reachK = want > reachK ? want : damp(reachK, want, 8, dt);
+    if (reachK <= 0.005) { if (reach && reach.parent) reach.parent.remove(reach); reachK = 0; return; }
+    if (!reach) { reach = buildHands().left; reach.name = 'artifactReach'; }
+    if (!reach.parent) ctx.hands.pivot.add(reach);
+    if (target) { _v.copy(target.root.position); ctx.camera.worldToLocal(_v); if (_v.lengthSq() > 1e-4) _reachDir.copy(_v).normalize(); }
+    const k = easeOutCubic(clamp01(reachK));
+    _w.copy(_reachDir).multiplyScalar(REACH_LEN); _w.x -= 0.03; _w.y -= 0.04;
+    reach.position.copy(REACH_REST).lerp(_w, k);
+    reach.rotation.set(lerp(REACH_R0[0], REACH_R1[0], k), lerp(REACH_R0[1], REACH_R1[1], k), lerp(REACH_R0[2], REACH_R1[2], k));
   }
   function pick(a) {
     if (a.picked) return; a.picked = true;
@@ -225,7 +244,7 @@ export function createArtifacts(ctx) {
         api.spawn(rollType(rng), _v.set(x, 0, z)); loose++;
       }
     },
-    reset() { for (const a of [...list]) dispose(a); list.length = 0; },
+    reset() { for (const a of [...list]) dispose(a); list.length = 0; reachK = 0; if (reach && reach.parent) reach.parent.remove(reach); },
     nearest(pos) {
       let best = null, bd = Infinity;
       for (const a of list) { const d = a.position.distanceTo(pos); if (d < bd) { bd = d; best = a; } }
@@ -238,6 +257,7 @@ export function createArtifacts(ctx) {
     },
     update(dt) {
       if (pending > 0 && --pending === 0) api.populate();
+      updateReach(dt);
       const pl = ctx.player, p = pl.position, now = ctx.elapsed;
       for (const a of list) {
         const root = a.root; if (!root) continue;

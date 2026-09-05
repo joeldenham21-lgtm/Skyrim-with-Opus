@@ -67,7 +67,7 @@ const ANIMS = {
     const tug = seg(t, 0.3, 0.7);
     const back = 0.42 + 0.58 * (Math.abs(Math.sin(tug * Math.PI * 2)) * (tug > 0 && tug < 1 ? 1 : 0));
     const release = smooth(seg(t, 0.72, 0.84));
-    o.cycle = t < 0.72 ? back : 0.42 * (1 - release) + (1 - release) * 0.58 * 0 ;
+    o.cycle = t < 0.72 ? back : 0.42 * (1 - release);
     o.gunRot.set(-0.18 * tilt, 0.14 * tilt, 0.38 * tilt); o.gunPos.set(-0.02 * tilt, -0.02 * tilt, 0.03 * tilt);
   },
   loadStart(t, o) { const k = smooth(t); o.gunRot.set(-0.28 * k, 0.2 * k, 0.32 * k); o.gunPos.set(-0.03 * k, -0.05 * k, 0.03 * k); },

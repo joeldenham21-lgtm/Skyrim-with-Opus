@@ -12,7 +12,7 @@ const CASINGS = 24;
 const CASE = { '9x18': [0.0095, 0.018, 0.78, 0.6, 0.3], '7.62x39': [0.011, 0.039, 0.72, 0.56, 0.28], '12ga': [0.02, 0.07, 0.5, 0.12, 0.08], '7.62x54': [0.0125, 0.053, 0.74, 0.58, 0.3] };
 
 const _m = new THREE.Vector3(), _o = new THREE.Vector3(), _d = new THREE.Vector3(), _v = new THREE.Vector3(), _q = new THREE.Quaternion();
-const _mat = new THREE.Matrix4(), _pos = new THREE.Vector3(), _sc = new THREE.Vector3(), _rot = new THREE.Euler(), _rq = new THREE.Quaternion();
+const _mat = new THREE.Matrix4(), _sc = new THREE.Vector3(), _rq = new THREE.Quaternion(), _col = new THREE.Color();
 
 export function createWeapons(ctx) {
   const { input, hands, inventory, hud, audio } = ctx;
@@ -22,6 +22,7 @@ export function createWeapons(ctx) {
   let adsTarget = 0, adsBlend = 0, bloom = 0, spreadDeg = 2, lastFov = 0, adsSound = 0;
   let pendingSwitch = null, pendingHolster = false;
   let bestMag = -1, shellsToLoad = 0, spentShells = 0, loadIdx = -1;
+  let userHolstered = false;   // the player put the gun away on purpose (H, slot toggle, detector): inventory changes must not redraw it
 
   // ---- ejected casings: one instanced mesh, pooled ----
   const casingMesh = new THREE.InstancedMesh(casingGeometry(), materials().brass, CASINGS);
@@ -36,7 +37,7 @@ export function createWeapons(ctx) {
   let casingHead = 0;
   ctx.scene.add(casingMesh);
   function ejectCasing(cal, dirLocal, speed = 1) {
-    const c = casings[casingHead]; casingHead = (casingHead + 1) % CASINGS;
+    const idx = casingHead, c = casings[idx]; casingHead = (casingHead + 1) % CASINGS;
     const spec = CASE[cal] || CASE['9x18'];
     hands.ejectWorld(c.pos);
     if (hands.weapon) hands.weapon.getWorldQuaternion(_q); else ctx.camera.getWorldQuaternion(_q);
@@ -45,7 +46,7 @@ export function createWeapons(ctx) {
     c.rot.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
     c.spin.set((Math.random() - 0.5) * 30, (Math.random() - 0.5) * 30, (Math.random() - 0.5) * 30);
     c.t = 0; c.life = 1.1 + Math.random() * 0.2; c.sx = spec[0]; c.sz = spec[1]; c.live = true; c.rest = false;
-    casingMesh.setColorAt(casings.indexOf(c), new THREE.Color(spec[2], spec[3], spec[4]));
+    casingMesh.setColorAt(idx, _col.setRGB(spec[2], spec[3], spec[4]));
     casingMesh.instanceColor.needsUpdate = true;
   }
   function updateCasings(dt) {
@@ -105,7 +106,8 @@ export function createWeapons(ctx) {
   function refresh(show = true) { hud.setAmmo(ammoHtml()); if (show && rec) hud.showAmmo(); }
   function setLock() {
     const d = def(); if (!d || !rec) { hands.setSlideLock(false); return; }
-    hands.setSlideLock(!d.bolt && !d.breakOpen && rec.chamber === 0 && (rec.mags[rec.magIndex] ?? 0) === 0);
+    // only pistols with a slide stop hold open on empty; the AKM carrier runs forward on an empty magazine
+    hands.setSlideLock(meshFor(rec.id).userData.cycle === 'slide' && rec.chamber === 0 && (rec.mags[rec.magIndex] ?? 0) === 0);
   }
   function setCurrent(w, i = -1) {
     rec = w || null; view = rec ? makeView(rec) : null; slotIndex = rec ? i : -1;
@@ -250,10 +252,16 @@ export function createWeapons(ctx) {
   function cancelLoad() { if (stage === 'loadStart' || stage === 'loadRound') setStage('loadEnd', 0.3, null, 'loadEnd'); }
 
   // ---- equip ----
-  function equipSlot(i) {
+  // toggle: a second press of the slot that is already out puts the gun away (the keys); API callers get an idempotent equip
+  function equipSlot(i, toggle = false) {
     const w = inventory.weaponInSlot(i);
     if (!w) return false;
-    if (rec && rec.uid === w.uid) { if (!pendingHolster) beginHolster(null); return true; }
+    userHolstered = false;
+    if (rec && rec.uid === w.uid) {
+      if (pendingHolster) { pendingSwitch = w; api._nextSlot = i; }     // caught mid-holster: bring it back out
+      else if (toggle) { userHolstered = true; beginHolster(null); }
+      return true;
+    }
     if (pendingHolster) { pendingSwitch = w; api._nextSlot = i; return true; }
     beginHolster(w, i);
     return true;
@@ -263,7 +271,7 @@ export function createWeapons(ctx) {
     get current() { return view; },
     get adsBlend() { return adsBlend; }, get spreadDeg() { return spreadDeg; }, get state() { return state; }, get stage() { return stage; },
     equipSlot,
-    holster() { if (rec && !pendingHolster) beginHolster(null); },
+    holster() { if (rec && !pendingHolster) { userHolstered = true; beginHolster(null); } },
     fire() { if (live()) tryFire(true); },
     reload() { if (live()) reload(); },
     loadMag() { if (live()) beginLoad(); },
@@ -279,8 +287,8 @@ export function createWeapons(ctx) {
         }
       }
       pendingHolster = false; pendingSwitch = null;
-      for (let i = 0; i < 4; i++) { const w = inventory.weaponInSlot(i); if (w) { setCurrent(w, i); return; } }
-      setCurrent(null);
+      if (!userHolstered) for (let i = 0; i < 4; i++) { const w = inventory.weaponInSlot(i); if (w) { setCurrent(w, i); return; } }
+      if (rec || hands.weapon) setCurrent(null);
     },
     update(dt) {
       // the record lives in state.data; make sure ours is still the live one
@@ -291,7 +299,7 @@ export function createWeapons(ctx) {
       if (pendingHolster && busy <= 0) { pendingHolster = false; const next = pendingSwitch; pendingSwitch = null; const ns = api._nextSlot ?? -1; api._nextSlot = -1; if (next) setCurrent(next, ns >= 0 ? ns : slotOf(next)); else setCurrent(null); }
       // ---- input ----
       if (live() && !pendingHolster) {
-        for (let i = 0; i < 4; i++) if (input.pressed('slot' + (i + 1))) equipSlot(i);
+        for (let i = 0; i < 4; i++) if (input.pressed('slot' + (i + 1))) equipSlot(i, true);
         if (input.pressed('holster')) api.holster();
         if (input.wheel !== 0 && !pendingHolster) {
           const dir = input.wheel > 0 ? 1 : -1;
@@ -338,6 +346,7 @@ export function createWeapons(ctx) {
     },
   };
   ctx.events.on('inventoryChanged', () => api.onInventoryChanged());
+  ctx.events.on('gameStart', () => { userHolstered = false; pendingHolster = false; pendingSwitch = null; adsTarget = 0; bloom = 0; cool = 0; });
   api.onInventoryChanged();
   return api;
 }

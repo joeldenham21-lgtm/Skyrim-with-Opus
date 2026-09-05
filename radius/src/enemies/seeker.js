@@ -94,7 +94,7 @@ function makeCone(length, angle) {
     coneGeo.userData.shared = true;
   }
   const mat = new THREE.ShaderMaterial({ uniforms: { uTime: { value: 0 }, uIntensity: { value: 0.32 } }, vertexShader: CONE_VERT, fragmentShader: CONE_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
-  const m = new THREE.Mesh(coneGeo, mat); m.renderOrder = 4; m.frustumCulled = false;
+  const m = new THREE.Mesh(coneGeo, mat); m.renderOrder = 4;
   return m;
 }
 
@@ -127,7 +127,7 @@ class Seeker extends Enemy {
     // AI
     this.target = null; this.waitT = rng.range(2, 5); this.sweepT = rng.range(0, 10); this.sweepDir = 1; this.lookYaw = 0;
     this.burstLeft = 0; this.shotT = 0; this.cooldown = 1.2; this.lastVisT = -1e9; this.lastAlertT = -1e9; this.hissT = rng.range(3, 8);
-    this.humLoop = null; this.loopRetry = 0; this.flashed = false; this.inBeam = false; this.moveSpeed = 0; this.staggerT = 0;
+    this.humLoop = null; this.loopRetry = 0; this.flashed = false; this.inBeam = false; this.moveSpeed = 0; this.staggerT = 0; this.humT = 0; this.beamHold = 0;
     this.glitchT = rng.range(3, 7); this.glitchLeft = 0;
     this.deathDuration = 3.6; this.ashDone = false; this.deathFlickerSeed = Math.random() * 10;
     const poi = opts.poi ? ctx.world.poi(opts.poi) : null;
@@ -156,7 +156,7 @@ class Seeker extends Enemy {
   }
   onSpotted() {
     this.sound('seeker_spot', { gain: 1.0, max: 120, ref: 6 });
-    this.humLoop?.set?.('surge', 1);
+    this.humLoop?.set?.('intensity', 1); this.humT = 1.5;
     if (this.inBeam && !this.flashed) { this.flashed = true; this.ctx.post.flash(0.25); }
     this.cooldown = 1.1; this.setState('engage'); this.alertPack();
   }
@@ -187,16 +187,17 @@ class Seeker extends Enemy {
     this.setLight(fl);
     this.bodyMat.userData.u.uTime.value = this.time; this.plateMat.userData.u.uTime.value = this.time; this.cone.material.uniforms.uTime.value = this.time;
     if (t >= 1.6) {
-      if (!this.ashDone) { this.ashDone = true; this.ctx.vfx.ash(_v.set(this.position.x, this.position.y + 0.6, this.position.z), 160); rig.mesh.castShadow = false; this.plates.castShadow = false; this.light.visible = false; }
+      if (!this.ashDone) { this.ashDone = true; this.ctx.vfx.ash(_v.set(this.position.x, this.position.y + 0.6, this.position.z), 160); rig.mesh.castShadow = false; this.plates.castShadow = false; this.setLight(0); }
       const dv = clamp01((t - 1.6) / 1.6);
       this.bodyMat.userData.u.uDissolve.value = dv; this.plateMat.userData.u.uDissolve.value = dv;
       this.bodyMat.userData.u.uShiver.value = 1 + dv * 2;
     }
   }
   onDispose() { this.rig.dispose(); this.lensMat.dispose(); this.cone.material.dispose(); this.lens.geometry.dispose(); }
+  // intensity only: toggling a light's visibility changes the scene's light count and makes three recompile
+  // every material in view, so the lamp stays in the light list at zero while it is dark
   setLight(level) {
     this.light.intensity = 46 * level;
-    this.light.visible = level > 0.01;
     this.cone.material.uniforms.uIntensity.value = 0.32 * level;
     this.cone.visible = level > 0.01;
     this.lensMat.color.setRGB(0.4 + 2.8 * level, 0.35 + 2.55 * level, 0.25 + 1.95 * level);
@@ -226,7 +227,7 @@ class Seeker extends Enemy {
     const p = this.player;
     _v3.set(p.position.x, p.position.y + p.eyeHeight * 0.6, p.position.z);
     _dir.subVectors(_v3, muzzle).normalize();
-    enemyShoot(this.ctx, this, muzzle, _dir, 12, 3 + (this.moveSpeed > 0.4 ? 1 : 0));
+    enemyShoot(this.ctx, this, muzzle, _dir, 12, 3.5 + dist * 0.04 + (this.moveSpeed > 0.4 ? 1.2 : 0));
     this.ctx.vfx.muzzleFlash(muzzle, _dir);
     this.sound('seeker_shot', { pos: muzzle, gain: 1.0, max: 300, ref: 6 });
     this.rig.kick = 1;
@@ -301,7 +302,18 @@ class Seeker extends Enemy {
     // hydraulics + hum
     this.hissT -= dt; if (this.hissT <= 0) { this.hissT = rng.range(4, 9); if (d < 90) this.sound('seeker_hiss', { gain: 0.5 + 0.3 * clamp01(this.moveSpeed), max: 90 }); }
     if (!this.humLoop) { this.loopRetry -= dt; if (this.loopRetry <= 0) { this.loopRetry = 1; if (ctx.audio.ready) this.humLoop = this.loopSound('seeker_hum', { gain: 0.3, max: 120, ref: 6 }); } }
-    if (this.humLoop) this.humLoop.setGain((0.3 + 0.6 * clamp01(this.aware)) * clamp01(1 - d / 110), 0.3);
+    if (this.humLoop) {
+      this.humLoop.setGain((0.3 + 0.6 * clamp01(this.aware)) * clamp01(1 - d / 110), 0.3);
+      // the hum rises when the beam has you; the loop's 'intensity' setter is a smoothed target, so a few Hz is plenty
+      this.humT -= dt; if (this.humT <= 0) { this.humT = 0.25; this.humLoop.set('intensity', clamp01(0.25 + 0.45 * this.aware + (this.inBeam ? 0.5 : 0))); }
+    }
+    // the light finding you: a sustained glare while you stand in the beam looking into the lamp
+    if (this.inBeam && !p.dead) {
+      _dir.set(this.position.x - p.eye.x, this.position.y + 1.7 * SCALE - p.eye.y, this.position.z - p.eye.z).normalize();
+      const facing = clamp01((_dir.dot(ctx.player.forward) - 0.3) / 0.7);
+      this.beamHold = damp(this.beamHold, facing, 4, dt);
+      if (this.beamHold > 0.02) ctx.post.flash(0.04 + 0.16 * this.beamHold * clamp01(1.2 - d / 40));
+    } else this.beamHold = damp(this.beamHold, 0, 4, dt);
     this.animate(dt, d, { headYaw, headPitch, aim, aimPitch, aimYaw, speed: this.moveSpeed });
   }
   // slow sweep of the head/searchlight: +-range, rate in rad/s, with pauses at the ends

@@ -33,6 +33,7 @@ export function createDirector(ctx) {
         case 'damaged': lastCombat = t; if (data.source && state !== 'COMBAT') api.setState('COMBAT'); break;
         case 'kill': lastCombat = t; if (state !== 'COMBAT') api.setState('COMBAT'); break;
         case 'unease': unease = Math.max(unease, data.amount ?? 0.6); if (state === 'CALM') api.setState('UNEASE'); break;
+        case 'anomaly': unease = Math.max(unease, 0.3); if (state === 'CALM' && calmGuard <= 0) api.setState('UNEASE'); break;
         case 'lost': break;
       }
       ctx.events.emit('directorNotify', kind, data);

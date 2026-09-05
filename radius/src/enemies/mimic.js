@@ -111,7 +111,7 @@ export function makeFace(size = 0.24, glow = 3.0) {
   const uniforms = Object.assign({ uTime: { value: 0 }, uSeed: { value: Math.random() * 50 }, uFade: { value: 1 }, uGlow: { value: glow } }, fogUniforms, THREE.UniformsUtils.clone(THREE.UniformsLib.fog));
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: FACE_VERT, fragmentShader: FACE_FRAG, transparent: true, depthWrite: false, fog: true, side: THREE.DoubleSide });
   const m = new THREE.Mesh(faceGeo, mat);
-  m.scale.setScalar(size); m.renderOrder = 3; m.frustumCulled = false;
+  m.scale.setScalar(size); m.renderOrder = 3;
   return m;
 }
 
@@ -408,8 +408,9 @@ class Mimic extends Enemy {
     this.staggerT = 0; this.unobservedT = 0; this.obsT = 0; this.observed = true; this.skipCool = 0; this.moveSpeed = 0;
     this.staticLoop = null; this.loopRetry = 0; this.spotted = false;
     this.deathDuration = 2.2; this.ashDone = false;
-    this.setState(opts.idle ? 'idle' : 'patrol');
-    this.waitT = rng.range(2, 6);
+    // a fresh mimic stands and watches first (a still figure among the trunks), then starts its rounds
+    this.setState(opts.idle ? 'idle' : 'watch');
+    this.waitT = rng.range(5, 16); this.lookT = rng.range(1, 3);
     // first sync so the face and muzzle are placed before the first render
     this.root.position.copy(this.position); this.root.rotation.y = this.yaw; this.root.updateMatrixWorld(true);
     this.animate(0.016, 0);
