@@ -123,7 +123,7 @@ const game = {
     const M = ctx.world.map;
     ctx.player.revive();
     if (newGame) { ctx.player.setLook(M.START.yaw, 0); ctx.player.teleport(M.START.x, M.START.z); }
-    else { ctx.player.setLook(0, 0); ctx.player.teleport(M.BASE.x, M.BASE.z); }
+    else { ctx.player.setLook(0, 0); ctx.player.teleport(M.BASE.x, M.BASE.z, ctx.world.groundHeight(M.BASE.x, M.BASE.z, 60).y); }   // the bunker floor is a box above the terrain
     ctx.weapons.onInventoryChanged?.();
     ctx.director.rest();
     ctx.post.setDeath(0);
@@ -165,13 +165,13 @@ const game = {
 };
 ctx.game = game;
 
-let last = performance.now(), fpsAcc = 0, fpsN = 0, fps = 0;
+let last = performance.now(), fpsAcc = 0, fpsN = 0, fps = 0, lastReal = performance.now();
 function loop(now) {
   requestAnimationFrame(loop);
   let dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (dt <= 0) dt = 0.0001;
   ctx.frame++; ctx.elapsed += dt;
-  fpsAcc += dt; fpsN++; if (fpsAcc > 0.5) { fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
+  fpsAcc += (now - lastReal) / 1000; lastReal = now; fpsN++; if (fpsAcc > 0.5) { fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
   const t = ctx.elapsed;
   try {
     if (ctx.mode === 'playing' && ctx.input.rawPressed('pause')) { if (ctx.panels.isOpen) ctx.panels.close(); else game.pause(); }

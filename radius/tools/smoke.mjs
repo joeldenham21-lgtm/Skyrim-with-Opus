@@ -45,7 +45,7 @@ await page.waitForFunction(() => window.__radius && window.__radius.ready, null,
 let shot = 0;
 const api = {
   page, outDir,
-  async screenshot(name) { const p = resolve(outDir, `${String(shot++).padStart(2, '0')}-${name || 'shot'}.png`); await page.screenshot({ path: p }); console.log('screenshot', p); return p; },
+  async screenshot(name) { const p = resolve(outDir, `${String(shot++).padStart(2, '0')}-${name || 'shot'}.png`); await page.screenshot({ path: p, timeout: 180000 }); console.log('screenshot', p); return p; },
   async run(js) { return page.evaluate(js); },
   async wait(ms) { await page.waitForTimeout(ms); },
   // wait until N more frames have rendered (robust under slow software rendering)
