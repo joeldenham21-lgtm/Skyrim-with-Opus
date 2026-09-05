@@ -65,9 +65,12 @@ function pearlMaterial() {
   const m = new THREE.MeshStandardMaterial({ color: 0xe6f0ff, roughness: 0.22, metalness: 0.05, emissive: 0x9fd0ff, emissiveIntensity: 1.3 });
   m.onBeforeCompile = (shader) => {
     for (const k in fogUniforms) shader.uniforms[k] = fogUniforms[k];
-    // the light sits inside: brightest through the centre, the rim stays a cool shell
+    // the light sits inside: brightest through the centre; the shell is nacre, turning rose then blue toward the rim
     shader.fragmentShader = shader.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-      { float c = clamp(dot(normalize(vNormal), normalize(vViewPosition)), 0.0, 1.0); totalEmissiveRadiance *= 0.25 + 1.3 * pow(c, 2.4); }`);
+      { float c = clamp(dot(normalize(vNormal), normalize(vViewPosition)), 0.0, 1.0); float fres = 1.0 - c;
+        vec3 nacre = mix(vec3(1.0, 0.72, 0.84), vec3(0.62, 0.8, 1.0), smoothstep(0.35, 0.85, fres));
+        totalEmissiveRadiance = mix(totalEmissiveRadiance * (0.25 + 1.3 * pow(c, 2.4)), nacre * 0.55, smoothstep(0.2, 0.75, fres));
+        diffuseColor.rgb = mix(diffuseColor.rgb, nacre, fres * 0.6); }`);
   };
   return m;
 }
@@ -84,12 +87,19 @@ function emberMaterial() {
   };
   return m;
 }
-// materials without a custom onBeforeCompile get the global fog hook from render/fog.js automatically
+// glass without a transmission pass (that renders the whole scene a second time): the drop is see-through in the
+// middle and catches light at the rim, with the pink held inside like a bead of coloured water
 function tearMaterial() {
-  return new THREE.MeshPhysicalMaterial({
-    color: 0xffdce8, roughness: 0.06, metalness: 0, transmission: 0.92, thickness: 0.22, ior: 1.42,
-    attenuationColor: new THREE.Color(0xff9ac8), attenuationDistance: 0.35, emissive: 0xff6fa8, emissiveIntensity: 0.7, side: THREE.FrontSide,
-  });
+  const m = new THREE.MeshPhysicalMaterial({ color: 0xffd8e6, roughness: 0.05, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.08, emissive: 0xff6fa8, emissiveIntensity: 0.7, transparent: true, opacity: 1, depthWrite: false });
+  m.onBeforeCompile = (shader) => {
+    for (const k in fogUniforms) shader.uniforms[k] = fogUniforms[k];
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        { float c = clamp(dot(normalize(vNormal), normalize(vViewPosition)), 0.0, 1.0); float fres = pow(1.0 - c, 2.5);
+          totalEmissiveRadiance *= 0.35 + 0.65 * fres + 0.5 * pow(c, 6.0);
+          diffuseColor.a = 0.3 + 0.7 * fres; }`);
+  };
+  return m;
 }
 function crownMaterial() { return new THREE.MeshStandardMaterial({ color: 0x17141c, roughness: 0.5, metalness: 0.65, emissive: 0x3a2a55, emissiveIntensity: 0.4 }); }
 function coreMaterial(col) { return new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3, emissive: col, emissiveIntensity: 2.4 }); }

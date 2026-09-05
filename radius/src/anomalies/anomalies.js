@@ -624,14 +624,14 @@ class Gas extends Anomaly {
     for (const p of parts) p.dispose();
     this.ventMesh = new THREE.Mesh(merged, ventMaterial()); this.ventMesh.receiveShadow = true;
     this.root.add(this.ventMesh);
-    // fog volume
+    // fog volume: the visual core is radius / 1.3; the burn reaches out to the full radius, past what you can see
     this.gasMat = gasMaterial(rng() * 100);
     this.blob = new THREE.Mesh(g.blob, this.gasMat);
-    const ys = 0.5;
-    this.blob.scale.set(this.radius, this.radius * ys, this.radius);
-    this.blob.position.y = this.radius * ys * 0.35;
+    const core = this.radius / 1.3, ys = 0.5;
+    this.blob.scale.set(core, core * ys, core);
+    this.blob.position.y = core * ys * 0.35;
     this.blob.renderOrder = 2;
-    this.gasMat.uniforms.uBase.value = this.position.y; this.gasMat.uniforms.uHeight.value = this.radius * ys * 1.35;
+    this.gasMat.uniforms.uBase.value = this.position.y; this.gasMat.uniforms.uHeight.value = core * ys * 1.45;
     this.root.add(this.blob);
     this.burnT = 0; this.coughT = 0; this.inside = false;
   }
