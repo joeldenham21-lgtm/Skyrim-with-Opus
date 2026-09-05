@@ -60,7 +60,6 @@ function sharedGeo() {
   shared = { pearl, ember, tear, ring, crown, core };
   return shared;
 }
-const withFog = (m) => { const prev = m.onBeforeCompile; m.onBeforeCompile = (s, r) => { for (const k in fogUniforms) s.uniforms[k] = fogUniforms[k]; prev?.(s, r); }; return m; };
 
 function pearlMaterial() {
   const m = new THREE.MeshStandardMaterial({ color: 0xe6f0ff, roughness: 0.22, metalness: 0.05, emissive: 0x9fd0ff, emissiveIntensity: 1.3 });
@@ -85,14 +84,15 @@ function emberMaterial() {
   };
   return m;
 }
+// materials without a custom onBeforeCompile get the global fog hook from render/fog.js automatically
 function tearMaterial() {
-  return withFog(new THREE.MeshPhysicalMaterial({
+  return new THREE.MeshPhysicalMaterial({
     color: 0xffdce8, roughness: 0.06, metalness: 0, transmission: 0.92, thickness: 0.22, ior: 1.42,
     attenuationColor: new THREE.Color(0xff9ac8), attenuationDistance: 0.35, emissive: 0xff6fa8, emissiveIntensity: 0.7, side: THREE.FrontSide,
-  }));
+  });
 }
-function crownMaterial() { return withFog(new THREE.MeshStandardMaterial({ color: 0x17141c, roughness: 0.5, metalness: 0.65, emissive: 0x3a2a55, emissiveIntensity: 0.4 })); }
-function coreMaterial(col) { return withFog(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3, emissive: col, emissiveIntensity: 2.4 })); }
+function crownMaterial() { return new THREE.MeshStandardMaterial({ color: 0x17141c, roughness: 0.5, metalness: 0.65, emissive: 0x3a2a55, emissiveIntensity: 0.4 }); }
+function coreMaterial(col) { return new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3, emissive: col, emissiveIntensity: 2.4 }); }
 function glowSprite(r, g, b, scale) {
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: new THREE.Color(r, g, b), transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
   s.scale.setScalar(scale); s.renderOrder = 4; return s;

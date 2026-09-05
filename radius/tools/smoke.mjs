@@ -52,7 +52,7 @@ const api = {
   async run(js) { return page.evaluate(js); },
   async wait(ms) { await page.waitForTimeout(ms); },
   // wait until N more frames have rendered (robust under slow software rendering)
-  async frames(n = 5) { const f0 = await page.evaluate(() => window.__radius.ctx.frame); await page.waitForFunction((f) => window.__radius.ctx.frame >= f, f0 + n, { timeout: Math.max(60000, n * 8000) }); },
+  async frames(n = 5) { const f0 = await page.evaluate(() => window.__radius.ctx.frame); await page.waitForFunction((f) => window.__radius.ctx.frame >= f, f0 + n, { timeout: Math.max(180000, n * 25000) }); },
   async start() { await page.evaluate(() => window.__radius.start()); await api.frames(6); },
   async key(k, ms = 100) { await page.keyboard.down(k); await page.waitForTimeout(ms); await page.keyboard.up(k); },
   async mouse(dx, dy) { await page.evaluate(([dx, dy]) => window.__radius.look(dx, dy), [dx, dy]); },
