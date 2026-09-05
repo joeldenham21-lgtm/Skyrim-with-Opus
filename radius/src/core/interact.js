@@ -11,8 +11,7 @@ export function createInteract(ctx) {
     get holdProgress() { return current && current.hold > 0 ? holdT / current.hold : 0; },
     clear() { items.clear(); current = null; },
     update(dt) {
-      const cam = ctx.camera;
-      const p = cam.position;
+      const p = ctx.player.eye;   // world-space eye (camera.position is local to the head rig)
       const fwd = ctx.camera.getWorldDirection(ctx._tmpDir);
       let best = null, bestScore = Infinity;
       for (const it of items) {

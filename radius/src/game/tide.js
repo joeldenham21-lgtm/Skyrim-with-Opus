@@ -29,13 +29,13 @@ export function createTide(ctx) {
       // sky whitening in the last 10 minutes
       const pre = tideS > 0 ? clamp01(1 - tideS / 600) : 1;
       if (phase === 'idle') {
-        ctx.sky.uniforms.uTide.value = pre * pre * 0.45;
+        ctx.sky.tideBase = pre * pre * 0.45;
         if (tideS < 3600 && !ctx.player.inBase) { sirenT -= dt; if (sirenT <= 0) { sirenT = tideS < 600 ? 6 : 18; ctx.audio.play('siren', { pos: ctx.world.map.BASE, gain: 0.7, max: 900, ref: 60, rolloff: 0.6 }); } }
         if (tideS <= 0) api.arrive();
       } else if (phase === 'rising') {
         t += dt / 6;
         const v = smoothstep(0, 1, t);
-        ctx.post.setTide(v); ctx.sky.uniforms.uTide.value = 0.45 + v * 0.55; ctx.post.shake(v * 0.6);
+        ctx.post.setTide(v); ctx.sky.tideBase = 0.45 + v * 0.55; ctx.post.shake(v * 0.6);
         ctx.lighting.storm = v;
         if (t >= 1) {
           phase = 'white'; t = 0;
@@ -43,9 +43,9 @@ export function createTide(ctx) {
         }
       } else if (phase === 'white') {
         t += dt / 4;
-        ctx.post.setTide(1 - smoothstep(0, 1, t)); ctx.sky.uniforms.uTide.value = 1 - smoothstep(0, 1, t);
+        ctx.post.setTide(1 - smoothstep(0, 1, t)); ctx.sky.tideBase = 1 - smoothstep(0, 1, t);
         ctx.lighting.storm = 1 - t;
-        if (t >= 1) { phase = 'idle'; ctx.post.setTide(0); ctx.lighting.storm = 0; ctx.sky.uniforms.uTide.value = 0; }
+        if (t >= 1) { phase = 'idle'; ctx.post.setTide(0); ctx.lighting.storm = 0; ctx.sky.tideBase = 0; }
       }
     },
   };

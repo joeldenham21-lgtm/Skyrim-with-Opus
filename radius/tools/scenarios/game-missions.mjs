@@ -1,0 +1,63 @@
+import { fr as mk, face, prompt, interact, start } from './game-lib.mjs';
+export default async function (page, api) {
+  const fr = mk(page, api);
+  await start(page, api);
+  const list = await api.run(`window.__radius.ctx.missions.available().map(m => [m.id, m.title, m.payment, m.requirements.join('; ')])`);
+  console.log('AVAILABLE', JSON.stringify(list));
+  console.log(await api.run(`window.__radius.ctx.missions.available().map(m => m.heading + ' — ' + m.body).join('\\n')`));
+  const id = await api.run(`(() => { const ms = window.__radius.ctx.missions.available(); const m = ms.find(m => m.code === 'PSC-0417') || ms.find(m => m.type === 'RETRIEVAL'); return m.id; })()`);
+  const ok = await api.run(`window.__radius.ctx.missions.accept('${id}')`);
+  await fr(1);
+  console.log('OBJECTIVE', JSON.stringify(await api.run(`(() => { const c = window.__radius.ctx; const o = c.hud.elements.objective; return { accepted: ${ok}, hidden: o.classList.contains('hidden'), text: o.textContent, active: c.missions.active.map(m => [m.id, m.status]) }; })()`)));
+  const spot = await api.run(`window.__radius.ctx.missions.active[0].spot`);
+  console.log('SPOT', JSON.stringify(spot));
+  await api.run(`window.__radius.teleport(${spot.x + 1.2}, ${spot.z + 1.0}); window.__radius.setTime(11);`);
+  await fr(1);
+  await api.run(face(spot.x, spot.y + 0.08, spot.z));
+  await fr(2);
+  await api.screenshot('mission-recorder');
+  console.log('INTERACT', JSON.stringify(await api.run(`(() => { const c = window.__radius.ctx; return { prompt: ${prompt}, promptEl: c.hud.elements.prompt.textContent }; })()`)));
+  await api.run(`${interact}`);
+  await fr(1);
+  console.log('AFTER PICKUP', JSON.stringify(await api.run(`(() => { const c = window.__radius.ctx; const m = c.missions.active[0]; return { has: c.inventory.count(m.item), deliverable: c.missions.deliverable(m), objective: c.hud.elements.objective.textContent, money: c.state.data.money }; })()`)));
+  console.log('COMPLETE', JSON.stringify(await api.run(`(() => { const c = window.__radius.ctx; const m = c.missions.active[0]; const r = c.missions.complete(m.id); return { r, money: c.state.data.money, earned: c.state.data.earned, level: c.state.data.securityLevel, active: c.missions.active.length, completed: c.missions.completed, availableNow: c.missions.available().map(m => m.id), objectiveHidden: c.hud.elements.objective.classList.contains('hidden') }; })()`)));
+  // survey: accept, plant one beacon
+  const sid = await api.run(`(() => { const ms = window.__radius.ctx.missions.available(); const m = ms.find(m => m.type === 'SURVEY'); return m ? m.id : null; })()`);
+  await api.run(`window.__radius.ctx.missions.accept('${sid}')`);
+  const pt = await api.run(`(() => { const c = window.__radius.ctx; const m = c.missions.active.find(m => m.type === 'SURVEY'); const p = m.points[0]; return { x: p.x, z: p.z, y: c.world.getHeight(p.x, p.z), beacons: c.inventory.count('beacon'), objective: c.hud.elements.objective.textContent }; })()`);
+  console.log('SURVEY', JSON.stringify(pt));
+  await api.run(`window.__radius.teleport(${pt.x + 1.6}, ${pt.z + 1.4})`);
+  await fr(1);
+  await api.run(face(pt.x, pt.y + 0.5, pt.z));
+  await fr(2);
+  await api.screenshot('survey-stake');
+  console.log('STAKE PROMPT', await api.run(prompt));
+  await api.run(`${interact}`);
+  await fr(2);
+  await api.screenshot('survey-beacon');
+  console.log('PLANTED', JSON.stringify(await api.run(`(() => { const c = window.__radius.ctx; const m = c.missions.active.find(m => m.type === 'SURVEY'); return { done: m.points.map(p => p.done), beacons: c.inventory.count('beacon'), objective: c.hud.elements.objective.textContent }; })()`)));
+  // chain step 1 (RECON) is offered; the relay (chain 3) is forced for the sequence test
+  console.log('CHAIN', JSON.stringify(await api.run(`(() => { const c = window.__radius.ctx; const ms = c.missions.available(); const ch = ms.find(m => m.chain != null); return ch ? [ch.id, ch.title, ch.payment, ch.body] : null; })()`)));
+  const relay = await api.run(`(() => { const c = window.__radius.ctx; const md = c.state.data.missions; md.active.length = 0; md.chainStep = 2; c.state.data.securityLevel = 3; md.chainOffer = null; const ch = c.missions.available().find(m => m.chain === 2); c.missions.accept(ch.id); const m = c.missions.active[0]; return { id: m.id, body: m.body, relay: m.relay, beacon: c.inventory.count('beacon'), y: c.world.getHeight(m.relay.x, m.relay.z) }; })()`);
+  console.log('RELAY', JSON.stringify(relay));
+  await api.run(`window.__radius.teleport(${relay.relay.x + 2.0}, ${relay.relay.z + 2.5}); window.__radius.setTime(18.5);`);
+  await fr(1);
+  await api.run(face(relay.relay.x, relay.y + 0.6, relay.relay.z));
+  await fr(2);
+  console.log('RELAY PROMPT', await api.run(prompt));
+  await api.run(`${interact}`);
+  await fr(1);
+  await api.run(`window.__radius.setLook(0.35, 0.12)`);
+  await fr(1);
+  await api.screenshot('relay-sequence');
+  console.log('SEQ', JSON.stringify(await api.run(`(() => { const c = window.__radius.ctx; return { seq: !!c.missions.sequence, t: c.missions.sequence && c.missions.sequence.t, uTide: c.sky.uniforms.uTide.value }; })()`)));
+  await api.run(`(() => { const c = window.__radius.ctx; for (let i = 0; i < 130; i++) c.missions.update(0.05); })()`);
+  await fr(1);
+  console.log('CONCLUDED', JSON.stringify(await api.run(`(() => { const c = window.__radius.ctx; return { seq: !!c.missions.sequence, uTide: c.sky.uniforms.uTide.value, concluded: c.state.data.flags.concluded, money: c.state.data.money, chainStep: c.state.data.missions.chainStep, slips: [...c.hud.elements.notify.children].map(s => s.textContent) }; })()`)));
+  await api.run(`window.__radius.setLook(0.35, 0.05)`);
+  await fr(1);
+  await api.screenshot('relay-planted');
+  // death resets carried-item contracts; tide disposes everything
+  console.log('DEATH', JSON.stringify(await api.run(`(() => { const c = window.__radius.ctx; const ms = c.missions.available(); const m = ms.find(x => x.type === 'SURVEY') || ms[0]; c.missions.accept(m.id); const before = c.missions.active.map(x => x.id); c.events.emit('playerDied', { kind: 'test' }); return { before, after: c.missions.active.map(x => x.id), available: c.missions.available().map(x => x.id) }; })()`)));
+  console.log('TIDE', JSON.stringify(await api.run(`(() => { const c = window.__radius.ctx; const before = c.scene.children.length; c.events.emit('tide', 2); return { sceneBefore: before, sceneAfter: c.scene.children.length, available: c.missions.available().map(x => x.id) }; })()`)));
+}

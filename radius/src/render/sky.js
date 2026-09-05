@@ -154,8 +154,11 @@ export function createSky(ctx) {
     uniforms, dome, anomaly, column,
     horizon: uniforms.uHorizon.value, zenith: uniforms.uZenith.value,
     columnPosition: column.position,
+    tideBase: 0,    // written by game/tide.js
+    tideBoost: 0,   // any module may add a temporary brightening (missions relay sequence)
     update(dt, t) {
       uniforms.uTime.value = t;
+      uniforms.uTide.value = Math.min(1, api.tideBase + api.tideBoost);
       dome.position.copy(ctx.camera.position);
       // debris orbits
       for (let i = 0; i < DEBRIS; i++) {

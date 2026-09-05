@@ -1,13 +1,335 @@
-// STUB — owned by an enemies agent. Registers the 'seeker' type. See DESIGN.md §6 and ARCHITECTURE.md §Enemies.
+// Seeker — a mimic three metres tall in an armoured suit. Slow, heavy, sweeping a searchlight from the lens in
+// its dome. The light finding you is the scare: the screen floods, the hum rises, then the MG. It cannot skip;
+// it just keeps coming. Only after Tide level 2, only at Object 12 and the church.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Enemy } from './common.js';
-class Seeker extends Enemy {
-  constructor(ctx, position, opts) {
-    super(ctx, 'seeker', position, Object.assign({ hp: 90 }, opts));
-    const m = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 1.1, 4, 8), new THREE.MeshStandardMaterial({ color: 0x0a0a0c, roughness: 1 }));
-    m.position.y = 0.9; m.castShadow = true; this.root.add(m);
-  }
-  tick(dt) { this.followGround(dt); this.perceive(dt); }
-  onDeath() { this.ctx.vfx.ash(this.position); this.root.visible = false; }
+import { GLSL_NOISE } from '../render/glsl.js';
+import { Rig, makeBodyMaterial, buildParts, skinify, boneIndex, enemyShoot, BODY_PARTS, offsetParts, GUN_REST } from './mimic.js';
+import { clamp, clamp01, damp, angleDelta, lerp, TAU, DEG } from '../core/math.js';
+
+const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _dir = new THREE.Vector3(), _axis = new THREE.Vector3();
+const _m = new THREE.Matrix4();
+const SCALE = 1.65;
+
+// ---- heavy MG silhouette (gun-local, muzzle -z) ----
+const MG_PARTS = [
+  [0.09, 0.12, 0.52, 0, 0, 0, 'gun', { jitter: 0.004 }],
+  [0.05, 0.05, 0.55, 0, 0.02, -0.52, 'gun', { jitter: 0.003 }],             // barrel
+  [0.075, 0.075, 0.30, 0, 0.02, -0.40, 'gun', { jitter: 0.004 }],           // shroud
+  [0.03, 0.03, 0.45, 0, -0.04, -0.45, 'gun', { jitter: 0.002 }],            // gas tube
+  [0.05, 0.09, 0.22, 0, -0.02, 0.36, 'gun', { rx: 0.1, jitter: 0.004 }],     // stock
+  [0.17, 0.11, 0.09, -0.09, -0.06, -0.06, 'gun', { jitter: 0.004 }],        // side box magazine
+  [0.04, 0.12, 0.05, 0, -0.10, 0.14, 'gun', { rx: -0.3, jitter: 0.003 }],   // grip
+  [0.03, 0.06, 0.12, 0, 0.10, -0.05, 'gun', { jitter: 0.003 }],             // carry handle
+];
+const MG_GRIP_R = [0.0, -0.13, 0.14], MG_GRIP_L = [-0.02, -0.05, -0.18], MG_MUZZLE = [0, 0.02, -0.80];
+
+// ---- armour plates over the black body (mesh space, unscaled) ----
+const PLATE_PARTS = [
+  [0.46, 0.34, 0.09, 0, 1.47, -0.135, 'chest', { top: 0.92, jitter: 0.008 }],
+  [0.44, 0.42, 0.18, 0, 1.42, 0.17, 'chest', { jitter: 0.008 }],            // pack
+  [0.16, 0.10, 0.12, -0.10, 1.66, 0.19, 'chest', { jitter: 0.006 }],         // pack valve block
+  [0.34, 0.09, 0.07, 0, 1.28, -0.11, 'spine', { jitter: 0.006 }],
+  [0.33, 0.08, 0.07, 0, 1.17, -0.105, 'spine', { jitter: 0.006 }],
+  [0.22, 0.15, 0.24, -0.29, 1.58, 0, 'shL', { rz: 0.3, top: 0.8, jitter: 0.01 }],
+  [0.22, 0.15, 0.24, 0.29, 1.58, 0, 'shR', { rz: -0.3, top: 0.8, jitter: 0.01 }],
+  [0.15, 0.24, 0.15, -0.21, 1.40, 0, 'shL', { jitter: 0.008 }],
+  [0.15, 0.24, 0.15, 0.21, 1.40, 0, 'shR', { jitter: 0.008 }],
+  [0.13, 0.22, 0.13, -0.21, 1.11, 0, 'foL', { jitter: 0.008 }],
+  [0.13, 0.22, 0.13, 0.21, 1.11, 0, 'foR', { jitter: 0.008 }],
+  [0.36, 0.15, 0.09, 0, 0.90, -0.115, 'hips', { jitter: 0.008 }],
+  [0.34, 0.14, 0.09, 0, 0.91, 0.11, 'hips', { jitter: 0.008 }],
+  [0.20, 0.32, 0.10, -0.11, 0.72, -0.085, 'thL', { top: 1.05, jitter: 0.008 }],
+  [0.20, 0.32, 0.10, 0.11, 0.72, -0.085, 'thR', { top: 1.05, jitter: 0.008 }],
+  [0.16, 0.34, 0.08, -0.11, 0.29, -0.075, 'snL', { jitter: 0.008 }],
+  [0.16, 0.34, 0.08, 0.11, 0.29, -0.075, 'snR', { jitter: 0.008 }],
+  [0.16, 0.11, 0.32, -0.11, 0.06, -0.06, 'snL', { jitter: 0.008 }],
+  [0.16, 0.11, 0.32, 0.11, 0.06, -0.06, 'snR', { jitter: 0.008 }],
+  [0.14, 0.09, 0.14, 0, 1.63, 0, 'neck', { jitter: 0.006 }],                // collar ring
+];
+let plateGeo = null, bodyGeo = null;
+function buildSeekerGeometry() {
+  if (bodyGeo) return;
+  // body: mimic body without the box head (the dome replaces it) + the MG
+  const body = BODY_PARTS.filter((p) => p[6] !== 'head');
+  bodyGeo = buildParts(body.concat(offsetParts(MG_PARTS, GUN_REST[0], GUN_REST[1], GUN_REST[2])), SCALE);
+  bodyGeo.userData.shared = true;
+  const plates = buildParts(PLATE_PARTS, SCALE);
+  // dome head: a squashed sphere cap on a short drum, bound to the head bone
+  const dome = new THREE.SphereGeometry(0.19 * SCALE, 14, 9, 0, TAU, 0, Math.PI * 0.58);
+  dome.scale(1.0, 0.85, 1.05);
+  _m.makeTranslation(0, 1.70 * SCALE, 0.01 * SCALE); dome.applyMatrix4(_m);
+  const drum = new THREE.CylinderGeometry(0.175 * SCALE, 0.16 * SCALE, 0.12 * SCALE, 14, 1);
+  _m.makeTranslation(0, 1.68 * SCALE, 0.01 * SCALE); drum.applyMatrix4(_m);
+  const hood = new THREE.BoxGeometry(0.16 * SCALE, 0.05 * SCALE, 0.12 * SCALE);
+  _m.makeTranslation(0, 1.80 * SCALE, -0.16 * SCALE); hood.applyMatrix4(_m);
+  for (const g of [dome, drum, hood]) skinify(g, boneIndex('head'));
+  plateGeo = mergeGeometries([plates, dome, drum, hood], false);
+  plateGeo.userData.shared = true;
+  plates.dispose(); dome.dispose(); drum.dispose(); hood.dispose();
 }
-export function registerSeeker(ctx) { ctx.enemies.registerType('seeker', Seeker); }
+
+// ---- visible searchlight cone: additive, brightest along the silhouette, dust drifting through it ----
+const CONE_VERT = /* glsl */`
+  varying float vT; varying vec3 vN, vV; varying vec2 vUv;
+  void main(){ vUv = uv; vT = 1.0 - uv.y; vN = normalize(normalMatrix * normal); vec4 mv = modelViewMatrix * vec4(position, 1.0); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`;
+const CONE_FRAG = /* glsl */`
+  ${GLSL_NOISE}
+  uniform float uTime, uIntensity; varying float vT; varying vec3 vN, vV; varying vec2 vUv;
+  void main(){
+    float edge = 1.0 - abs(dot(normalize(vN), normalize(vV)));
+    float fall = pow(1.0 - vT, 1.7) * smoothstep(0.0, 0.06, vT);
+    float dust = 0.7 + 0.6 * vnoise(vec2(vUv.x * 9.0, vT * 22.0 - uTime * 0.7)) * vnoise(vec2(vUv.x * 23.0 + uTime * 0.2, vT * 60.0 - uTime * 1.5));
+    float a = (0.08 + 0.6 * edge * edge) * fall * uIntensity * dust;
+    gl_FragColor = vec4(vec3(1.0, 0.92, 0.74) * a, a);
+  }`;
+let coneGeo = null;
+function makeCone(length, angle) {
+  if (!coneGeo) {
+    const r = Math.tan(angle) * length;
+    coneGeo = new THREE.ConeGeometry(r, length, 28, 1, true);
+    _m.makeTranslation(0, -length / 2, 0); coneGeo.applyMatrix4(_m);
+    _m.makeRotationX(Math.PI / 2); coneGeo.applyMatrix4(_m);
+    coneGeo.userData.shared = true;
+  }
+  const mat = new THREE.ShaderMaterial({ uniforms: { uTime: { value: 0 }, uIntensity: { value: 0.32 } }, vertexShader: CONE_VERT, fragmentShader: CONE_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
+  const m = new THREE.Mesh(coneGeo, mat); m.renderOrder = 4; m.frustumCulled = false;
+  return m;
+}
+
+let rng = null;
+class Seeker extends Enemy {
+  constructor(ctx, position, opts = {}) {
+    super(ctx, 'seeker', position, Object.assign({ hp: 600 }, opts));
+    this.radius = 0.55; this.height = 3.0; this.speed = 1.2;
+    buildSeekerGeometry();
+    this.bodyMat = makeBodyMaterial({ albedo: 0.02, shiver: 1 });
+    this.plateMat = makeBodyMaterial({ color: [0.075, 0.085, 0.062], roughness: 0.9, shiver: 0.22, grime: 1 });
+    this.rig = new Rig({ scale: SCALE, material: this.bodyMat, geometry: bodyGeo, muzzle: MG_MUZZLE, gripR: MG_GRIP_R, gripL: MG_GRIP_L });
+    this.root.add(this.rig.mesh);
+    this.plates = this.rig.attach(plateGeo, this.plateMat);
+    this.root.add(this.plates);
+    // the lens: an emissive disc on the dome front; the searchlight and its cone hang from the head bone
+    const head = this.rig.B.head;
+    this.lensMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(3.2, 2.9, 2.2), fog: false });
+    const lensGeo = new THREE.CircleGeometry(0.055 * SCALE, 18);
+    this.lens = new THREE.Mesh(lensGeo, this.lensMat);
+    this.lens.position.set(0, 0.06 * SCALE, -0.21 * SCALE); head.add(this.lens);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.055 * SCALE, 0.078 * SCALE, 18), new THREE.MeshStandardMaterial({ color: 0x1a1b18, roughness: 0.55, metalness: 0.3 }));
+    ring.position.copy(this.lens.position); ring.position.z += 0.002; head.add(ring);
+    this.light = new THREE.SpotLight(0xffe4bb, 0, 60, 0.25, 0.4, 1.3);
+    this.light.position.copy(this.lens.position); this.light.castShadow = false;
+    this.light.target.position.set(0, 0.06 * SCALE, -12);
+    head.add(this.light); head.add(this.light.target);
+    this.cone = makeCone(26, 0.25); this.cone.position.copy(this.lens.position); head.add(this.cone);
+    this.lightLevel = 1; this.flicker = 1;
+    // AI
+    this.target = null; this.waitT = rng.range(2, 5); this.sweepT = rng.range(0, 10); this.sweepDir = 1; this.lookYaw = 0;
+    this.burstLeft = 0; this.shotT = 0; this.cooldown = 1.2; this.lastVisT = -1e9; this.lastAlertT = -1e9; this.hissT = rng.range(3, 8);
+    this.humLoop = null; this.loopRetry = 0; this.flashed = false; this.inBeam = false; this.moveSpeed = 0; this.staggerT = 0;
+    this.glitchT = rng.range(3, 7); this.glitchLeft = 0;
+    this.deathDuration = 3.6; this.ashDone = false; this.deathFlickerSeed = Math.random() * 10;
+    const poi = opts.poi ? ctx.world.poi(opts.poi) : null;
+    this.poiR = poi ? Math.min(poi.r * 0.7, 40) : 25;
+    this.setState('patrol');
+    this.root.position.copy(this.position); this.root.rotation.y = this.yaw; this.root.updateMatrixWorld(true);
+    this.animate(0.016, 0, {});
+  }
+  playerAudibility() {
+    const d = this.distanceToPlayer();
+    const steps = d < 10 ? this.player.noise * (1 - d / 10) : 0;
+    const shots = this.ctx.director?.recentShotAt(this.position, 60) || 0;
+    if (shots > 0.05) { if (!this.lastSeenPlayer) this.lastSeenPlayer = new THREE.Vector3(); this.lastSeenPlayer.copy(this.player.position); this.lastSeenT = this.time; if (this.aware < 0.5) this.aware = 0.5; }
+    return clamp01(steps + shots * 1.5);
+  }
+  // armour: half damage everywhere except the lens (top 12 % of the capsule, from the front): x3
+  damage(amount, info = {}) {
+    let mult = 0.5;
+    const pt = info.point;
+    if (pt && pt.y > this.position.y + this.height * 0.88) {
+      _v.set(pt.x - this.position.x, 0, pt.z - this.position.z).normalize();
+      const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw);
+      if (_v.x * fx + _v.z * fz > 0.25) { mult = 3; this.lensHit = 1; }
+    }
+    return super.damage(amount * mult, info);
+  }
+  onSpotted() {
+    this.sound('seeker_spot', { gain: 1.0, max: 120, ref: 6 });
+    this.humLoop?.set?.('surge', 1);
+    if (this.inBeam && !this.flashed) { this.flashed = true; this.ctx.post.flash(0.25); }
+    this.cooldown = 1.1; this.setState('engage'); this.alertPack();
+  }
+  onHit(amount) {
+    this.sound(amount > 60 ? 'seeker_hiss' : 'mimic_hit', { gain: 0.7 });
+    this.rig.flinch = 0.6; this.staggerT = 0.12;
+    if (this.lensHit) { this.lensHit = 0; this.flicker = 0.1; this.rig.startGlitch(1.2); this.glitchLeft = 0.1; }
+  }
+  onDeath() {
+    this.sound('seeker_death', { gain: 1.0, max: 200, ref: 8 });
+    this.sound('seeker_hiss', { gain: 0.9, rate: 0.7 });
+    this.target = null;
+  }
+  deathTick(dt) {
+    const t = this.deathT, rig = this.rig, B = rig.B, s = SCALE;
+    // hydraulic collapse: knees give in two stages, torso slumps forward, head hangs
+    const f1 = clamp01(t / 0.7), f2 = clamp01((t - 0.5) / 0.9);
+    const e1 = 1 - Math.pow(1 - f1, 2), e2 = 1 - Math.pow(1 - f2, 3);
+    B.thL.rotation.x = 0.55 * e1 + 0.5 * e2; B.thR.rotation.x = 0.7 * e1 + 0.3 * e2;
+    B.snL.rotation.x = -(1.3 * e1 + 0.7 * e2); B.snR.rotation.x = -(1.5 * e1 + 0.5 * e2);
+    B.hips.position.y = rig.rest.hips.y - (0.45 * e1 + 0.30 * e2) * s; B.hips.rotation.x = 0.2 * e1 + 0.25 * e2; B.hips.rotation.z = 0.12 * e2;
+    B.spine.rotation.x = 0.35 * e2; B.chest.rotation.x = 0.4 * e2; B.neck.rotation.x = 0.5 * e2; B.head.rotation.x = 0.4 * e2; B.head.rotation.y = 0.3 * e1;
+    B.gun.rotation.x = -0.42 - 0.6 * e2; B.gun.position.y = rig.gunRest.y - 0.2 * s * e2; B.gun.updateMatrix();
+    rig.solveArm(B.shL, B.foL, rig.shPosL, _v.copy(rig.gripL).applyMatrix4(B.gun.matrix), -1);
+    rig.solveArm(B.shR, B.foR, rig.shPosR, _v.copy(rig.gripR).applyMatrix4(B.gun.matrix), 1);
+    // the light dies with a flicker
+    const fl = t < 1.1 ? (Math.sin(t * 47 + this.deathFlickerSeed) > (t / 1.1) * 1.6 - 0.6 ? 1 : 0.05) * (1 - t / 1.3) : 0;
+    this.setLight(fl);
+    this.bodyMat.userData.u.uTime.value = this.time; this.plateMat.userData.u.uTime.value = this.time; this.cone.material.uniforms.uTime.value = this.time;
+    if (t >= 1.6) {
+      if (!this.ashDone) { this.ashDone = true; this.ctx.vfx.ash(_v.set(this.position.x, this.position.y + 0.6, this.position.z), 160); rig.mesh.castShadow = false; this.plates.castShadow = false; this.light.visible = false; }
+      const dv = clamp01((t - 1.6) / 1.6);
+      this.bodyMat.userData.u.uDissolve.value = dv; this.plateMat.userData.u.uDissolve.value = dv;
+      this.bodyMat.userData.u.uShiver.value = 1 + dv * 2;
+    }
+  }
+  onDispose() { this.rig.dispose(); this.lensMat.dispose(); this.cone.material.dispose(); this.lens.geometry.dispose(); }
+  setLight(level) {
+    this.light.intensity = 46 * level;
+    this.light.visible = level > 0.01;
+    this.cone.material.uniforms.uIntensity.value = 0.32 * level;
+    this.cone.visible = level > 0.01;
+    this.lensMat.color.setRGB(0.4 + 2.8 * level, 0.35 + 2.55 * level, 0.25 + 1.95 * level);
+  }
+  alertPack() {
+    for (const e of this.ctx.enemies.list) {
+      if (e === this || !e.alive || (e.type !== 'mimic' && e.type !== 'seeker')) continue;
+      if (e.position.distanceTo(this.position) > 40) continue;
+      if (e.aware < 0.6) e.aware = 0.6;
+      if (!e.lastSeenPlayer) e.lastSeenPlayer = new THREE.Vector3(); e.lastSeenPlayer.copy(this.player.position); e.lastSeenT = this.time;
+    }
+  }
+  faceAngleTo(x, z) { return angleDelta(this.yaw, Math.atan2(-(x - this.position.x), -(z - this.position.z))); }
+  // is the player inside the beam (axis from the lens, angle + a little penumbra) with a line of sight?
+  beamTest() {
+    const p = this.player; if (p.dead || p.inBase) return false;
+    this.syncRoot();
+    this.lens.updateWorldMatrix(true, false);
+    _v.setFromMatrixPosition(this.lens.matrixWorld);
+    _axis.set(-this.lens.matrixWorld.elements[8], -this.lens.matrixWorld.elements[9], -this.lens.matrixWorld.elements[10]).normalize();
+    _v2.set(p.position.x, p.position.y + p.eyeHeight * 0.6, p.position.z);
+    _dir.subVectors(_v2, _v); const d = _dir.length(); if (d > 60 || d < 0.5) return false; _dir.divideScalar(d);
+    if (_dir.dot(_axis) < Math.cos(0.25 + 0.06)) return false;
+    return this.ctx.world.lineOfSight(_v, _v2);
+  }
+  fireOne(muzzle, dist) {
+    const p = this.player;
+    _v3.set(p.position.x, p.position.y + p.eyeHeight * 0.6, p.position.z);
+    _dir.subVectors(_v3, muzzle).normalize();
+    enemyShoot(this.ctx, this, muzzle, _dir, 12, 3 + (this.moveSpeed > 0.4 ? 1 : 0));
+    this.ctx.vfx.muzzleFlash(muzzle, _dir);
+    this.sound('seeker_shot', { pos: muzzle, gain: 1.0, max: 300, ref: 6 });
+    this.rig.kick = 1;
+    if (dist < 25) this.ctx.post.shake(0.06);
+  }
+  syncRoot() { this.root.position.copy(this.position); this.root.rotation.y = this.yaw; }
+
+  tick(dt) {
+    const ctx = this.ctx, p = this.player, t = this.time;
+    this.followGround(dt);
+    const d = this.distanceToPlayer();
+    // perception: the beam is the eye. outside it the seeker is slow to notice you.
+    this.inBeam = this.beamTest();
+    const { vis } = this.perceive(dt, { fov: 70, maxDay: 60, visGain: 0.7, hearGain: 1.0, decay: 0.06 });
+    if (this.inBeam) { this.aware = clamp01(this.aware + dt * 2.2); if (!this.lastSeenPlayer) this.lastSeenPlayer = new THREE.Vector3(); this.lastSeenPlayer.copy(p.position); this.lastSeenT = t; this.lastVisT = t; if (this.aware >= 1 && !this.engaged) { this.engaged = true; ctx.director?.notify('spotted', { enemy: this }); this.onSpotted(); } }
+    else if (vis > 0.05) this.lastVisT = t;
+    if (!this.engaged) this.flashed = false;
+    this.staggerT = Math.max(0, this.staggerT - dt);
+    const prevX = this.position.x, prevZ = this.position.z;
+    let headYaw = 0, headPitch = 0, aim = 0, aimPitch = 0, aimYaw = 0;
+    if (this.engaged && t - this.lastVisT < 8 && this.state !== 'engage') this.setState('engage');
+    else if (!this.engaged && this.aware >= 0.45 && (this.state === 'patrol' || this.state === 'watch')) { this.setState('search'); this.target = this.lastSeenPlayer ? this.lastSeenPlayer.clone() : null; this.waitT = 0; this.sound('seeker_hiss', { gain: 0.6 }); }
+
+    switch (this.state) {
+      case 'watch': {
+        this.waitT -= dt;
+        headYaw = this.sweep(dt, 40 * DEG, 0.55);
+        if (this.waitT <= 0) { this.setState('patrol'); this.target = null; }
+        break;
+      }
+      case 'patrol': {
+        if (!this.target) { this.target = ctx.world.randomPoint(rng, this.home.x, this.home.z, this.poiR) || this.home.clone(); }
+        if (this.staggerT <= 0) { const rem = this.moveToward(this.target, 1.2, dt, { stop: 1.0, turnRate: 2.2 }); if (rem <= 1.0 || this.stateT > 60) { this.target = null; this.setState('watch'); this.waitT = rng.range(4, 10); } }
+        headYaw = this.sweep(dt, 40 * DEG, 0.45);
+        break;
+      }
+      case 'search': {
+        if (this.engaged && t - this.lastVisT < 1) { this.setState('engage'); break; }
+        if (this.target) { const rem = this.staggerT > 0 ? 99 : this.moveToward(this.target, 1.2, dt, { stop: 2.5, turnRate: 2.2 }); if (rem <= 2.5) { this.target = null; this.waitT = 0; } headYaw = this.sweep(dt, 30 * DEG, 0.9); }
+        else { this.waitT += dt; headYaw = this.sweep(dt, 60 * DEG, 0.8); if (this.waitT > 7) { if (this.aware < 0.4) { this.setState('patrol'); this.target = null; } else { const ls = this.lastSeenPlayer || this.home; this.target = ctx.world.randomPoint(rng, ls.x, ls.z, 10) || null; this.waitT = 0; } } }
+        if (this.aware < 0.2 && this.stateT > 15) { this.setState('patrol'); this.target = null; }
+        break;
+      }
+      case 'engage': {
+        aim = 1;
+        if (t - this.lastVisT > 8 || !this.engaged) { this.setState('search'); this.target = this.lastSeenPlayer ? this.lastSeenPlayer.clone() : null; this.waitT = 0; break; }
+        if (t - this.lastAlertT > 3) { this.lastAlertT = t; this.alertPack(); }
+        // relentless: advance on the player, body squared to them, light locked on
+        if (this.staggerT <= 0 && d > 6) this.moveToward(p.position, 1.2, dt, { stop: 6, face: false, allowWater: true });
+        this.faceToward(p.position.x, p.position.z, dt, 2.6);
+        headYaw = this.faceAngleTo(p.position.x, p.position.z);
+        headPitch = Math.atan2(p.eye.y - (this.position.y + 1.7 * SCALE), Math.max(1, d));
+        aimPitch = Math.atan2(p.eye.y - 0.3 - (this.position.y + 1.5 * SCALE), Math.max(1, d));
+        aimYaw = headYaw;
+        if (!p.dead && d < 70 && this.staggerT <= 0) {
+          if (this.burstLeft > 0) {
+            this.shotT -= dt;
+            if (this.shotT <= 0) {
+              this.syncRoot(); this.rig.muzzleWorld(_v3);
+              _v2.set(p.position.x, p.position.y + p.eyeHeight * 0.6, p.position.z);
+              if (ctx.world.lineOfSight(_v3, _v2) && Math.abs(headYaw) < 0.6) { this.fireOne(_v3, d); this.burstLeft--; this.shotT = 0.075; }
+              else this.burstLeft = 0;
+              if (this.burstLeft === 0) this.cooldown = rng.range(1.5, 3.0);
+            }
+          } else { this.cooldown -= dt; if (this.cooldown <= 0 && (this.inBeam || vis > 0.05)) { this.burstLeft = rng.int(8, 12); this.shotT = 0; } }
+        }
+        break;
+      }
+    }
+    const mv = Math.hypot(this.position.x - prevX, this.position.z - prevZ);
+    this.moveSpeed = damp(this.moveSpeed, dt > 0 ? mv / dt : 0, 8, dt);
+    // hydraulics + hum
+    this.hissT -= dt; if (this.hissT <= 0) { this.hissT = rng.range(4, 9); if (d < 90) this.sound('seeker_hiss', { gain: 0.5 + 0.3 * clamp01(this.moveSpeed), max: 90 }); }
+    if (!this.humLoop) { this.loopRetry -= dt; if (this.loopRetry <= 0) { this.loopRetry = 1; if (ctx.audio.ready) this.humLoop = this.loopSound('seeker_hum', { gain: 0.3, max: 120, ref: 6 }); } }
+    if (this.humLoop) this.humLoop.setGain((0.3 + 0.6 * clamp01(this.aware)) * clamp01(1 - d / 110), 0.3);
+    this.animate(dt, d, { headYaw, headPitch, aim, aimPitch, aimYaw, speed: this.moveSpeed });
+  }
+  // slow sweep of the head/searchlight: +-range, rate in rad/s, with pauses at the ends
+  sweep(dt, range, rate) {
+    this.sweepT += dt * rate;
+    const s = Math.sin(this.sweepT);
+    return range * Math.sign(s) * Math.pow(Math.abs(s), 0.7);
+  }
+  animate(dt, d, c) {
+    const rig = this.rig, ctx = this.ctx, t = this.time;
+    if (this.glitchLeft > 0) { this.glitchLeft -= dt; if (this.glitchLeft <= 0) rig.glitchOn = false; }
+    else { this.glitchT -= dt; if (this.glitchT <= 0) { this.glitchT = rng.range(3, 7); this.glitchLeft = 0.06; rig.startGlitch(0.7); } }
+    rig.pose({ dt, speed: c.speed || 0, stride: 1.5, aim: c.aim || 0, aimPitch: c.aimPitch || 0, aimYaw: c.aimYaw || 0, headYaw: c.headYaw || 0, headPitch: c.headPitch || 0, headRate: 2.5, chestYaw: clamp((c.headYaw || 0) * 0.3, -0.35, 0.35), lean: 0.06 });
+    if (rig.stepFlag) {
+      if (d < 90) this.sound('seeker_step', { gain: 0.6 + 0.4 * clamp01(1 - d / 40), max: 90, ref: 5, rate: 0.9 + Math.random() * 0.15 });
+      if (d < 12) ctx.post.shake(0.15 * (1 - d / 12) + 0.03);
+    }
+    // light: flicker recovers after a lens hit; the beam breathes very slightly
+    this.flicker = damp(this.flicker, 1, 3, dt);
+    const breathe = 0.94 + 0.06 * Math.sin(t * 2.1) + (Math.sin(t * 37.0) > 0.97 ? -0.08 : 0);
+    this.setLight(this.flicker * breathe);
+    this.cone.material.uniforms.uTime.value = t;
+    this.bodyMat.userData.u.uTime.value = t; this.plateMat.userData.u.uTime.value = t;
+    this.bodyMat.userData.u.uShiver.value = 1 + rig.flinch * 1.5;
+  }
+}
+
+export function registerSeeker(ctx) {
+  rng = ctx.rng.fork(37);
+  ctx.enemies.registerType('seeker', Seeker);
+}

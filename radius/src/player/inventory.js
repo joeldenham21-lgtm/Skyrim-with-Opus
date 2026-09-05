@@ -24,6 +24,9 @@ export const ITEMS = {
   beacon: { name: 'Survey beacon', kind: 'mission', price: 0, desc: 'Plant at the listed coordinates.' },
   dogtag: { name: 'Explorer tag', kind: 'mission', price: 0, desc: 'Explorer 44.' },
   samples: { name: 'Soil samples', kind: 'mission', price: 0, desc: 'Sealed. Three vials.' },
+  guardlog: { name: 'Guard log', kind: 'mission', price: 0, desc: 'Checkpoint 2. Last entry incomplete.' },
+  manifest: { name: 'Convoy manifest', kind: 'mission', price: 0, desc: 'Sealed steel case. Committee property.' },
+  relay: { name: 'Signal relay', kind: 'mission', price: 0, desc: 'Plant at the listed coordinates. Do not open.' },
 };
 export const WEAPON_DEFS = {
   pm:    { name: 'PM', full: 'Makarov PM', ammo: '9x18', magSize: 8, damage: 22, rpm: 420, auto: false, spread: 1.6, recoil: 0.9, price: 380, level: 1, mags: 3, range: 60 },
