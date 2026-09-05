@@ -6,6 +6,7 @@
 //   node tools/smoke.mjs --out .smoke/run1     # output dir (default .smoke/<timestamp>)
 //   node tools/smoke.mjs --seconds 10          # how long to run before final screenshot
 //   node tools/smoke.mjs --w 1280 --h 720
+//   node tools/smoke.mjs --full                # production render settings (default is a fast headless mode: no MSAA, 1024 shadows)
 //
 // Inside the page, window.__radius exposes the debug API (see ARCHITECTURE.md):
 //   __radius.ctx, __radius.start(), __radius.teleport(x,z), __radius.look(yaw,pitch),
@@ -23,6 +24,7 @@ const outDir = resolve(root, opt('--out', `.smoke/${Date.now()}`));
 const seconds = +opt('--seconds', 6);
 const W = +opt('--w', 1280), H = +opt('--h', 720);
 const scenarioPath = opt('--scenario', null);
+const fast = !args.includes('--full');   // --full: production render settings (MSAA, full shadow map, device pixel ratio)
 mkdirSync(outDir, { recursive: true });
 
 const html = resolve(outDir, 'game.html');
@@ -35,6 +37,7 @@ const browser = await chromium.launch({
          '--autoplay-policy=no-user-gesture-required', '--mute-audio'],
 });
 const page = await browser.newPage({ viewport: { width: W, height: H } });
+if (fast) await page.addInitScript(() => { window.__radiusFast = true; });
 const errors = [], logs = [];
 page.on('console', (m) => { const t = m.type(); const s = `[${t}] ${m.text()}`; logs.push(s); if (t === 'error' && !/Failed to load resource/.test(s)) errors.push(s); });
 page.on('pageerror', (e) => errors.push('[pageerror] ' + (e.stack || e.message)));

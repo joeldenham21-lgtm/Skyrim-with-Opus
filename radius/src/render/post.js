@@ -99,7 +99,7 @@ const RadiusShader = {
 export function createPost(ctx) {
   const { renderer, scene, camera } = ctx;
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-  const target = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: ctx.quality === 'low' ? 0 : 4 });
+  const target = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: (ctx.quality === 'low' || window.__radiusFast) ? 0 : 4 });
   const composer = new EffectComposer(renderer, target);
   const renderPass = new RenderPass(scene, camera);
   const bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.42, 0.65, 0.88);
