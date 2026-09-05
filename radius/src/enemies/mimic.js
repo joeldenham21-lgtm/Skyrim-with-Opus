@@ -406,7 +406,7 @@ class Mimic extends Enemy {
     this.burstLeft = 0; this.shotT = 0; this.cooldown = 1.0; this.repositionT = 8; this.hitsSince = 0; this.cover = null;
     this.radioT = rng.range(2, 8); this.glitchT = rng.range(2, 5); this.glitchLeft = 0;
     this.staggerT = 0; this.unobservedT = 0; this.obsT = 0; this.observed = true; this.skipCool = 0; this.moveSpeed = 0;
-    this.staticLoop = null; this.loopRetry = 0; this.spotted = false;
+    this.staticLoop = null; this.loopRetry = 0; this.spotted = false; this.staticT = 0;
     this.deathDuration = 2.2; this.ashDone = false;
     // a fresh mimic stands and watches first (a still figure among the trunks), then starts its rounds
     this.setState(opts.idle ? 'idle' : 'watch');
@@ -538,7 +538,9 @@ class Mimic extends Enemy {
   }
   trySkip(dt) {
     if (this.skipCool > 0 || !this.target || this.state === 'idle' || this.state === 'watch') return;
-    const d = this.distanceToPlayer(); if (d < 12 || this.unobservedT < 2) return;
+    // only where it can matter: within earshot of the player, and while on the player's trail or close by
+    const d = this.distanceToPlayer(); if (d < 12 || d > 70 || this.unobservedT < 2) return;
+    if (this.state === 'patrol' && d > 45) return;
     if (Math.random() > 1 - Math.pow(0.75, dt)) return;
     const dx = this.target.x - this.position.x, dz = this.target.z - this.position.z; const rem = Math.hypot(dx, dz);
     const step = Math.min(rng.range(4, 8), rem - 1); if (step < 2.5) return;
@@ -560,6 +562,9 @@ class Mimic extends Enemy {
     const d = this.distanceToPlayer();
     const { vis } = this.perceive(dt, { fov: 150, maxDay: 80, visGain: 1.5, hearGain: 1.2, decay: 0.08 });
     if (vis > 0.05) this.lastVisT = t;
+    // a far, faint sighting gets a dwell: it turns and stares before it decides you are real. Up close (or under
+    // fire) contact is immediate.
+    if (this.state === 'suspicious' && this.stateT < 2.5 && vis < 0.6 && this.hitsSince === 0 && this.aware > 0.95) this.aware = 0.95;
     this.skipCool = Math.max(0, this.skipCool - dt); this.staggerT = Math.max(0, this.staggerT - dt);
     // observation bookkeeping for skips (throttled LOS)
     this.obsT += dt; if (this.obsT > 0.15) { this.obsT = 0; this.observed = this.observedByPlayer(); }
@@ -667,7 +672,10 @@ class Mimic extends Enemy {
     this.radioT -= dt;
     if (this.radioT <= 0) { this.radioT = this.engaged ? rng.range(2, 5) : rng.range(4, 12); if (d < 80) this.sound('mimic_radio', { gain: this.engaged ? 0.7 : 0.45, max: 80 }); }
     if (!this.staticLoop) { this.loopRetry -= dt; if (this.loopRetry <= 0) { this.loopRetry = 1; if (ctx.audio.ready) this.staticLoop = this.loopSound('mimic_static', { gain: 0, max: 60, ref: 3 }); } }
-    if (this.staticLoop) this.staticLoop.setGain(clamp01(this.aware) * clamp01(1 - d / 40) * 0.8, 0.2);
+    if (this.staticLoop) {
+      this.staticLoop.setGain(clamp01(this.aware) * clamp01(1 - d / 40) * 0.8, 0.2);
+      this.staticT -= dt; if (this.staticT <= 0) { this.staticT = 0.3; this.staticLoop.set('level', clamp01(this.aware)); }
+    }
 
     this.animate(dt, d, { headYaw, headPitch, aim, aimPitch, aimYaw, speed: this.moveSpeed });
   }
