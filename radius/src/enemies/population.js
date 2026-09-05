@@ -32,13 +32,14 @@ export function createPopulation(ctx) {
   const nearAlive = () => { let n = 0; const p = ctx.player.position; for (const e of ctx.enemies.list) if (e.alive && e.position.distanceTo(p) < NEAR_R) n++; return n; };
   const groundY = (x, z) => ctx.world.groundHeight(x, z, ctx.world.getHeight(x, z) + 2.5).y;
 
-  // would a thing standing here be inside the player's view? (same rule as Enemy.observedByPlayer, wider angle)
+  // would a thing standing here be inside the player's view? (same rule as Enemy.observedByPlayer, wider angle;
+  // chest and head both have to be hidden, so a figure half behind a trunk does not pop in)
   function visibleFromPlayer(x, y, z, halfAngleDeg = 62) {
     const cam = ctx.camera; cam.getWorldDirection(_dir);
     _v.set(x, y + 0.9, z).sub(ctx.player.eye);
     const d = _v.length(); if (d < 0.01) return true; _v.divideScalar(d);
     if (_dir.dot(_v) < Math.cos((halfAngleDeg * Math.PI) / 180)) return false;
-    return ctx.world.lineOfSight(ctx.player.eye, _v2.set(x, y + 0.9, z));
+    return ctx.world.lineOfSight(ctx.player.eye, _v2.set(x, y + 0.9, z)) || ctx.world.lineOfSight(ctx.player.eye, _v2.set(x, y + 1.7, z));
   }
   function standable(x, z) {
     const w = ctx.world;
