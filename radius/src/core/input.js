@@ -19,13 +19,18 @@ export function createInput(canvas, events) {
   }
   const input = {
     dx: 0, dy: 0, wheel: 0, locked: false, enabled: true, sensitivity: 1.0,
+    softLook: false,   // pointer lock unavailable (embedded/sandboxed page): use raw mouse motion over the canvas instead
     down(action) { if (!input.enabled) return false; for (const c of BINDINGS[action]) if (down.has(c)) return true; return false; },
     pressed(action) { if (!input.enabled) return false; for (const c of BINDINGS[action]) if (pressedThisFrame.has(c)) return true; return false; },
     released(action) { for (const c of BINDINGS[action]) if (releasedThisFrame.has(c)) return true; return false; },
     // raw pressed regardless of enabled (menus use it)
     rawPressed(action) { for (const c of BINDINGS[action]) if (pressedThisFrame.has(c)) return true; return false; },
     endFrame() { pressedThisFrame.clear(); releasedThisFrame.clear(); input.dx = 0; input.dy = 0; input.wheel = 0; },
-    lock() { if (!input.locked) canvas.requestPointerLock?.({ unadjustedMovement: true })?.catch?.(() => canvas.requestPointerLock()); },
+    lock() {
+      if (input.locked) return;
+      if (!canvas.requestPointerLock) { input.softLook = true; return; }
+      try { const p = canvas.requestPointerLock({ unadjustedMovement: true }); if (p && p.catch) p.catch(() => { try { const q = canvas.requestPointerLock(); if (q && q.catch) q.catch(() => { input.softLook = true; }); } catch { input.softLook = true; } }); } catch { try { canvas.requestPointerLock(); } catch { input.softLook = true; } }
+    },
     unlock() { if (document.pointerLockElement) document.exitPointerLock(); },
     releaseAll() { down.clear(); },
     // Test hook: synthetic look delta in pixels
@@ -47,7 +52,7 @@ export function createInput(canvas, events) {
   window.addEventListener('mouseup', (e) => release('Mouse' + e.button));
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   window.addEventListener('mousemove', (e) => {
-    if (!input.locked) return;
+    if (!input.locked && !(input.softLook && input.enabled)) return;
     input.dx += e.movementX; input.dy += e.movementY;
   });
   window.addEventListener('wheel', (e) => { input.wheel += Math.sign(e.deltaY); }, { passive: true });
@@ -55,6 +60,6 @@ export function createInput(canvas, events) {
     input.locked = document.pointerLockElement === canvas;
     events.emit('pointerlock', input.locked);
   });
-  document.addEventListener('pointerlockerror', () => events.emit('pointerlock', false));
+  document.addEventListener('pointerlockerror', () => { input.softLook = true; events.emit('pointerlock', false); });
   return input;
 }

@@ -14,6 +14,7 @@ const outIdx = args.indexOf('--out');
 const outPath = outIdx >= 0 ? resolve(args[outIdx + 1]) : resolve(root, 'dist/radius.html');
 const serve = args.includes('--serve');
 const minify = !args.includes('--no-minify');
+const artifact = args.includes('--artifact');   // page body only (no doctype/html/head/body) for hosted artifact pages
 
 export async function bundle() {
   const t0 = performance.now();
@@ -32,9 +33,12 @@ export async function bundle() {
   const js = result.outputFiles[0].text;
   const css = readFileSync(resolve(root, 'src/ui/style.css'), 'utf8') + '\n' + readFileSync(resolve(root, 'src/ui/ui.css'), 'utf8');
   const shell = readFileSync(resolve(root, 'src/index.html'), 'utf8');
-  const html = shell
-    .replace('<!--STYLE-->', `<style>\n${css}\n</style>`)
-    .replace('<!--SCRIPT-->', `<script>\n${js.replace(/<\/script>/g, '<\\/script>')}\n</script>`);
+  const script = `<script>\n${js.replace(/<\/script>/g, '<\\/script>')}\n</script>`;
+  const html = artifact
+    ? `<title>RADIUS</title>\n<link rel="preconnect" href="https://fonts.googleapis.com">\n<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Oswald:wght@300;400;500&display=swap" rel="stylesheet">\n<style>\n${css}\n</style>\n<canvas id="gl"></canvas>\n<div id="ui"></div>\n${script}`
+    : shell
+      .replace('<!--STYLE-->', `<style>\n${css}\n</style>`)
+      .replace('<!--SCRIPT-->', script);
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, html);
   const ms = (performance.now() - t0).toFixed(0);
