@@ -9,6 +9,7 @@ import { clamp01, lerp } from '../core/math.js';
 const rnd = (a = 0, b = 1) => a + Math.random() * (b - a);
 const cents = (c) => Math.pow(2, c / 1200);
 const FIFTH = 1.4983, MIN3 = 1.1892, MAJ3 = 1.2599;
+const LOOKAHEAD = 0.6;   // seconds of beats scheduled ahead per frame (every per-beat envelope is shorter than one beat, so lookahead never cancels a live one)
 
 export function createMusic(ctx) {
   const audio = ctx.audio;
@@ -17,7 +18,7 @@ export function createMusic(ctx) {
   let sources = [], nodes = [];
   const L = {};                      // layers by name
   const issued = new Map();          // AudioParam -> { v, t } last issued target (throttles automation spam)
-  let tideRise = 0, lastMode = '';
+  let tideRise = 0, lastMode = '', frameDt = 0;
 
   // ---------- small graph helpers ----------
   const mk = (n) => { nodes.push(n); return n; };
@@ -31,15 +32,19 @@ export function createMusic(ctx) {
   // linear piecewise envelope; pts = [[dt, value], ...] relative to t
   function env(p, t, pts) { p.cancelScheduledValues(t); p.setValueAtTime(pts[0][1], t); for (let i = 1; i < pts.length; i++) p.linearRampToValueAtTime(pts[i][1], t + pts[i][0]); }
   // slow approach with separate attack / release seconds, throttled so we do not flood the automation timeline
+  // (s.est tracks roughly where the param actually is, so event schedulers can follow the audible tail)
   function fade(p, v, attack, release) {
-    let s = issued.get(p); if (!s) { s = { v: NaN, t: -1 }; issued.set(p, s); }
+    let s = issued.get(p); if (!s) { s = { v: NaN, t: -1, est: 0 }; issued.set(p, s); }
     const now = ac.currentTime;
     const first = Number.isNaN(s.v);
+    const tc = Math.max(0.02, (v > s.est ? attack : release) / 3);
+    s.est += (v - s.est) * (1 - Math.exp(-frameDt / tc));
     if (!first && Math.abs(s.v - v) < 1e-3) return;
     if (!first && now - s.t < 0.12) return;
     const secs = first || v > s.v ? attack : release;
     s.v = v; s.t = now; p.setTargetAtTime(v, now, Math.max(0.02, secs / 3));
   }
+  const audible = (layer) => (issued.get(layer.g.gain)?.est ?? 0) > 0.003;
 
   // ---------- layers ----------
   function buildFloor() {
@@ -59,14 +64,18 @@ export function createMusic(ctx) {
     const g = gain(0); g.connect(master);
     // high thin tone with slow vibrato, plus a whisper of its octave, fading in and out irregularly
     const f0 = 1200 * cents(rnd(-70, 70));
-    const tone = osc('sine', f0); const toneG = gain(0); tone.connect(toneG); toneG.connect(g); startSrc(tone);
+    // toneG is the slow fade; shim is a gentle amplitude shimmer on top so the sustain never sits perfectly still
+    const tone = osc('sine', f0); const toneG = gain(0); const shim = gain(1); lfo(0.13 * rnd(0.8, 1.25), 0.15, shim.gain);
+    tone.connect(toneG); toneG.connect(shim); shim.connect(g); startSrc(tone);
     lfo(0.3 * rnd(0.8, 1.25), f0 * (cents(8) - 1), tone.frequency);
     const tone2 = osc('sine', f0 * 2.003, rnd(-9, 9)); const t2g = gain(0.16); tone2.connect(t2g); t2g.connect(toneG); startSrc(tone2);
+    // breath: pink noise through a narrow bandpass riding the tone, so it reads as something blown or bowed, not a bare sine
+    const airF = filt('bandpass', f0, 14); const airG = gain(1.2); noise('pink').connect(airF); airF.connect(airG); airG.connect(toneG);
     // irregular sub pulse
     const sub = osc('sine', 50); const subG = gain(0); sub.connect(subG); subG.connect(g); startSrc(sub);
     // descending sighs: pink noise through a swept bandpass
     const sighF = filt('bandpass', 2000, 2.4); const sighG = gain(0); noise('pink').connect(sighF); sighF.connect(sighG); sighG.connect(g);
-    L.unease = { g, f0, tone, tone2, toneG, sub, subG, sighF, sighG, toneT: rnd(1, 4), sighT: rnd(6, 18), subT: rnd(2, 6) };
+    L.unease = { g, f0, tone, tone2, toneG, airF, sub, subG, sighF, sighG, toneT: rnd(1, 4), sighT: rnd(6, 18), subT: rnd(2, 6) };
   }
 
   function buildHunt() {
@@ -168,7 +177,7 @@ export function createMusic(ctx) {
       const lvl = Math.random() < 0.35 ? 0 : rnd(0.25, 1);
       u.toneG.gain.setTargetAtTime(lvl, now, rnd(1.2, 2.6));
       const f = u.f0 * cents(rnd(-45, 45));
-      u.tone.frequency.setTargetAtTime(f, now, 3); u.tone2.frequency.setTargetAtTime(f * 2.003, now, 3);
+      u.tone.frequency.setTargetAtTime(f, now, 3); u.tone2.frequency.setTargetAtTime(f * 2.003, now, 3); u.airF.frequency.setTargetAtTime(f, now, 3);
     }
     u.subT -= dt;
     if (u.subT <= 0) {
@@ -189,8 +198,9 @@ export function createMusic(ctx) {
     const now = ac.currentTime;
     const bpm = lerp(72, 100, clamp01((tension - 0.5) / 0.5));
     const period = 60 / bpm;
-    if (h.nextBeat < now - 0.5) h.nextBeat = now + 0.05;
-    while (h.nextBeat < now + 0.25) {
+    // beats are scheduled up to LOOKAHEAD s ahead on the audio clock; a frame hitch longer than that restarts the pulse
+    if (h.nextBeat < now - 0.6) h.nextBeat = now + 0.05;
+    while (h.nextBeat < now + LOOKAHEAD) {
       const t = h.nextBeat + rnd(-0.008, 0.008);
       h.tf.frequency.setValueAtTime(rnd(2600, 4400), t); h.tf.Q.setValueAtTime(rnd(4, 9), t);
       env(h.tickG.gain, t, [[0, 0], [0.004, rnd(0.45, 0.8)], [rnd(0.035, 0.06), 0]]);
@@ -208,8 +218,8 @@ export function createMusic(ctx) {
 
   function combatEvents(c, dt) {
     const now = ac.currentTime;
-    if (c.nextBeat < now - 0.5) c.nextBeat = now + 0.05;
-    while (c.nextBeat < now + 0.25) {
+    if (c.nextBeat < now - 0.6) c.nextBeat = now + 0.05;
+    while (c.nextBeat < now + LOOKAHEAD) {
       const t = c.nextBeat + rnd(-0.005, 0.005); const accent = c.beat % 4 === 0;
       const lvl = accent ? 1 : rnd(0.5, 0.75);
       c.lp.frequency.cancelScheduledValues(t); c.lp.frequency.setValueAtTime(accent ? rnd(480, 600) : rnd(250, 380), t); c.lp.frequency.exponentialRampToValueAtTime(110, t + 0.3);
@@ -261,6 +271,7 @@ export function createMusic(ctx) {
   function update(dt) {
     if (!running) return;
     if (!built) { if (audio.ready) build(); else return; }
+    frameDt = dt;
     const mode = ctx.mode;
     const s = ctx.director.state, tension = ctx.director.tension, night = ctx.time.night;
     const inBase = ctx.player.inBase ? 1 : 0;
@@ -287,16 +298,14 @@ export function createMusic(ctx) {
     const w = tideIn < 3600 ? clamp01(1 - Math.max(0, tideIn) / 3600) : 0;
     const tideLvl = (w > 0 ? 0.1 * (0.12 + 0.88 * w * w) : 0) + tideRise * 0.06;
     fade(L.tide.g.gain, Math.min(0.16, tideLvl) * duck, tideRise ? 3 : 6, 5);
-    if (w > 0 || tideRise) {
-      const glide = 520 * w + 1300 * tideRise;
-      L.tide.oscs.forEach((o, i) => fade(o.detune, L.tide.det0[i] + glide * L.tide.rate[i], tideRise ? 5 : 12, 12));
-    }
+    const glide = w > 0 || tideRise ? 520 * w + 1300 * tideRise : 0;   // settles back down once the window is over
+    L.tide.oscs.forEach((o, i) => fade(o.detune, L.tide.det0[i] + glide * L.tide.rate[i], tideRise ? 5 : 12, 12));
 
     // scheduled events only while the layer is audible and the world is running
     if (!live) return;
-    if (issued.get(L.unease.g.gain)?.v > 0.004) uneaseEvents(L.unease, dt);
-    if (issued.get(L.hunt.g.gain)?.v > 0.004) huntEvents(L.hunt, dt, tension); else L.hunt.nextBeat = -1;
-    if (issued.get(L.combat.g.gain)?.v > 0.004) combatEvents(L.combat, dt); else L.combat.nextBeat = -1;
+    if (audible(L.unease)) uneaseEvents(L.unease, dt);
+    if (audible(L.hunt)) huntEvents(L.hunt, dt, tension); else L.hunt.nextBeat = -1;
+    if (audible(L.combat)) combatEvents(L.combat, dt); else L.combat.nextBeat = -1;
   }
 
   return {
@@ -304,7 +313,7 @@ export function createMusic(ctx) {
     stop() { running = false; teardown(1.2); },
     update,
     // debug: last issued layer targets
-    levels() { const o = {}; for (const k in L) o[k] = +(issued.get(L[k].g.gain)?.v ?? 0).toFixed(4); return o; },
+    levels() { const o = {}; for (const k in L) { const s = issued.get(L[k].g.gain); o[k] = +(s?.v ?? 0).toFixed(4); o[k + '_est'] = +(s?.est ?? 0).toFixed(4); } return o; },
     get built() { return built; },
   };
 }

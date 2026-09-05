@@ -20,6 +20,7 @@ export function createPlayer(ctx) {
   let lean = 0, rollKick = 0, kickPitch = 0, kickYaw = 0, recoilPitch = 0, recoilYaw = 0;
   let bleedT = 0, hurtT = 0, breathe = 0, moveLock = 0, dead = false, lastSurface = 'grass', wading = 0;
   let noiseLevel = 0;         // how loud the player is right now (0..1), read by enemies
+  let heartLoop = null, breathLoop = null;   // body sounds: heartbeat under 30 HP, breath under 20 stamina
   const tmp = new THREE.Vector3(), fwd = new THREE.Vector3(), right = new THREE.Vector3(), shake = new THREE.Vector3();
 
   const api = {
@@ -154,6 +155,22 @@ export function createPlayer(ctx) {
       if (state.data.bleeding && !dead) { bleedT += dt; if (bleedT > 3) { bleedT = 0; state.data.hp = Math.max(1, state.data.hp - 1); if (state.data.hp <= 1 && !api.inBase) { api.damage(1, { kind: 'bleed', bleed: false }); } } }
       hurtT = damp(hurtT, 0, 2, dt);
 
+      // ---- body sounds ----
+      {
+        const hp = state.data.hp, lowHp = hp < 30 && !dead && !api.inBase;
+        if (lowHp && !heartLoop) heartLoop = ctx.audio.loop('heartbeat', { gain: 0.0 });
+        if (heartLoop) {
+          const k = clamp01((30 - hp) / 30);
+          heartLoop.set('rate', 70 + 60 * k); heartLoop.setGain(lowHp ? 0.25 + 0.45 * k : 0, 0.5);
+          if (!lowHp) { heartLoop.stop(1.5); heartLoop = null; }
+        }
+        const lowSta = breathe > 0.3 && !dead;
+        if (lowSta && !breathLoop) breathLoop = ctx.audio.loop('breath', { gain: 0.0 });
+        if (breathLoop) {
+          breathLoop.set('rate', 0.35 + 0.25 * breathe); breathLoop.setGain(lowSta ? 0.18 * breathe : 0, 0.6);
+          if (!lowSta) { breathLoop.stop(1.2); breathLoop = null; }
+        }
+      }
       // ---- flashlight ----
       if (input.pressed('flashlight') && !dead) {
         if (state.data.flashlight.battery <= 0 && !state.data.flashlight.on) ctx.audio.play('click', { gain: 0.5 });

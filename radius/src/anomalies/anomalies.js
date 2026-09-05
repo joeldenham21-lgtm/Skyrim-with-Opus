@@ -80,17 +80,22 @@ const SHARD_FRAG = /* glsl */`
     float ndv = max(dot(N, V), 0.0);
     vec3 R = reflect(-V, N);
     float up = clamp(R.y, -1.0, 1.0);
-    vec3 sky = mix(uHorizon, uZenith, smoothstep(0.0, 0.7, up));
-    vec3 ground = mix(vec3(0.15, 0.17, 0.12), uHorizon * 0.5, 0.45) * (0.3 + 0.7 * (1.0 - uNight));
-    vec3 refl = mix(ground, sky, smoothstep(-0.16, 0.08, up));
+    // only distinctly upward reflections show the bright lid; near-horizontal ones show the dim marsh and fog line,
+    // so from eye level the shards sit as dull glassy shapes a shade off the ground behind them
+    vec3 sky = mix(uHorizon, uZenith, smoothstep(0.0, 0.7, up)) * 0.85;
+    vec3 ground = mix(vec3(0.16, 0.18, 0.12), uHorizon * 0.42, 0.5) * (0.3 + 0.7 * (1.0 - uNight));
+    vec3 refl = mix(ground, sky, smoothstep(0.02, 0.4, up));
     float smudge = fbm3(vW.xz * 2.3 + vW.y * 1.7 + uTime * 0.02);
-    refl *= 0.86 + 0.22 * smudge;
-    refl += uSunColor * pow(max(dot(R, uSunDir), 0.0), 160.0) * 0.9;
+    refl *= 0.8 + 0.28 * smudge;
+    float glint = pow(max(dot(R, uSunDir), 0.0), 160.0);
+    refl += uSunColor * glint * 0.9;
     float fres = pow(1.0 - ndv, 3.0);
-    vec3 edge = mix(uHorizon, vec3(0.85, 0.95, 1.0), 0.5) * fres * 0.45;
+    vec3 edge = mix(uHorizon, vec3(0.85, 0.95, 1.0), 0.5) * fres * 0.3;
     float flash = max(uFlash, vFlash);
-    vec3 col = refl + edge + vec3(1.2, 1.5, 1.75) * flash * (0.55 + 0.45 * fres);
-    gl_FragColor = vec4(col, 1.0);
+    vec3 col = refl + edge + vec3(0.7, 0.95, 1.2) * flash * (0.4 + 0.6 * fres);
+    // glass: the world shows through the faces; only the rim, the glint and a flash give the shard away
+    float a = 0.16 + 0.6 * fres + glint * 0.5 + flash * 0.7;
+    gl_FragColor = vec4(col, clamp(a, 0.0, 1.0));
     #include <fog_fragment>
   }`;
 function shardMaterial() {
@@ -99,15 +104,19 @@ function shardMaterial() {
     uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunColor: { value: new THREE.Color(1, 0.9, 0.8) },
     uTime: { value: 0 }, uFlash: { value: 0 }, uNight: { value: 0 },
   }, fogUniforms, THREE.UniformsUtils.clone(THREE.UniformsLib.fog));
-  return new THREE.ShaderMaterial({ uniforms, vertexShader: SHARD_VERT, fragmentShader: SHARD_FRAG, fog: true });
+  return new THREE.ShaderMaterial({ uniforms, vertexShader: SHARD_VERT, fragmentShader: SHARD_FRAG, fog: true, transparent: true, depthWrite: false });
 }
 
 const GAS_VERT = /* glsl */`
+  ${GLSL_NOISE}
   #include <fog_pars_vertex>
+  uniform float uTime, uSeed;
   varying vec3 vVN; varying vec3 vVV; varying vec3 vW;
   void main(){
-    vec3 transformed = position;
-    vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz;
+    // breathe the silhouette: slow low-frequency swell so the blob never reads as a sphere
+    float n = fbm3d(position * 1.6 + vec3(uSeed) + vec3(uTime * 0.05, -uTime * 0.03, uTime * 0.04));
+    vec3 transformed = position * (0.8 + 0.5 * n);
+    vec4 w = modelMatrix * vec4(transformed, 1.0); vW = w.xyz;
     vec4 mv = viewMatrix * w; vVV = -mv.xyz; vVN = normalize(normalMatrix * normal);
     gl_Position = projectionMatrix * mv;
     #include <fog_vertex>
@@ -118,24 +127,31 @@ const GAS_FRAG = /* glsl */`
   uniform float uTime, uSeed, uNight, uBase, uHeight, uTorch; uniform vec3 uHorizon, uCamFwd;
   varying vec3 vVN; varying vec3 vVV; varying vec3 vW;
   void main(){
-    float ndv = abs(dot(normalize(vVN), normalize(vVV)));
-    float body = smoothstep(0.0, 0.8, ndv);
-    vec3 p = vW * 0.26 + vec3(uSeed);
-    float n = fbm3d(p + vec3(uTime * 0.05, uTime * 0.08, -uTime * 0.04));
-    float n2 = vnoise3(p * 3.3 - vec3(0.0, uTime * 0.22, 0.0));
-    float dens = smoothstep(0.30, 0.74, n + 0.2 * n2 - 0.06);
+    float sdv = dot(normalize(vVN), normalize(vVV));
+    float ndv = abs(sdv);
+    // chord through a sphere grows toward the centre: the heart is dense, the limb thin
+    float body = 0.2 + 0.8 * pow(smoothstep(0.0, 0.9, ndv), 1.4);
+    vec3 p = vW * 0.32 + vec3(uSeed);
+    float n = fbm3d(p + vec3(uTime * 0.05, uTime * 0.09, -uTime * 0.04));
+    float n2 = vnoise3(p * 3.1 - vec3(uTime * 0.1, uTime * 0.26, 0.0));
+    float nn = n + 0.25 * n2;
+    float dens = smoothstep(0.3, 0.72, nn);
     float h = clamp((vW.y - uBase) / max(uHeight, 0.1), 0.0, 1.5);
-    float hf = 1.0 - smoothstep(0.3, 1.05, h);
-    float a = body * dens * hf * 0.62;
+    float hf = 1.0 - smoothstep(0.35, 1.05, h);
+    float a = body * (0.25 + 0.75 * dens) * hf * 0.78;
+    // seen from inside (back faces) the shell is a moving, holed curtain; fragments right at the lens fade
+    vec3 relc = vW - cameraPosition; float dc = length(relc);
+    if (sdv < 0.0) a = (0.12 + 0.5 * dens) * hf * 0.55;
+    a *= smoothstep(0.3, 1.8, dc);
     float lum = dot(uHorizon, vec3(0.33, 0.4, 0.27));
-    vec3 base = vec3(0.82, 0.77, 0.50);
-    vec3 col = base * (0.06 + 1.5 * lum);
+    // sulphur: a khaki-yellow that keeps some of the sky's cast, darker and browner in the dense pockets
+    vec3 base = mix(uHorizon, vec3(0.88, 0.8, 0.44), 0.7);
+    vec3 col = base * (0.1 + 1.25 * lum);
+    col = mix(col, col * vec3(0.72, 0.62, 0.42), dens * 0.55);
     // hand torch: a soft cone from the camera lights the vapour from inside the beam
-    vec3 rel = vW - cameraPosition; float d = length(rel);
-    float cone = smoothstep(0.86, 0.96, dot(rel / max(d, 0.01), uCamFwd));
-    col += base * cone * uTorch * 0.9 / (1.0 + d * d * 0.012);
-    col += vec3(0.08, 0.07, 0.02) * (1.0 - n) * lum;
-    gl_FragColor = vec4(col, a);
+    float cone = smoothstep(0.86, 0.96, dot(relc / max(dc, 0.01), uCamFwd));
+    col += vec3(0.95, 0.85, 0.55) * cone * uTorch * 0.75 / (1.0 + dc * dc * 0.012);
+    gl_FragColor = vec4(col, clamp(a, 0.0, 1.0));
     #include <fog_fragment>
   }`;
 function gasMaterial(seed) {
@@ -146,10 +162,32 @@ function gasMaterial(seed) {
   return new THREE.ShaderMaterial({ uniforms, vertexShader: GAS_VERT, fragmentShader: GAS_FRAG, fog: true, transparent: true, depthWrite: false, side: THREE.DoubleSide });
 }
 
+// arcs: camera-facing ribbons (a hot filament with a soft halo across the width); additive so they bloom
+const ARC_VERT = /* glsl */`
+  attribute float aSide; attribute float aGlow;
+  varying float vSide; varying float vGlow;
+  void main(){ vSide = aSide; vGlow = aGlow; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+const ARC_FRAG = /* glsl */`
+  uniform vec3 uColor; uniform float uOpacity;
+  varying float vSide; varying float vGlow;
+  void main(){
+    float x = abs(vSide);
+    float core = pow(max(1.0 - x * 1.7, 0.0), 2.0);
+    float halo = pow(1.0 - x, 2.5) * 0.3;
+    gl_FragColor = vec4(uColor * (core * 2.4 + halo) * vGlow * uOpacity, 1.0);
+  }`;
+function arcMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: new THREE.Color(0.5, 0.91, 1.0) }, uOpacity: { value: 1 } },
+    vertexShader: ARC_VERT, fragmentShader: ARC_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+  });
+}
+
 let rockMat = null;
 function rockMaterial() {
   if (rockMat) return rockMat;
   rockMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0.05 });
+  rockMat.userData.shared = true;
   rockMat.onBeforeCompile = (shader) => {
     for (const k in fogUniforms) shader.uniforms[k] = fogUniforms[k];
     shader.fragmentShader = shader.fragmentShader
@@ -165,6 +203,7 @@ let ventMat = null;
 function ventMaterial() {
   if (ventMat) return ventMat;
   ventMat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.98, metalness: 0.0 });
+  ventMat.userData.shared = true;
   return ventMat;
 }
 
@@ -214,7 +253,8 @@ class Anomaly {
 }
 
 // ---------- ELECTRIC ----------
-const ARC_PTS = 11, ARC_VERTS = (ARC_PTS - 1) * 2;
+const ARC_PTS = 11, ARC_SEG = ARC_PTS - 1, ARC_VERTS = ARC_SEG * 6;
+const arcPts = new Float32Array(ARC_PTS * 3);   // scratch: the jittered points of one arc
 class Electric extends Anomaly {
   constructor(ctx, position, rng) {
     super(ctx, 'electric', position, rng);
@@ -239,45 +279,67 @@ class Electric extends Anomaly {
     for (let i = 0; i < n; i++) this.pairs.push([i, (i + 1) % n]);
     if (n >= 4) this.pairs.push([0, Math.floor(n / 2)]);
     this.extra = [];
-    this.maxArcs = this.pairs.length + 3;
+    this.maxArcs = this.pairs.length + 4;
     const ag = new THREE.BufferGeometry();
     this.arcPos = new Float32Array(this.maxArcs * ARC_VERTS * 3);
+    this.arcSide = new Float32Array(this.maxArcs * ARC_VERTS);
+    this.arcGlow = new Float32Array(this.maxArcs * ARC_VERTS);
+    for (let i = 0; i < this.maxArcs * ARC_SEG; i++) { const o = i * 6; this.arcSide[o] = -1; this.arcSide[o + 1] = 1; this.arcSide[o + 2] = 1; this.arcSide[o + 3] = -1; this.arcSide[o + 4] = 1; this.arcSide[o + 5] = -1; }
     ag.setAttribute('position', new THREE.BufferAttribute(this.arcPos, 3).setUsage(THREE.DynamicDrawUsage));
-    this.arcMat = new THREE.LineBasicMaterial({ color: new THREE.Color(0x7fe8ff).multiplyScalar(2.4), transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
-    this.arcs = new THREE.LineSegments(ag, this.arcMat); this.arcs.frustumCulled = false; this.root.add(this.arcs);
-    this.tellT = rng.range(2, 6); this.flick = 0; this.cool = 0; this.regen = 0; this.shown = false;
+    ag.setAttribute('aSide', new THREE.BufferAttribute(this.arcSide, 1));
+    ag.setAttribute('aGlow', new THREE.BufferAttribute(this.arcGlow, 1).setUsage(THREE.DynamicDrawUsage));
+    this.arcMat = arcMaterial();
+    this.arcs = new THREE.Mesh(ag, this.arcMat); this.arcs.frustumCulled = false; this.root.add(this.arcs);
+    this.tellT = rng.range(2, 6); this.flick = 0; this.cool = 0; this.regen = 0; this.shown = false; this.arcK = 0; this.strikeT = rng.range(0.5, 1.5);
     this.setShown(false);
   }
   setShown(v) { this.shown = v; this.nodeMesh.visible = v; this.glow.visible = v; this.arcs.visible = v; }
   onReveal(at, first) {
-    if (at) { this.extra.push({ pos: _v.copy(at).sub(this.position).clone(), t: 0.5 }); if (first) this.play('arc_zap', { gain: 0.5, rate: 1.2 }); }
+    if (at) { this.extra.push({ pos: _v.copy(at).sub(this.position).clone(), t: 0.5, glow: 1.2 }); if (first) this.play('arc_zap', { gain: 0.5, rate: 1.2 }); }
     this.regen = 0;
   }
+  // one ribbon a -> b: ARC_PTS jittered points, each segment a camera-facing quad. Dead arcs collapse to a point.
+  writeArc(a, b, alive, glow) {
+    if (this.arcK >= this.maxArcs) return;
+    const pos = this.arcPos, gl = this.arcGlow, base = this.arcK * ARC_VERTS; this.arcK++;
+    if (!alive) { for (let i = 0; i < ARC_VERTS; i++) { pos[(base + i) * 3] = a.x; pos[(base + i) * 3 + 1] = a.y; pos[(base + i) * 3 + 2] = a.z; gl[base + i] = 0; } return; }
+    _u.subVectors(b, a); const len = _u.length() || 0.01; _u.divideScalar(len);
+    _w.set(-_u.z, 0, _u.x); if (_w.lengthSq() < 1e-4) _w.set(1, 0, 0); _w.normalize();
+    _s.crossVectors(_u, _w);
+    // jitter grows toward the middle; a second, finer wobble keeps the ribbon from reading as a smooth curve
+    for (let i = 0; i < ARC_PTS; i++) {
+      const t = i / ARC_SEG, env = Math.sin(t * Math.PI) * (0.08 + len * 0.055);
+      const j1 = (Math.random() - 0.5) * 2 * env + (Math.random() - 0.5) * 0.03, j2 = (Math.random() - 0.5) * 2 * env + (Math.random() - 0.5) * 0.03;
+      const e = (i === 0 || i === ARC_SEG) ? 0 : 1;
+      arcPts[i * 3] = a.x + _u.x * len * t + (_w.x * j1 + _s.x * j2) * e;
+      arcPts[i * 3 + 1] = a.y + _u.y * len * t + (_w.y * j1 + _s.y * j2) * e;
+      arcPts[i * 3 + 2] = a.z + _u.z * len * t + (_w.z * j1 + _s.z * j2) * e;
+    }
+    const hw = 0.02 + len * 0.005;
+    for (let i = 0; i < ARC_SEG; i++) {
+      const o = i * 3, x0 = arcPts[o], y0 = arcPts[o + 1], z0 = arcPts[o + 2], x1 = arcPts[o + 3], y1 = arcPts[o + 4], z1 = arcPts[o + 5];
+      // ribbon side = segment x (eye - midpoint); _p holds the eye in anomaly-local space
+      _u.set(x1 - x0, y1 - y0, z1 - z0);
+      _w.set(_p.x - (x0 + x1) * 0.5, _p.y - (y0 + y1) * 0.5, _p.z - (z0 + z1) * 0.5);
+      _s.crossVectors(_u, _w); const sl = _s.length(); if (sl > 1e-6) _s.multiplyScalar(hw / sl); else _s.set(hw, 0, 0);
+      const g0 = glow * (0.55 + 0.45 * Math.sin((i / ARC_SEG) * Math.PI)) * (0.7 + Math.random() * 0.5), g1 = glow * (0.55 + 0.45 * Math.sin(((i + 1) / ARC_SEG) * Math.PI)) * (0.7 + Math.random() * 0.5);
+      let v = (base + i * 6) * 3, gi = base + i * 6;
+      pos[v++] = x0 - _s.x; pos[v++] = y0 - _s.y; pos[v++] = z0 - _s.z; gl[gi++] = g0;
+      pos[v++] = x0 + _s.x; pos[v++] = y0 + _s.y; pos[v++] = z0 + _s.z; gl[gi++] = g0;
+      pos[v++] = x1 + _s.x; pos[v++] = y1 + _s.y; pos[v++] = z1 + _s.z; gl[gi++] = g1;
+      pos[v++] = x0 - _s.x; pos[v++] = y0 - _s.y; pos[v++] = z0 - _s.z; gl[gi++] = g0;
+      pos[v++] = x1 + _s.x; pos[v++] = y1 + _s.y; pos[v++] = z1 + _s.z; gl[gi++] = g1;
+      pos[v++] = x1 - _s.x; pos[v++] = y1 - _s.y; pos[v++] = z1 - _s.z; gl[gi++] = g1;
+    }
+  }
   rebuildArcs() {
-    const pos = this.arcPos; let k = 0;
-    const write = (a, b, alive) => {
-      if (k >= this.maxArcs) return;
-      const base = k * ARC_VERTS * 3; k++;
-      if (!alive) { for (let i = 0; i < ARC_VERTS; i++) { pos[base + i * 3] = a.x; pos[base + i * 3 + 1] = a.y; pos[base + i * 3 + 2] = a.z; } return; }
-      // jittered strip a -> b, jitter grows toward the middle
-      _u.subVectors(b, a); const len = _u.length() || 0.01; _u.divideScalar(len);
-      _w.set(-_u.z, 0, _u.x); if (_w.lengthSq() < 1e-4) _w.set(1, 0, 0); _w.normalize();
-      _s.crossVectors(_u, _w);
-      let px = a.x, py = a.y, pz = a.z;
-      for (let i = 1; i < ARC_PTS; i++) {
-        const t = i / (ARC_PTS - 1), env = Math.sin(t * Math.PI) * (0.1 + len * 0.06);
-        const j1 = (Math.random() - 0.5) * 2 * env, j2 = (Math.random() - 0.5) * 2 * env;
-        const x = a.x + _u.x * len * t + _w.x * j1 + _s.x * j2, y = a.y + _u.y * len * t + _w.y * j1 + _s.y * j2, z = a.z + _u.z * len * t + _w.z * j1 + _s.z * j2;
-        const o = base + (i - 1) * 6;
-        pos[o] = px; pos[o + 1] = py; pos[o + 2] = pz; pos[o + 3] = x; pos[o + 4] = y; pos[o + 5] = z;
-        px = x; py = y; pz = z;
-      }
-    };
+    this.arcK = 0;
+    _p.copy(this.ctx.player.eye).sub(this.position);
     const strong = this.revealed;
-    for (const [i, j] of this.pairs) write(this.nodes[i].pos, this.nodes[j].pos, Math.random() < (strong ? 0.72 : 0.5));
-    for (const e of this.extra) { let bi = 0, bd = Infinity; for (let i = 0; i < this.nodes.length; i++) { const d = this.nodes[i].pos.distanceToSquared(e.pos); if (d < bd) { bd = d; bi = i; } } write(this.nodes[bi].pos, e.pos, true); }
-    while (k < this.maxArcs) write(this.nodes[0].pos, this.nodes[0].pos, false);
-    this.arcs.geometry.attributes.position.needsUpdate = true;
+    for (const [i, j] of this.pairs) this.writeArc(this.nodes[i].pos, this.nodes[j].pos, Math.random() < (strong ? 0.72 : 0.5), 1);
+    for (const e of this.extra) { let bi = 0, bd = Infinity; for (let i = 0; i < this.nodes.length; i++) { const d = this.nodes[i].pos.distanceToSquared(e.pos); if (d < bd) { bd = d; bi = i; } } this.writeArc(this.nodes[bi].pos, e.pos, true, e.glow || 1); }
+    while (this.arcK < this.maxArcs) this.writeArc(this.nodes[0].pos, this.nodes[0].pos, false, 0);
+    const at = this.arcs.geometry.attributes; at.position.needsUpdate = true; at.aGlow.needsUpdate = true;
   }
   update(dt) {
     this.t += dt; this.cool -= dt; this.tickReveal(dt);
@@ -305,7 +367,25 @@ class Electric extends Anomaly {
     const fade = this.revealed ? clamp01(this.revealT / 2.5) : 1;
     this.nodeMat.emissiveIntensity = (1.6 + Math.random() * 1.2) * fade;
     this.glowMat.opacity = (0.35 + Math.random() * 0.3) * fade;
-    this.arcMat.opacity = (0.7 + Math.random() * 0.3) * fade;
+    this.arcMat.uniforms.uOpacity.value = (0.7 + Math.random() * 0.3) * fade;
+    // ground strikes: a node earths itself into the grass now and then; sparks and a hard little light
+    if (this.revealed && fade > 0.5) {
+      this.strikeT -= dt;
+      if (this.strikeT <= 0) {
+        this.strikeT = 0.6 + Math.random() * 1.6;
+        const nd = this.nodes[Math.floor(Math.random() * this.nodes.length)];
+        const gx = nd.pos.x + (Math.random() - 0.5) * 1.6, gz = nd.pos.z + (Math.random() - 0.5) * 1.6;
+        const gy = this.ctx.world.groundHeight(this.position.x + gx, this.position.z + gz, this.position.y + 3).y - this.position.y;
+        this.extra.push({ pos: new THREE.Vector3(gx, gy + 0.02, gz), t: 0.09 + Math.random() * 0.06, glow: 1.3 });
+        this.regen = 0;
+        if (this.dist < 50) {
+          _v.set(this.position.x + gx, this.position.y + gy + 0.02, this.position.z + gz);
+          this.ctx.vfx.spark(_v, UP, 5, [0.6, 0.92, 1.0]);
+          this.ctx.vfx.light(_v, 0x9ff0ff, 9, 0.09, 8);
+          this.play('arc_zap', { gain: 0.22, rate: 1.35 + Math.random() * 0.3 });
+        }
+      }
+    }
     if (--this.regen <= 0) { this.regen = 2 + Math.floor(Math.random() * 3); this.rebuildArcs(); }
     this.sound('arc_hum', 0.55 * fade, this.revealed);
     if (this.revealed && this.dist < 40 && Math.random() < 0.06) this.ctx.vfx.light(_v.copy(this.nodes[Math.floor(Math.random() * this.nodes.length)].pos).add(this.position), 0x7fe8ff, 6, 0.08, 9);
@@ -316,15 +396,15 @@ class Electric extends Anomaly {
     if (Math.abs(pl.position.y - this.position.y) > 4) return;
     this.cool = 3;
     this.reveal();
-    this.extra.push({ pos: _v.copy(pl.eye).sub(this.position).clone(), t: 0.35 });
-    this.extra.push({ pos: _v.copy(pl.position).sub(this.position).setY(0.9).clone(), t: 0.25 });
+    this.extra.push({ pos: _v.copy(pl.eye).sub(this.position).clone(), t: 0.35, glow: 1.6 });
+    this.extra.push({ pos: _v.copy(pl.position).sub(this.position).setY(0.9).clone(), t: 0.25, glow: 1.4 });
     this.regen = 0;
     this.play('arc_zap', { gain: 1.0 });
     _w.copy(pl.eye).addScaledVector(pl.forward, 0.6);
     ctx.vfx.light(_w, 0x9ff0ff, 60, 0.3, 20);
     _u.copy(pl.position); _u.y += 1.0;
     ctx.vfx.spark(_u, UP, 36, [0.55, 0.92, 1.0]);
-    pl.damage(60, { kind: 'shock', bleed: false, source: 'electric', anomaly: this });
+    pl.damage(60, { kind: 'shock', bleed: false, anomaly: this, what: 'electric' });
     ctx.post.shock(0.8); ctx.post.shake(0.7);
     pl.lockMovement(0.6);
   }
@@ -354,8 +434,8 @@ class Reflector extends Anomaly {
     this.meshI = nI ? new THREE.InstancedMesh(g.icosa, this.mat, nI) : null;
     let io = 0, ii = 0;
     for (const s of this.shards) s.idx = s.kind === 0 ? io++ : ii++;
-    for (const m of [this.meshO, this.meshI]) {
-      if (!m) continue;
+    this.meshes = [this.meshO, this.meshI].filter(Boolean);
+    for (const m of this.meshes) {
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(m.count * 3), 3);
       m.instanceColor.setUsage(THREE.DynamicDrawUsage);
@@ -373,7 +453,7 @@ class Reflector extends Anomaly {
     const u = this.mat.uniforms;
     u.uHorizon.value.copy(ctx.lighting.horizon); u.uZenith.value.copy(ctx.lighting.zenith);
     u.uSunDir.value.copy(ctx.lighting.sunDir); u.uSunColor.value.copy(ctx.lighting.sunColor);
-    u.uTime.value = t; u.uNight.value = ctx.time.night; u.uFlash.value = clamp01(this.flashAll / 3) * (0.7 + 0.3 * Math.sin(t * 18));
+    u.uTime.value = t; u.uNight.value = ctx.time.night; u.uFlash.value = Math.pow(clamp01(this.flashAll / 3), 1.5) * (0.6 + 0.4 * Math.sin(t * 18));
     const near = this.dist < this.radius && Math.abs(pl.position.y - this.position.y) < 5;
     // launch one shard at a time
     if (near && this.whipCool <= 0) {
@@ -404,7 +484,7 @@ class Reflector extends Anomaly {
         const d = _w.distanceTo(_u);
         _v.copy(_u).sub(_w);
         if (d < 0.6 + pl.radius) {
-          pl.damage(45, { kind: 'slash', source: 'reflector', anomaly: this });
+          pl.damage(45, { kind: 'slash', anomaly: this, what: 'reflector' });
           ctx.post.shake(0.7); ctx.vfx.spark(_u, UP, 14, [0.8, 0.9, 1.0]);
           ctx.audio.play('impact_glass', { pos: _w, hrtf: true, gain: 0.7 });
           s.state = 'return'; s.cool = 2.5;
@@ -418,7 +498,7 @@ class Reflector extends Anomaly {
       _s.setScalar(s.size); _m.compose(s.pos, s.rot, _s); m.setMatrixAt(s.idx, _m);
       _c.setRGB(s.flash, 0, 0); m.setColorAt(s.idx, _c);
     }
-    for (const m of [this.meshO, this.meshI]) if (m) { m.instanceMatrix.needsUpdate = true; m.instanceColor.needsUpdate = true; }
+    for (const m of this.meshes) { m.instanceMatrix.needsUpdate = true; m.instanceColor.needsUpdate = true; }
     this.sound('reflector_hum', 0.3 + 0.2 * clamp01(this.flashAll));
   }
 }
@@ -433,7 +513,7 @@ class Gravity extends Anomaly {
     this.chunks = [];
     for (let i = 0; i < n; i++) {
       this.chunks.push({
-        r: rng.range(1, 4), a: rng() * TAU, h: rng.range(0.3, 2.6), hph: rng() * TAU, scale: rng.range(0.09, 0.3),
+        r: rng.range(1, 4), a: rng() * TAU, h: rng.range(0.3, 2.6), hph: rng() * TAU, scale: rng.range(0.055, 0.2),
         rot: new THREE.Euler(rng() * TAU, rng() * TAU, rng() * TAU), spin: new THREE.Vector3(rng.range(-2, 2), rng.range(-2, 2), rng.range(-2, 2)),
         pos: new THREE.Vector3(), vel: new THREE.Vector3(), state: 'orbit', dir: rng.chance(0.8) ? 1 : -1,
       });
@@ -518,7 +598,7 @@ class Gravity extends Anomaly {
       this.blurWant = 0.8;
       this.crushT += dt; this.crushSoundT -= dt;
       if (this.crushSoundT <= 0) { this.crushSoundT = 0.9; this.play('gravity_crush', { gain: 0.9 }); }
-      if (this.crushT >= 0.5) { this.crushT -= 0.5; pl.damage(15, { kind: 'anomaly', what: 'crush', bleed: false, source: 'gravity', anomaly: this }); }
+      if (this.crushT >= 0.5) { this.crushT -= 0.5; pl.damage(15, { kind: 'anomaly', what: 'crush', bleed: false, anomaly: this }); }
     } else { this.crushT = 0; this.crushSoundT = 0; }
   }
 }
@@ -596,11 +676,13 @@ class Gas extends Anomaly {
     const ctx = this.ctx, t = this.t, u = this.gasMat.uniforms;
     u.uTime.value = t; u.uNight.value = ctx.time.night; u.uHorizon.value.copy(ctx.lighting.horizon);
     u.uTorch.value = ctx.state.data.flashlight.on ? 1 : 0; ctx.camera.getWorldDirection(u.uCamFwd.value);
-    if (this.dist < 80 && (this.dist < 40 || (ctx.frame & 1) === 0)) {
+    // steam: a shared pool feeds every puff in the zone, so the rate steps down with distance
+    const every = this.dist < 30 ? 1 : this.dist < 55 ? 2 : 4;
+    if (this.dist < 80 && (ctx.frame % every) === 0) {
       const v = ctx.vfx, now = ctx.elapsed;
       const wx = Math.sin(t * 0.13) * 0.35 + 0.22, wz = Math.cos(t * 0.09) * 0.3;
       for (const vt of this.vents) {
-        if (Math.random() > 0.85 * vt.rate) continue;
+        if (Math.random() > 0.5 * vt.rate) continue;
         const a = Math.random() * TAU, rr = Math.random() * vt.r * 0.6;
         const sh = 0.8 + Math.random() * 0.15;
         v.dust.emit(vt.x + Math.cos(a) * rr, vt.y + 0.05, vt.z + Math.sin(a) * rr, (Math.random() - 0.5) * 0.5 + wx * 2, 1.4 + Math.random() * 1.2, (Math.random() - 0.5) * 0.5 + wz * 2, 0.85 * sh, 0.82 * sh, 0.6 * sh, 2.2 + Math.random() * 1.6, 0.45 + Math.random() * 0.45, -0.06, 1, now);
@@ -617,7 +699,7 @@ class Gas extends Anomaly {
     this.blurWant = 0.6;
     this.burnT += dt; this.coughT -= dt;
     if (this.coughT <= 0) { this.coughT = 3; ctx.audio.play('gas_cough', { gain: 0.8 }); }
-    if (this.burnT >= 1) { this.burnT -= 1; pl.damage(8, { kind: 'burn', bleed: false, source: 'gas', anomaly: this }); }
+    if (this.burnT >= 1) { this.burnT -= 1; pl.damage(8, { kind: 'burn', bleed: false, anomaly: this, what: 'gas' }); }
   }
 }
 
@@ -669,11 +751,16 @@ export function createAnomalies(ctx) {
         if (poi.kind !== 'anomaly') continue;
         const n = rng.int(3, 5);
         let placed = 0;
-        for (let tries = 0; tries < 60 && placed < n; tries++) {
-          const ang = rng() * TAU, dd = Math.sqrt(rng()) * poi.r * 0.85;
-          const x = poi.x + Math.cos(ang) * dd, z = poi.z + Math.sin(ang) * dd;
-          if (!placeable(x, z) || !farFromOthers(x, z, 7)) continue;
-          api.spawn(poi.anomaly, _v.set(x, 0, z)); placed++;
+        // inside the field first; if the field is flooded (the terrain drowns some of them) walk outward ring by ring
+        // so the anomalies gather on the nearest shore instead of vanishing
+        for (let ring = 0; ring < 4 && placed < n; ring++) {
+          const r0 = ring === 0 ? 0 : poi.r * (0.85 + 0.45 * (ring - 1)), r1 = poi.r * (0.85 + 0.45 * ring);
+          for (let tries = 0; tries < 60 && placed < n; tries++) {
+            const ang = rng() * TAU, dd = ring === 0 ? Math.sqrt(rng()) * r1 : lerp(r0, r1, rng());
+            const x = poi.x + Math.cos(ang) * dd, z = poi.z + Math.sin(ang) * dd;
+            if (!placeable(x, z) || !farFromOthers(x, z, 7)) continue;
+            api.spawn(poi.anomaly, _v.set(x, 0, z)); placed++;
+          }
         }
       }
       // strays: two of random type near roads, well away from the base

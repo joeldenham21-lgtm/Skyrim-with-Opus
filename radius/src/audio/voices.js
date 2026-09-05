@@ -7,8 +7,11 @@ export function registerVoices(audio, H) {
   // clipped, band-limited like a handset speaker, wrapped in static and closed with a squelch.
   def('mimic_radio', (v) => {
     const a = v.a, s = v.s, out = v.out;
-    const src = a.noise('white'), pre = a.filter('highpass', 250, 0.7), sum = a.gain(1);
-    src.connect(pre);
+    const src = a.noise('white'), ng = a.gain(0.5), pre = a.filter('highpass', 250, 0.7), sum = a.gain(1);
+    src.connect(ng); ng.connect(pre);
+    // a buzzing glottal saw under the breath noise: through the formant peaks it reads as a voice, not as shaped static
+    const pf = rnd(95, 150) * v.rate, glot = a.osc('sawtooth', pf), gg = a.gain(0.55);
+    glot.connect(gg); gg.connect(pre);
     const bands = [];
     const nb = irnd(2, 3);
     for (let i = 0; i < nb; i++) { const f = a.filter('bandpass', 600, rnd(7, 12)); const bg = a.gain(i === 0 ? 1 : 0.7); pre.connect(f); f.connect(bg); bg.connect(sum); bands.push(f); }
@@ -26,6 +29,8 @@ export function registerVoices(audio, H) {
       const dur = rnd(0.06, 0.15) / s;
       const target = [rnd(400, 900), rnd(1200, 2200), rnd(2300, 3200)].map((f) => f * v.rate);
       bands.forEach((b, k) => { b.frequency.setValueAtTime(target[k] * rnd(0.85, 1.15), t); b.frequency.exponentialRampToValueAtTime(target[k], t + dur); });
+      const p = pf * rnd(0.85, 1.2);    // pitch contour per syllable: a little rise or fall, like a word
+      glot.frequency.setValueAtTime(p, t); glot.frequency.exponentialRampToValueAtTime(p * rnd(0.82, 1.18), t + dur);
       const g = rnd(0.7, 1.0);
       gate.gain.setValueAtTime(EPS, t); gate.gain.linearRampToValueAtTime(g, t + 0.012); gate.gain.linearRampToValueAtTime(g * 0.6, t + dur * 0.7); gate.gain.exponentialRampToValueAtTime(EPS, t + dur);
       t += dur + rnd(0.03, 0.08) / s;
@@ -36,8 +41,8 @@ export function registerVoices(audio, H) {
     burst(v, { at: atEnd + 0.01, type: 'white', filt: 'bandpass', f0: 2500, q: 1, dur: 0.04, g: 0.45, atk: 0.001 });
     tone(v, { at: atEnd + 0.02, f0: 2400, f1: 600, dur: 0.08, g: 0.12, atk: 0.003 });
     const stopAt = tEnd + 0.2;
-    hum.start(v.t0); hum.stop(stopAt); src.stop(stopAt); st.stop(stopAt);
-    v.src(hum, stopAt); v.src(src, stopAt); v.src(st, stopAt);
+    hum.start(v.t0); hum.stop(stopAt); glot.start(v.t0); glot.stop(stopAt); src.stop(stopAt); st.stop(stopAt);
+    v.src(hum, stopAt); v.src(glot, stopAt); v.src(src, stopAt); v.src(st, stopAt);
   });
 
   // It has seen you: a low tone drops, static swells around it.

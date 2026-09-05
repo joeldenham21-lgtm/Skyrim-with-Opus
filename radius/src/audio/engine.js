@@ -60,7 +60,7 @@ export function createAudio(ctxGame) {
     get sfxBus() { return sfxBus; }, get musicBus() { return musicBus; }, get ambBus() { return ambBus; }, get master() { return master; }, get reverbSend() { return reverbSend; },
     missing, listenerPos,
     ensure,
-    resume() { const c = ensure(); if (c && c.state !== 'running') c.resume().catch(() => {}); },
+    resume() { const c = ensure(); if (c && c.state !== 'running') c.resume().catch(() => {}); if (ctxGame.camera) ctxGame.camera.getWorldPosition(listenerPos); },
     register(name, fn) { gens.set(name, fn); },
     registerLoop(name, fn) { loops.set(name, fn); },
     has(name) { return gens.has(name) || loops.has(name); },
@@ -104,7 +104,8 @@ export function createAudio(ctxGame) {
       if (p.positionX) { p.positionX.setTargetAtTime(pos.x, t, 0.02); p.positionY.setTargetAtTime(pos.y, t, 0.02); p.positionZ.setTargetAtTime(pos.z, t, 0.02); } else p.setPosition(pos.x, pos.y, pos.z);
     },
     // one-shot. Generators: fn(audio, out, opts) -> optional { stop() } ; must schedule their own stop times.
-    play(name, opts = {}) {
+    play(name, opts) {
+      opts = opts || {};
       if (!ac || ac.state !== 'running' || muted) return null;
       const fn = gens.get(name);
       if (!fn) { if (!missing.has(name)) { missing.add(name); } return null; }
@@ -113,7 +114,8 @@ export function createAudio(ctxGame) {
       try { const o = api.out(opts); const h = fn(api, o.node, opts) || {}; h.out = o; return h; } catch (e) { console.error('sfx ' + name, e); return null; }
     },
     // continuous. Loop generators: fn(audio, out, opts) -> { stop(fade), set(k, v), update?(dt) }
-    loop(name, opts = {}) {
+    loop(name, opts) {
+      opts = opts || {};
       if (!ac || ac.state !== 'running') return null;
       const fn = loops.get(name);
       if (!fn) { if (!missing.has(name)) missing.add(name); return null; }

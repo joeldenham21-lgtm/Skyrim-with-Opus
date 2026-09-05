@@ -168,8 +168,8 @@ function loopVoice(a, out, opts) {
   const L = {
     a, out, o, rate, srcs: [], nodes: [], setters: {}, tick: null,
     keep(n) { L.nodes.push(n); return n; },
-    noise(type, filt, f, q, g, to, pr = 1) { const n = a.noise(type, pr); const fl = a.filter(filt, f, q); const gn = a.gain(g); n.connect(fl); fl.connect(gn); gn.connect(to || out); L.srcs.push(n); L.nodes.push(fl, gn); return { n, f: fl, g: gn }; },
-    osc(type, f, g, to, detune = 0) { const os = a.osc(type, f, detune); const gn = a.gain(g); os.connect(gn); gn.connect(to || out); os.start(a.now); L.srcs.push(os); L.nodes.push(gn); return { o: os, g: gn }; },
+    noise(type, filt, f, q, g, to, pr = 1) { const n = a.noise(type, pr); const fl = a.filter(filt, f, q); const gn = a.gain(g); n.connect(fl); fl.connect(gn); gn.connect(to || L.out); L.srcs.push(n); L.nodes.push(fl, gn); return { n, f: fl, g: gn }; },
+    osc(type, f, g, to, detune = 0) { const os = a.osc(type, f, detune); const gn = a.gain(g); os.connect(gn); gn.connect(to || L.out); os.start(a.now); L.srcs.push(os); L.nodes.push(gn); return { o: os, g: gn }; },
     lfo(param, freq, depth, type = 'sine') { const l = a.osc(type, freq); const lg = a.gain(depth); l.connect(lg); lg.connect(param); l.start(a.now + rnd(0, 0.4)); L.srcs.push(l); L.nodes.push(lg); return l; },
     target(param, v, tc = 0.1) { try { param.setTargetAtTime(v, a.now, tc); } catch {} },
     stop() { for (const s of L.srcs) { try { s.stop(); } catch {} try { s.disconnect(); } catch {} } for (const n of L.nodes) { try { n.disconnect(); } catch {} } L.srcs.length = 0; L.nodes.length = 0; L.tick = null; },
@@ -178,15 +178,34 @@ function loopVoice(a, out, opts) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// Per-sound level trims (multiplier on the recipe's raw layer sum), calibrated from an offline render of every sound in
+// isolation (tools/scenarios/sfx-review.mjs): gunshots and shocks pulled down to a raw peak of ~1.2 so the engine's
+// compressor is not the only thing between the muzzle and the speaker; whispers pulled up so a crow at 40 m, a slider's
+// click in the grass or a cloth rustle at ADS are actually audible under the wind. Everything else sits at 1.
+const LEVEL = {
+  shot_mosin: 0.72, seeker_shot: 0.76, shot_toz: 0.8, shot_akm: 0.85, mimic_shot: 0.9, fragment_explode: 0.88, seeker_death: 0.8, seeker_step: 0.8,
+  door_open: 0.85, door_close: 0.85, death: 0.95, ui_stamp: 0.8,
+  crow: 5, bird: 3, slider_screech: 3, slider_click: 1.8, slider_death: 2.2, slider_lunge: 1.8, slider_step: 1.8, mimic_radio: 2.2, mimic_skip: 3,
+  spawn_skitter: 3, spawn_death: 1.6, spawn_bite: 1.4, seeker_hiss: 1.4, reflector_whip: 1.3, bullet_whiz: 1.4, impact_concrete: 1.3, drip: 1.4, gas_cough: 2.5,
+  ads_in: 4, ads_out: 3.8, click: 4.5, jump: 3.2, ui_slip: 3, ui_click: 1.8, ui_open: 1.3, hurt: 1.3,
+  mag_load_round: 3, probe_throw: 3, probe_land: 2, weapon_holster: 2.8, weapon_draw: 2.2, pickup_item: 3, pickup_ammo: 2.2, reload_magout: 2.6,
+  bandage_use: 2.5, medkit_use: 1.6, stim_use: 1.3, step_grass: 2, dry_click: 1.8, bolt_open: 2, shell_insert: 1.5, break_open: 1.5, unjam: 1.5,
+  container_open: 1.5, artifact_pickup: 1.6, step_road: 1.5, step_concrete: 1.4,
+  wind: 1.6, drizzle: 1.5, fragment_chime: 0.8, breath: 1.8,
+};
+
 export function registerSfx(audio) {
   if (!audio || typeof audio.register !== 'function') return;
+  const trim = (a, out, name) => { const lv = LEVEL[name]; if (lv == null || lv === 1) return null; const g = a.gain(lv); g.connect(out); return g; };
   const def = (name, fn) => audio.register(name, (a, out, opts) => {
     const v = voice(a, out, opts);
+    const t = trim(a, out, name); if (t) v.out = t;
     try { fn(v); } catch (e) { console.warn('sfx ' + name, e); }
     return { stop() { for (const s of v.srcs) { try { s.stop(); } catch {} } } };
   });
   const defLoop = (name, fn) => audio.registerLoop(name, (a, out, opts) => {
     const L = loopVoice(a, out, opts);
+    const t = trim(a, out, name); if (t) { L.out = t; L.nodes.push(t); }
     try { fn(L); } catch (e) { console.warn('loop ' + name, e); }
     return { stop: () => L.stop(), set: (k, val) => { try { L.setters[k]?.(+val); } catch {} }, update: (dt) => { try { L.tick?.(dt); } catch {} } };
   });
@@ -391,10 +410,13 @@ export function registerSfx(audio) {
     const hi = L.osc('sine', 1762 * L.rate, 1, bright); oscs.push(hi); L.lfo(hi.o.frequency, 5.2, 3);
     const hi2 = L.osc('sine', 2640 * L.rate, 0.6, bright); oscs.push(hi2); L.lfo(hi2.o.frequency, 0.31, 6);
     const am = a.osc('sine', 0.6), amg = L.keep(a.gain(0.45)); am.connect(amg); amg.connect(amp.gain); am.start(a.now); L.srcs.push(am);
-    let pitch = 1, near = 0;
+    let pitch = 1, near = 0, lastHz = -1, lastNear = -1;
     const applyPitch = () => { const m = pitch * (1 + 0.04 * near); oscs.forEach((r, i) => L.target(r.o.frequency, [880, 883, 1760, 1762, 2640][i] * L.rate * m, 0.15)); };
-    L.setters.rate = (val) => { if (!Number.isFinite(val)) return; const hz = val <= 1 ? 0.5 + 3.5 * clamp(val, 0, 1) : clamp(val, 0.3, 8); L.target(am.frequency, hz, 0.1); pitch = 1 + 0.06 * clamp((hz - 0.5) / 3.5, 0, 1); applyPitch(); };
-    L.setters.near = (val) => { near = clamp(val, 0, 1); L.target(bright.gain, 0.12 + 0.35 * near, 0.3); applyPitch(); };
+    // set('rate', hz): pulses per second. fragment.js sends 1 / period (1.8 s idle -> 0.25 s at touching distance, i.e. 0.55..4 Hz);
+    // the AM follows it and the pitch creeps up ~6 % at full speed. One convention only: a value in (0, 1) is a slow pulse, not a fraction.
+    // Callers set these every frame, so changes under 1 % are ignored rather than queued as automation events.
+    L.setters.rate = (val) => { if (!Number.isFinite(val) || val <= 0) return; const hz = clamp(val, 0.3, 8); if (Math.abs(hz - lastHz) < lastHz * 0.01) return; lastHz = hz; L.target(am.frequency, hz, 0.1); pitch = 1 + 0.06 * clamp((hz - 0.55) / 3.45, 0, 1); applyPitch(); };
+    L.setters.near = (val) => { const n = clamp(val, 0, 1); if (Math.abs(n - lastNear) < 0.01) return; lastNear = near = n; L.target(bright.gain, 0.12 + 0.35 * near, 0.3); applyPitch(); };
     L.setters.pulse = (val) => L.target(pulseG.gain, 0.65 + 0.35 * clamp(val, 0, 1), 0.03);
   });
   def('fragment_approach', (v) => {
@@ -525,10 +547,27 @@ export function registerSfx(audio) {
     burst(v, { at: 0.4, type: 'pink', filt: 'highpass', f0: 1000, q: 0.6, dur: 0.3, g: 0.1, atk: 0.1 });
   });
   def('probe_throw', (v) => { burst(v, { type: 'pink', filt: 'bandpass', f0: 800, f1: 2500, q: 1, dur: 0.25, g: 0.4, atk: 0.05 }); cloth(v, { n: 2, span: 0.08, g: 0.12 }); });
+  // A small steel probe hitting the ground. probe.js passes the surface it landed on as opts.variant.
   def('probe_land', (v) => {
+    const s = String(v.o.variant || ''), soft = /grass|mud|dirt|water|ash|sand/.test(s);
+    if (soft) {                                   // dull: the probe sinks into turf or mud, no bounce
+      thump(v, { f0: 150, f1: 70, dur: 0.05, g: 0.45 });
+      burst(v, { type: 'brown', filt: 'lowpass', f0: 500, q: 0.7, dur: 0.05, g: 0.45, atk: 0.001 });
+      burst(v, { type: 'pink', filt: 'bandpass', f0: 1400, q: 0.8, dur: 0.07, g: 0.22, atk: 0.003 });
+      click(v, { f: 2500, g: 0.12 });
+      return;
+    }
+    if (s === 'wood') {                           // knock on planks, one small bounce
+      tone(v, { f0: 230, f1: 150, dur: 0.04, g: 0.5, atk: 0.001 });
+      burst(v, { type: 'white', filt: 'lowpass', f0: 1500, q: 0.7, dur: 0.03, g: 0.35, atk: 0.001 });
+      ring(v, { freqs: [2400, 3300], decay: 0.05, g: 0.06 });
+      tone(v, { at: 0.11, f0: 230, f1: 160, dur: 0.03, g: 0.25, atk: 0.001 });
+      return;
+    }
+    const metal = s === 'metal';                  // hard: tick + ring (on metal a longer, brighter clank) and 1-2 bounces
     burst(v, { type: 'white', filt: 'bandpass', f0: 3000, q: 2, dur: 0.015, g: 0.5, atk: 0.0005 });
-    ring(v, { freqs: [2400, 3600], decay: 0.08, g: 0.1 });
-    seq(v, irnd(1, 2), 0.09, 0.14, (at, i) => { burst(v, { at, type: 'white', filt: 'bandpass', f0: 3000, q: 2, dur: 0.012, g: 0.3 * Math.pow(0.6, i), atk: 0.0005 }); ring(v, { at, freqs: [2400], decay: 0.05, g: 0.05 }); });
+    ring(v, { freqs: metal ? [1100, 1700, 2600, 3900] : [2400, 3600], decay: metal ? 0.22 : 0.08, g: metal ? 0.14 : 0.1 });
+    seq(v, irnd(1, 2), 0.09, 0.14, (at, i) => { burst(v, { at, type: 'white', filt: 'bandpass', f0: 3000, q: 2, dur: 0.012, g: 0.3 * Math.pow(0.6, i), atk: 0.0005 }); ring(v, { at, freqs: metal ? [1700, 2600] : [2400], decay: metal ? 0.1 : 0.05, g: 0.05 }); });
     burst(v, { type: 'pink', filt: 'bandpass', f0: 1500, q: 0.8, dur: 0.05, g: 0.1, atk: 0.003 });
   });
   def('probe_trigger', (v) => {
@@ -558,9 +597,13 @@ export function registerSfx(audio) {
     const a = L.a, gust = L.keep(a.gain(0.5)); gust.connect(L.out);
     const body = L.noise('pink', 'bandpass', rnd(380, 520), 0.5, 0.45, gust); L.lfo(body.f.frequency, rnd(0.05, 0.09), 120); L.lfo(gust.gain, 0.07, 0.15);
     const whistle = L.noise('pink', 'bandpass', 2000, 8, 0.03, gust); L.lfo(whistle.f.frequency, 0.13, 450);
-    let level = 0.5, timer = rnd(2, 5);
-    L.setters.gust = (val) => { level = 0.35 + 0.65 * clamp(val, 0, 1); L.target(gust.gain, level, 0.6); L.target(whistle.g.gain, 0.01 + 0.07 * clamp(val, 0, 1), 0.8); };
-    L.tick = (dt) => { timer -= dt; if (timer > 0) return; timer = rnd(3, 9); L.target(gust.gain, level * rnd(0.6, 1.5), rnd(0.8, 2)); };
+    // set('gust', 0..1) is driven by ambience at ~10 Hz; the random gust multiplier re-rolled by tick() rides on top of it
+    // (ambience's setGain() sets the overall level; 'level' is accepted and ignored so it is not applied twice).
+    let level = 0.5, mul = 1, timer = rnd(2, 5);
+    const apply = (tc) => L.target(gust.gain, level * mul, tc);
+    L.setters.gust = (val) => { const g = clamp(val, 0, 1); level = 0.35 + 0.65 * g; apply(0.6); L.target(whistle.g.gain, 0.01 + 0.07 * g, 0.8); };
+    L.setters.level = () => {};
+    L.tick = (dt) => { timer -= dt; if (timer > 0) return; timer = rnd(3, 9); mul = rnd(0.6, 1.5); apply(rnd(0.8, 2)); };
   });
   defLoop('radius_hum', (L) => {
     const a = L.a, mix = L.keep(a.gain(0.25)); mix.connect(L.out);
@@ -680,5 +723,35 @@ export function registerSfx(audio) {
   });
   def('siren', (v) => {
     for (const d of [0, 6]) { tone(v, { f0: 480, f1: 720, dur: 1.0, g: 0.35, atk: 0.15, curve: 'lin', lp: 700, detune: d }); tone(v, { at: 1.0, f0: 720, f1: 480, dur: 1.0, g: 0.35, atk: 0.02, lp: 700, detune: d }); }
+  });
+
+  // ===================================================== player beds (not canonical; DESIGN §13 heartbeat < 30 HP, breathing at low stamina)
+  // loop 'heartbeat': lub-dub every beat. set('rate', bpm | Hz), set('level', 0..1). Driven by tick(), so it needs audio.update().
+  defLoop('heartbeat', (L) => {
+    const a = L.a, mix = L.keep(a.gain(0.6)); mix.connect(L.out);
+    let bpm = 72, level = 1, phase = 0.9;
+    const beat = (g) => {
+      const v = voice(a, mix, {});
+      thump(v, { f0: 68, f1: 38, dur: 0.11, g: 0.9 * g }); burst(v, { type: 'brown', filt: 'lowpass', f0: 220, q: 0.7, dur: 0.08, g: 0.5 * g, atk: 0.002 });
+      thump(v, { at: 0.14, f0: 58, f1: 34, dur: 0.1, g: 0.6 * g }); burst(v, { at: 0.14, type: 'brown', filt: 'lowpass', f0: 180, q: 0.7, dur: 0.07, g: 0.35 * g, atk: 0.002 });
+    };
+    L.tick = (dt) => { phase += dt * bpm / 60; if (phase < 1) return; phase -= 1; if (level > 0.01) beat(level * jit(1, 0.1)); };
+    L.setters.rate = (val) => { if (Number.isFinite(val) && val > 0) bpm = clamp(val <= 4 ? val * 60 : val, 30, 200); };
+    L.setters.level = (val) => { level = clamp(Number.isFinite(val) ? val : 1, 0, 1); };
+  });
+  // loop 'breath': in through the nose, out through the mouth; each cycle is scheduled when it starts. set('rate', breaths/s), set('level', 0..1).
+  defLoop('breath', (L) => {
+    const a = L.a, mix = L.keep(a.gain(0.5)); mix.connect(L.out);
+    const inh = L.noise('pink', 'bandpass', 1300, 1.2, EPS, mix), exh = L.noise('pink', 'bandpass', 650, 0.9, EPS, mix);
+    L.lfo(inh.f.frequency, 0.9, 120); L.lfo(exh.f.frequency, 0.7, 60);
+    let period = 2.8, level = 0.7, phase = 0.95;
+    const cycle = () => {
+      const p = period * jit(1, 0.08), t0 = a.now + 0.01, g = level * jit(1, 0.12);
+      a.env(inh.g.gain, [[0, EPS], [p * 0.3, g * 0.55, 'lin'], [p * 0.42, g * 0.35, 'lin'], [p * 0.5, EPS, 'exp']], t0);
+      a.env(exh.g.gain, [[0, EPS], [p * 0.45, EPS, 'lin'], [p * 0.58, g, 'lin'], [p * 0.8, g * 0.45, 'lin'], [p * 0.97, EPS, 'exp']], t0);
+    };
+    L.tick = (dt) => { phase += dt / period; if (phase < 1) return; phase -= 1; if (level > 0.01) cycle(); };
+    L.setters.rate = (val) => { if (Number.isFinite(val) && val > 0) period = 1 / clamp(val, 0.15, 1.5); };
+    L.setters.level = (val) => { level = clamp(Number.isFinite(val) ? val : 0.7, 0, 1); };
   });
 }

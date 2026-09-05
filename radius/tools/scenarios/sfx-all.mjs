@@ -18,7 +18,7 @@ export default async function (page, api) {
     const fails = [], unregistered = [];
     for (const n of [...ONE, ...LOOPS]) if (!a.has(n)) unregistered.push(n);
     const pos = r.ctx.player.position.clone().add(new THREE.Vector3(3, 1.5, -2));
-    const variants = [{ gain: 0.5 }, { gain: 0.4, rate: 0.7 }, { gain: 0.4, rate: 1.4, pos, hrtf: true }, { gain: 0.3, variant: 'crate' }, {}, null];
+    const variants = [{ gain: 0.5 }, { gain: 0.4, rate: 0.7 }, { gain: 0.4, rate: 1.4, pos, hrtf: true, max: 5000 }, { gain: 0.3, variant: 'crate' }, {}, null];
     for (const n of ONE) for (const o of variants) {
       try { const h = a.play(n, o == null ? undefined : o); if (!h) fails.push(n + ':null'); else if (o && o.rate === 1.4) h.stop?.(); }
       catch (e) { fails.push(n + ':' + (e && e.message)); }

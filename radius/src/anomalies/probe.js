@@ -5,11 +5,15 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GLSL_NOISE } from '../render/glsl.js';
 import { fogUniforms } from '../render/fog.js';
-import { clamp01, lerp, easeOutCubic, TAU } from '../core/math.js';
+import { buildHands, HAND_GRIP } from '../weapons/gunmesh.js';
+import { clamp01, lerp, easeOutCubic, easeInCubic, TAU } from '../core/math.js';
 
 const _v = new THREE.Vector3(), _d = new THREE.Vector3(), _r = new THREE.Vector3(), _n = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 const GRAV = 9.8, LIFE = 60, MAX_PROBES = 12;
+// the throw: the left fist comes up beside the head with the probe cocked, flicks forward, releases, drops away
+const THROW_T = 0.5, RELEASE_T = 0.11;
+const smooth = (t) => { t = clamp01(t); return t * t * (3 - 2 * t); };
 
 // dull metal with grime blotches, scuffs and per-fragment roughness variation (shared by the detector)
 export function grimeMaterial(color, roughness = 0.5, metalness = 0.8, seed = 0, extra = {}) {
@@ -73,12 +77,21 @@ export function createProbes(ctx) {
     const i = probes.indexOf(p); if (i >= 0) probes.splice(i, 1);
     if (p.mesh) { ctx.scene.remove(p.mesh); p.mesh = null; }
   }
+  // left glove closed on a probe: the fist's grip point (mirrored HAND_GRIP) sits at the group origin, the probe along it
+  function buildThrowHand() {
+    const g = new THREE.Group(); g.name = 'probeHand';
+    const glove = buildHands().left; glove.position.copy(HAND_GRIP); glove.position.x = -glove.position.x; glove.position.negate(); g.add(glove);
+    const probe = new THREE.Mesh(probeGeometry(), probeMaterial()); probe.name = 'probe'; probe.frustumCulled = false; probe.position.y = 0.03; g.add(probe);
+    g.userData.probe = probe;
+    return g;
+  }
   function beginThrow() {
     if (!ctx.inventory.remove('probe', 1)) return false;
     ctx.audio.play('probe_throw', { gain: 0.7, rate: 0.95 + Math.random() * 0.1 });
-    if (!hand) { hand = new THREE.Mesh(probeGeometry(), probeMaterial()); hand.name = 'probeHand'; hand.frustumCulled = false; }
+    if (!hand) hand = buildThrowHand();
+    hand.userData.probe.visible = true; hand.visible = true;
     ctx.hands.pivot.add(hand);
-    handT = 0.3; pendingThrow = 0.11;
+    handT = THROW_T; pendingThrow = RELEASE_T;
     if (ctx.state.data.flags && !ctx.state.data.flags.probeHint) { ctx.state.data.flags.probeHint = true; ctx.hud.hint?.('Committee advisory: probes reveal anomalies. Throw before you walk.', 5000); }
     return true;
   }
@@ -164,16 +177,18 @@ export function createProbes(ctx) {
       if (live && ctx.input.pressed('probe') && handT <= 0) {
         if (!beginThrow()) { ctx.audio.play('click', { gain: 0.45 }); ctx.hud.hint?.('Probe count: 0. Resupply at Vanno.', 2500); }
       }
-      // hand motion: the arm comes up from the right and flicks forward; the probe leaves at the release point
+      // hand motion: the left fist is cocked beside the head, flicks forward, opens at the release, then drops out of frame
       if (handT > 0) {
         handT -= dt;
-        const s = clamp01(1 - handT / 0.3), k = easeOutCubic(s);
-        hand.position.set(lerp(0.2, 0.06, k), lerp(-0.24, 0.02, k) - Math.sin(s * Math.PI) * 0.04, lerp(-0.25, -0.5, k));
-        hand.rotation.set(lerp(1.2, -0.6, k), 0.3, lerp(0.3, -0.2, k));
-        hand.visible = pendingThrow > 0 || s < 0.42;
+        const el = THROW_T - handT;
+        const flick = easeOutCubic(clamp01(el / RELEASE_T));
+        const drop = easeInCubic(clamp01((el - RELEASE_T) / (THROW_T - RELEASE_T)));
+        const raise = smooth(clamp01(el / 0.06));      // the first frames bring the hand up from below the frame
+        hand.position.set(lerp(-0.21, -0.14, flick) - drop * 0.1, lerp(-0.16, 0.0, raise) + lerp(0.0, -0.07, flick) - drop * 0.34, lerp(-0.2, -0.4, flick) + drop * 0.06);
+        hand.rotation.set(lerp(1.05, -0.5, flick) - drop * 0.6, lerp(-0.3, -0.12, flick), lerp(0.3, 0.05, flick));
         if (handT <= 0 && hand.parent) hand.parent.remove(hand);
       }
-      if (pendingThrow > 0) { pendingThrow -= dt; if (pendingThrow <= 0) { spawnProbe(); if (hand) hand.visible = false; } }
+      if (pendingThrow > 0) { pendingThrow -= dt; if (pendingThrow <= 0) { spawnProbe(); if (hand) hand.userData.probe.visible = false; } }
       if (dt <= 0) return;
       for (let i = probes.length - 1; i >= 0; i--) { const p = probes[i]; if (p.mesh) step(p, dt); }
     },

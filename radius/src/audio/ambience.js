@@ -22,10 +22,10 @@ export function createAmbience(ctx) {
   // crows / birds
   let crowT = rnd(25, 60), birdT = rnd(15, 40), calmT = 0;
   // distant gunfire
-  let shotT = rnd(180, 360);
-  const queue = [];                 // { t: ctx.elapsed deadline, fn }
+  let shotT = rnd(180, 360), gt = 0;   // gt: this module's gameplay clock (stops with the world, unlike ctx.elapsed)
+  const queue = [];                 // { t: gt deadline, fn }
   // base
-  let dripT = rnd(6, 14);
+  let dripT = rnd(6, 14), wasInBase = false;
   let lastVolley = null;
 
   const acquire = (name, opts) => (audio.has(name) ? audio.loop(name, opts) : null);
@@ -48,7 +48,7 @@ export function createAmbience(ctx) {
     const poi = far.length ? far[Math.floor(rnd(0, far.length))] : POIS[Math.floor(rnd(1, POIS.length))];
     let dx = poi.x - p.x, dz = poi.z - p.z; const len = Math.hypot(dx, dz) || 1; dx /= len; dz /= len;
     const d = rnd(150, 300), x = p.x + dx * d, z = p.z + dz * d, y = ctx.world.getHeight(x, z) + 1.5;
-    const n = 1 + Math.floor(rnd(0, 3)); let at = ctx.elapsed + rnd(0.1, 0.4);
+    const n = 1 + Math.floor(rnd(0, 3)); let at = gt + rnd(0.1, 0.4);
     const rate = rnd(0.88, 1.06);
     lastVolley = { x: +x.toFixed(1), z: +z.toFixed(1), n, poi: poi.id };
     for (let i = 0; i < n; i++) {
@@ -68,6 +68,7 @@ export function createAmbience(ctx) {
     const mode = ctx.mode;
     const live = (mode === 'playing' || mode === 'dead') && !ctx.panels?.isOpen;
     const gdt = live ? dt : 0;
+    gt += gdt;
     duck = damp(duck, mode === 'title' ? 0 : 1, 1.5, dt);
     const p = ctx.player.position, inBase = !!ctx.player.inBase;
     const state = ctx.director.state, tension = ctx.director.tension, night = ctx.time.night;
@@ -75,6 +76,7 @@ export function createAmbience(ctx) {
 
     // loops we always want (retry quietly while the sfx registry is still filling in)
     retryT -= dt;
+    if (inBase !== wasInBase) { wasInBase = inBase; if (inBase) retryT = 0; }
     if (retryT <= 0) {
       retryT = 1;
       if (!loops.wind) loops.wind = acquire('wind', { bus: 'amb', gain: 0 });
@@ -88,7 +90,8 @@ export function createAmbience(ctx) {
     gust = damp(gust, Math.pow(gRaw, 1.6), 0.8, dt);
     const hill = clamp01((p.y - 3) / 22);
     const weather = clamp01(rain * 0.6 + (ctx.lighting.storm || 0) * 0.8);
-    let wind = 0.28 + gust * 0.42 + tension * 0.12 + hill * 0.22 + weather * 0.18;
+    // (the wind generator shapes its own gusts from set('gust'); the out gain carries the slower context)
+    let wind = Math.min(1, 0.45 + gust * 0.25 + tension * 0.12 + hill * 0.18 + weather * 0.15);
     if (inBase) wind *= 0.1;
     windLevel = damp(windLevel, wind * duck, 1.5, dt);
 
@@ -97,14 +100,14 @@ export function createAmbience(ctx) {
     const near = Number.isFinite(nd) ? clamp01((60 - nd) / 48) : 0;
     const northFloor = remap(p.z, 300, -300, 0.05, 0.35);
     humI = clamp01(northFloor + (1 - northFloor) * Math.pow(near, 1.5));
-    humLevel = damp(humLevel, humI * (inBase ? 0.25 : 1) * duck, 1.2, dt);
+    humLevel = damp(humLevel, (0.5 + 0.4 * humI) * (inBase ? 0.25 : 1) * duck, 1.2, dt);   // the generator swells with set('intensity')
 
     // weather: once per in-game hour, a 20 % chance of a 3-8 real-minute drizzle
     const d = ctx.state.data;
     const hk = Math.floor(d.day * 24 + d.hour);
     if (hk !== hourKey) {
       const first = hourKey === null; hourKey = hk;
-      if (!first && live && !rainActive && rainCool <= 0 && !inBase && Math.random() < 0.2) { rainActive = true; rainT = rnd(180, 480); }
+      if (!first && live && !rainActive && rainCool <= 0 && !inBase && Math.random() < 0.2) { rainActive = true; rainT = rnd(180, 480); retryT = 0; }
     }
     if (rainActive) { rainT -= gdt; if (rainT <= 0) { rainActive = false; rainCool = 120; } }
     rainCool = Math.max(0, rainCool - gdt);
@@ -120,10 +123,10 @@ export function createAmbience(ctx) {
     ctlT += dt;
     if (ctlT >= 0.1) {
       ctlT = 0;
-      if (loops.wind) { loops.wind.setGain(windLevel, 0.4); loops.wind.set('gust', gust); loops.wind.set('level', windLevel); }
-      if (loops.radius_hum) { loops.radius_hum.setGain(humLevel * 0.7, 0.35); loops.radius_hum.set('intensity', humI); }
+      if (loops.wind) { loops.wind.setGain(windLevel, 0.4); loops.wind.set('gust', gust); }
+      if (loops.radius_hum) { loops.radius_hum.setGain(humLevel, 0.35); loops.radius_hum.set('intensity', humI); }
       if (loops.drizzle) {
-        loops.drizzle.setGain(rain * 0.55 * (inBase ? 0.2 : 1) * duck, 0.5);
+        loops.drizzle.setGain(rain * 0.6 * (inBase ? 0.2 : 1) * duck, 0.5); loops.drizzle.set('intensity', rain);
         if (!rainActive && rain < 0.01) { loops.drizzle.stop(2); loops.drizzle = null; }
       }
       if (loops.base_hum) loops.base_hum.setGain(0.5 * duck, 0.6);
@@ -152,7 +155,7 @@ export function createAmbience(ctx) {
       if (shotT <= 0) { shotT = rnd(180, 360); scheduleVolley(); }
     }
     if (live && queue.length) {
-      for (let i = queue.length - 1; i >= 0; i--) { if (queue[i].t <= t) { const q = queue[i]; queue.splice(i, 1); q.fn(); } }
+      for (let i = queue.length - 1; i >= 0; i--) { if (queue[i].t <= gt) { const q = queue[i]; queue.splice(i, 1); q.fn(); } }
     }
   }
 
@@ -166,13 +169,15 @@ export function createAmbience(ctx) {
   }
 
   return {
-    start() { running = true; retryT = 0; hourKey = null; },
+    // main calls start() on every game start (new game, load, respawn) without a stop() in between: a fresh
+    // morning does not inherit the previous session's drizzle (the loop, if any, fades out through the normal path)
+    start() { running = true; retryT = 0; hourKey = null; rainActive = false; rainCool = 0; queue.length = 0; },
     stop, update,
     // debug
     debug() { return { wind: +windLevel.toFixed(3), gust: +gust.toFixed(3), hum: +humLevel.toFixed(3), rain: +rain.toFixed(3), rainActive, loops: Object.keys(loops).filter((k) => loops[k]), queued: queue.length, lastVolley, crowT: +crowT.toFixed(1), birdT: +birdT.toFixed(1), shotT: +shotT.toFixed(1) }; },
     // debug: force an event now ('rain' with a duration in seconds, 'volley', 'crow', 'bird', 'drip')
     force(kind, v = 60) {
-      if (kind === 'rain') { rainActive = true; rainT = v; }
+      if (kind === 'rain') { rainActive = true; rainT = v; retryT = 0; }
       else if (kind === 'volley') scheduleVolley();
       else if (kind === 'crow') { calmT = 9; crowT = 0; }
       else if (kind === 'bird') { calmT = 9; birdT = 0; }

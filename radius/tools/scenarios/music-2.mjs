@@ -23,18 +23,17 @@ export default async function (page, api) {
     return r;
   };
   await api.frames(3); await api.run(`__radius.ctx.director.setState('CALM')`);
-  await api.frames(24); await snap('loops-acquired');
+  await api.frames(8); await snap('loops-acquired');
   await api.run(`__radius.ctx.ambience.force('crow'); __radius.ctx.ambience.force('bird'); __radius.ctx.ambience.force('volley')`);
   await api.frames(3); await snap('calm-calls');
-  await api.frames(22); await snap('volley-drained');
+  await api.frames(10); await snap('volley-drained');
   // UNEASE: birds must stay silent even when their timers are due
   await api.run(`__radius.ctx.director.setState('UNEASE'); __radius.ctx.ambience.force('crow'); __radius.ctx.ambience.force('bird')`);
   await api.frames(4); await snap('unease-silent');
   await api.run(`__radius.ctx.director.setState('CALM'); __radius.ctx.ambience.force('rain', 4)`);
-  await api.frames(24); await snap('rain-on');
+  await api.frames(8); await snap('rain-on');
   // base: base_hum acquired, drips, wind ducked; leaving releases base_hum
-  await api.run(`__radius.teleport(0, 302)`); await api.frames(24); await api.run(`__radius.ctx.ambience.force('drip')`); await api.frames(3); await snap('base');
-  await api.run(`__radius.teleport(0, 270)`); await api.frames(24); await snap('outside');
-  await api.frames(60); await snap('rain-off');
+  await api.run(`__radius.teleport(0, 302)`); await api.frames(8); await api.run(`__radius.ctx.ambience.force('drip')`); await api.frames(3); await snap('base');
+  await api.run(`__radius.teleport(0, 270)`); await api.frames(8); await snap('outside');
   await api.run(`__radius.ctx.ambience.stop()`); await api.wait(1500); await api.frames(2); await snap('stopped');
 }
