@@ -36,8 +36,9 @@ export function createLighting(ctx) {
 
   // flashlight: parented to the camera, slightly offset like a hand-held torch
   const flashlight = new THREE.SpotLight(0xffe2b8, 0, 60, 0.46, 0.7, 1.4);
-  flashlight.position.set(0.22, -0.18, 0.1);
-  flashlight.target.position.set(0.05, -0.05, -6);
+  // the lamp head sits ahead of the hands so the viewmodel is behind the cone and never blows out
+  flashlight.position.set(0.28, -0.22, -0.8);
+  flashlight.target.position.set(0.05, -0.08, -7);
   flashlight.castShadow = false;
   ctx.camera.add(flashlight); ctx.camera.add(flashlight.target);
 

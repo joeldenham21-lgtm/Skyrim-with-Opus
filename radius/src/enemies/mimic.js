@@ -530,7 +530,8 @@ class Mimic extends Enemy {
     const p = this.player;
     _v3.set(p.position.x, p.position.y + p.eyeHeight * 0.62, p.position.z);
     _dir.subVectors(_v3, muzzle).normalize();
-    const spread = 2 + dist * 0.06 + p.speed * 0.5 + (this.moveSpeed > 0.5 ? 2.5 : 0);
+    // ~70 % of rounds find a standing target at 15 m, falling with distance, worse on the move (either side)
+    const spread = 1.5 + dist * 0.05 + p.speed * 0.4 + (this.moveSpeed > 0.5 ? 2.0 : 0);
     enemyShoot(this.ctx, this, muzzle, _dir, 8, spread);
     this.ctx.vfx.muzzleFlash(muzzle, _dir);
     this.sound('mimic_shot', { pos: muzzle, gain: 1.0, max: 220, ref: 4 });

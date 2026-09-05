@@ -6,7 +6,7 @@ export default async function (page, api) {
   const shots = [
     ['zarya', -130, 60, 0.8, 12],
     ['object12', 150, -60, -2.2, 12],
-    ['church', 50, -230, 0.3, 12],
+    ['church', 62, -206, 0.5, 12],
     ['marsh', -40, 140, 2.4, 12],
     ['rail', -60, -150, 1.4, 12],
     ['dusk-road', 30, 130, 0.2, 19.6],

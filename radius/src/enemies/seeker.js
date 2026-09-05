@@ -94,7 +94,7 @@ function makeCone(length, angle) {
     coneGeo.userData.shared = true;
   }
   const mat = new THREE.ShaderMaterial({ uniforms: { uTime: { value: 0 }, uIntensity: { value: 0.32 } }, vertexShader: CONE_VERT, fragmentShader: CONE_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
-  const m = new THREE.Mesh(coneGeo, mat); m.renderOrder = 4;
+  const m = new THREE.Mesh(coneGeo, mat); m.renderOrder = 4; m.frustumCulled = false;   // hangs off a bone; one call, never worth a mis-cull
   return m;
 }
 

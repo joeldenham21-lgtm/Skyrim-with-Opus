@@ -35,4 +35,15 @@ export default async function (page, api) {
     console.log('skip', JSON.stringify(s));
     if (s.skips >= 2 || s.d < 10) break;
   }
+  await fireCheck(api);
+}
+export async function fireCheck(api) {
+  // a mimic 15 m ahead in the open at noon, from a fresh watch-first spawn: time to contact, hits, whiz, tracers
+  await api.run(`(() => { const r = window.__radius; r.ctx.enemies.removeAll(); r.teleport(30, 130); r.setLook(0.2, 0.0); r.setTime(12); r.ctx.state.data.hp = 100; r.ctx.state.data.bleeding = false; window.__snd = {}; window.__tracers = 0; const ot = r.ctx.vfx.tracer; r.ctx.vfx.tracer = (a, b, w) => { window.__tracers++; return ot(a, b, w); }; })()`);
+  await api.run(`window.__m = ${spawnRel('mimic', 15)}`);
+  for (let i = 0; i < 8; i++) {
+    const s = await api.run(`(() => { const ctx = window.__radius.ctx, m = window.__m; for (let k = 0; k < 20; k++) { ctx.elapsed += 0.05; ctx.enemies.update(0.05); ctx.director.update(0.05); ctx.player.update(0.05); ctx.vfx.update(0.05, ctx.elapsed); }
+      return { t: ${i + 1}, aware: +m.aware.toFixed(2), st: m.state, hp: +ctx.player.hp.toFixed(0), d: +m.distanceToPlayer().toFixed(1), shots: window.__snd.mimic_shot || 0, hits: window.__snd.hurt_bullet || 0, whiz: window.__snd.bullet_whiz || 0, tracers: window.__tracers, director: ctx.director.state }; })()`);
+    console.log('fire', JSON.stringify(s));
+  }
 }
