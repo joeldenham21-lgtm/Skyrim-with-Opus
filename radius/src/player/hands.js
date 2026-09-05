@@ -4,9 +4,9 @@
 // Other modules may parent their own held items under hands.root; setWeaponMesh only touches the weapon child.
 import * as THREE from 'three';
 import { clamp, clamp01, damp, lerp, easeInOut, easeOutCubic, easeInCubic, TAU } from '../core/math.js';
-import { buildHands, HAND_GRIP } from '../weapons/gunmesh.js';
+import { buildHands, HAND_GRIP, viewFill } from '../weapons/gunmesh.js';
 
-const _v = new THREE.Vector3(), _e = new THREE.Euler();
+const _v = new THREE.Vector3(), _e = new THREE.Euler(), _c = new THREE.Color();
 const SPRING_K = 420, SPRING_AMP = Math.sqrt(SPRING_K);
 const smooth = (t) => { t = clamp01(t); return t * t * (3 - 2 * t); };
 const seg = (t, a, b) => clamp01((t - a) / (b - a));
@@ -220,6 +220,16 @@ export function createHands(ctx) {
       pivot.position.set(swayX + bobX + kx.x * kick, swayY + bobY + brY + kx.y * kick, kx.z * kick);
       pivot.rotation.set(swayRX + brRX + kr.x * kick, swayRY + kr.y * kick, bobRZ + brRZ + kr.z * kick);
       api.applyParts();
+      // ---- viewmodel fill: torch bounce off the ground ahead, a little sky by day ----
+      const L = ctx.lighting;
+      if (L) {
+        const torch = L.flashlight && L.flashlight.visible ? clamp01(L.flashlight.intensity / 42) : 0;
+        // irradiance units (three's Lambert divides by pi): the beam on the ground ahead measures ~4-6, so the bounce on
+        // the hands sits at about two thirds of that; by day the sky adds a little so the gun never goes to silhouette
+        viewFill.value.copy(L.hemi.color).multiplyScalar(L.hemi.intensity * 1.6);
+        if (L.ambient) viewFill.value.addScalar(L.ambient.intensity * 0.4);
+        if (torch > 0) viewFill.value.add(_c.copy(L.flashlight.color).multiplyScalar(torch * 6.0));
+      }
     },
   };
   return api;

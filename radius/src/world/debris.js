@@ -104,7 +104,7 @@ function columnMotes(ctx, count, rnd) {
         gl_PointSize = (1.6 + aSeed.z * 2.6) * uScale;
         float fade = smoothstep(0.0, 50.0, y) * (1.0 - smoothstep(380.0, 600.0, y));
         float tw = 0.7 + 0.3 * sin(uTime * 2.5 + aSeed.y * 40.0);
-        vA = fade * tw * (0.32 + 0.55 * uNight) * (1.0 - uTide);
+        vA = fade * tw * (0.4 + 0.5 * uNight) * (1.0 - uTide);
       }`,
     fragmentShader: /* glsl */`
       varying float vA;
@@ -268,10 +268,11 @@ export function createDebris(ctx) {
   }
   rollChunks(0);
   let dustT = 0;
+  const cand = [];
   function trickle(t) {
     // now and then a chunk sheds a little dust that falls away beneath it
     const p = ctx.player.position;
-    const cand = [];
+    cand.length = 0;
     for (const c of chunks) if (c.big && Math.hypot(c.cx - p.x, c.cz - p.z) < 110) cand.push(c);
     if (!cand.length || Math.random() > 0.55) return;
     const c = cand[Math.floor(Math.random() * cand.length)];

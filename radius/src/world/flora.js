@@ -158,7 +158,7 @@ const PAL = {
   birchBranch: C(0x8f8a80), birchTwig: C(0x3a332e), birchTwigTip: C(0x4d443c),
   pineA: C(0x4a3e35), pineB: C(0x6a635a), pineLimb: C(0x3d342c), pineTwig: C(0x2f2924),
   woodOld: C(0x6f665a), woodRot: C(0x3a2f27), woodCut: C(0x9c8c72),
-  bushA: C(0x3b332c), bushB: C(0x5a5047),
+  bushA: C(0x4a423a), bushB: C(0x6f665b),
 };
 // colour functions are built once per tube and capture their own Color, so emit() can run twice
 const shade = (fnOf) => { const c = new THREE.Color(); return (t, i) => fnOf(t, i, c); };
@@ -292,23 +292,24 @@ function logVariant(rnd) {
 }
 
 function stumpVariant(rnd) {
-  const H = rnd.range(0.35, 1.1), R0 = rnd.range(0.2, 0.36), birch = rnd() < 0.5;
+  // knee-high, cut by the kolkhoz years ago: silver-grey weathered wood, soot and moss only at the foot
+  const H = rnd.range(0.28, 0.72), R0 = rnd.range(0.17, 0.3), birch = rnd() < 0.5;
   const path = [
-    { x: 0, y: -0.15, z: 0, r: R0 * 1.45 },
-    { x: 0, y: 0.12, z: 0, r: R0 * 1.12 },
+    { x: 0, y: -0.12, z: 0, r: R0 * 1.3 },
+    { x: 0, y: 0.1, z: 0, r: R0 * 1.08 },
     { x: 0, y: H * 0.6, z: 0, r: R0 },
     { x: 0, y: H, z: 0, r: R0 * 0.97 },
   ];
-  const side = birch ? PAL.birch : mixC(PAL.pineA, PAL.pineB, rnd(), new THREE.Color());
-  const tubes = [{ path, segs: 8, level: 0, fn: shade((t, i, c) => ({ c: mixC(side, PAL.birchBase, 1 - smoothstep(0.05, 0.4, t), c), flex: 0, bark: birch ? 1 : 0.5 })) }];
-  // jagged, splintered top: a ring of spikes around a pale cut core
-  const spikes = 8, hs = Array.from({ length: spikes }, () => rnd.range(-0.05, 0.3)), rot = Array.from({ length: spikes }, () => rnd() * 0.6);
+  const side = birch ? PAL.birch : mixC(PAL.woodOld, PAL.pineB, rnd(), new THREE.Color());
+  const tubes = [{ path, segs: 8, level: 0, fn: shade((t, i, c) => ({ c: mixC(side, PAL.birchBase, (1 - smoothstep(0.02, 0.22, t)) * 0.7, c), flex: 0, bark: birch ? 1 : 0.5 })) }];
+  // splintered top: a ragged ring of short spikes around a pale cut core, one or two standing taller
+  const spikes = 10, hs = Array.from({ length: spikes }, (_, k) => (k === 0 || rnd() < 0.15) ? rnd.range(0.12, 0.26) : rnd.range(-0.04, 0.09)), rot = Array.from({ length: spikes }, () => rnd() * 0.6);
   const extra = (B) => {
     const centre = B.vertex(0, H - 0.05, 0, 0, 1, 0, PAL.woodCut, 0, R0, 0.2);
     const base = B.n;
     for (let s = 0; s < spikes; s++) {
       const ang = (s / spikes) * TAU, rr = R0 * 0.97;
-      B.vertex(Math.cos(ang) * rr, H + hs[s], Math.sin(ang) * rr, 0, 1, 0, mixC(PAL.woodCut, PAL.woodRot, rot[s], tmpC), 0, R0, 0.2);
+      B.vertex(Math.cos(ang) * rr * (0.9 + 0.2 * rot[s]), H + hs[s], Math.sin(ang) * rr * (0.9 + 0.2 * rot[s]), 0, 1, 0, mixC(PAL.woodCut, PAL.woodRot, rot[s], tmpC), 0, R0, 0.2);
     }
     for (let s = 0; s < spikes; s++) B.face(centre, base + (s + 1) % spikes, base + s);
   };
@@ -317,19 +318,22 @@ function stumpVariant(rnd) {
 
 function bushVariant(rnd) {
   const tubes = [];
-  const n = rnd.int(14, 20), size = rnd.range(0.9, 1.6);
+  const n = rnd.int(16, 22), size = rnd.range(0.9, 1.6);
   const tone = mixC(PAL.bushA, PAL.bushB, rnd(), new THREE.Color());
   const P = new THREE.Vector3(), T = new THREE.Vector3(), dir = new THREE.Vector3();
   for (let k = 0; k < n; k++) {
-    const az = rnd() * TAU, elev = rnd.range(0.25, 1.05);
+    // stems rise from a base clump, lean outward a little and arch over at the top
+    const az = rnd() * TAU, elev = rnd.range(0.12, 0.6);
     dir.set(Math.cos(az) * Math.sin(elev), Math.cos(elev), Math.sin(az) * Math.sin(elev));
-    const start = new THREE.Vector3(Math.cos(az) * 0.12 * rnd(), -0.05, Math.sin(az) * 0.12 * rnd());
-    const twig = grow(rnd, start, dir, size * rnd.range(0.55, 1), 3, 0.022, { curl: rnd.range(0.2, 0.8), wobble: 0.45, rMin: 0.005 });
-    tubes.push({ path: twig, segs: 3, level: k < 9 ? 1 : 3, fn: shade((t, i, c) => ({ c: mixC(tone, PAL.bushB, t * 0.5, c), flex: 0.35 + 0.65 * t, bark: 0 })) });
-    if (rnd() < 0.45) {
-      const r2 = along(twig, rnd.range(0.4, 0.8), P, T);
-      splay(rnd, T, rnd.range(0.5, 1.0), dir);
-      tubes.push({ path: grow(rnd, P, dir, size * rnd.range(0.25, 0.45), 2, Math.max(0.008, r2 * 0.6), { curl: 0.4, wobble: 0.5, rMin: 0.004 }), segs: 3, level: 3, fn: shade((t, i, c) => ({ c: mixC(tone, PAL.bushB, 0.4 + t * 0.4, c), flex: 0.75 + 0.25 * t, bark: 0 })) });
+    const start = new THREE.Vector3(Math.cos(az) * 0.16 * rnd(), -0.05, Math.sin(az) * 0.16 * rnd());
+    const len = size * rnd.range(0.65, 1.15);
+    const stem = grow(rnd, start, dir, len, 4, 0.02, { curl: -rnd.range(0.25, 0.95), wobble: 0.3, rMin: 0.005 });
+    tubes.push({ path: stem, segs: 3, level: k < 10 ? 1 : 3, fn: shade((t, i, c) => ({ c: mixC(tone, PAL.bushB, t * 0.6, c), flex: 0.3 + 0.7 * t, bark: 0 })) });
+    const nT = rnd.int(1, 3);
+    for (let j = 0; j < nT; j++) {
+      const r2 = along(stem, rnd.range(0.45, 0.9), P, T);
+      splay(rnd, T, rnd.range(0.5, 1.0), dir); dir.y += 0.15; dir.normalize();
+      tubes.push({ path: grow(rnd, P, dir, len * rnd.range(0.2, 0.4), 2, Math.max(0.007, r2 * 0.6), { curl: 0.2, wobble: 0.5, rMin: 0.004 }), segs: 3, level: 3, fn: shade((t, i, c) => ({ c: mixC(tone, PAL.bushB, 0.5 + t * 0.4, c), flex: 0.75 + 0.25 * t, bark: 0 })) });
     }
   }
   return { tubes, h: size, r: size * 0.7, kind: 'bush' };
@@ -338,6 +342,22 @@ function bushVariant(rnd) {
 // ---------------------------------------------------------------------------------------------
 // Tree material: vertex colours + bark detail noise, wind creak, distance silhouette floor for twigs.
 // ---------------------------------------------------------------------------------------------
+// Depth material for the sun shadow pass: twigs thinner than 3.5 cm are skipped. A 2048 map over 140 m has
+// 7 cm texels; thousands of twig shadows alias into speckle on the trunks beneath the crowns.
+function treeDepthMaterial() {
+  const mat = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec3 aTree; varying float vTreeR;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvTreeR = aTree.y;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vTreeR;')
+      .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (vTreeR < 0.035) discard;');
+  };
+  mat.customProgramCacheKey = () => 'radius-tree-depth';
+  return mat;
+}
+
 function treeMaterial() {
   const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.93, metalness: 0, vertexColors: true });
   mat.onBeforeCompile = (shader) => {
@@ -346,9 +366,9 @@ function treeMaterial() {
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
         attribute vec3 aTree; uniform vec4 uWind;
-        varying vec3 vLocal; varying vec3 vTree; varying vec3 vInst;`)
+        varying vec3 vLocal; varying vec3 vTree; varying vec3 vInst; varying vec3 vObjN;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
-        vLocal = position; vTree = aTree;
+        vLocal = position; vTree = aTree; vObjN = normal;
         #ifdef USE_BATCHING
           mat4 bmat = modelMatrix * batchingMatrix;
         #else
@@ -363,7 +383,7 @@ function treeMaterial() {
         float sw = aTree.x * aTree.x * (0.03 + 0.16 * g);
         float wave = sin(uWind.w * 1.3 + ph) * 0.6 + sin(uWind.w * 2.9 + ph * 1.7 + vLocal.y * 0.4) * 0.3 + 0.45;
         vec3 disp = vec3(uWind.x, 0.0, uWind.y) * wave * sw + vec3(0.0, -0.35, 0.0) * sw * (0.5 + 0.5 * sin(uWind.w * 2.1 + ph * 2.3));
-        transformed += transpose(mat3(bmat)) * disp;
+        transformed += transpose(mat3(bmat)) * disp / max(dot(bmat[0].xyz, bmat[0].xyz), 1e-4);
         // silhouette floor: thin limbs keep a minimum thickness with distance so trees stay legible in the fog
         float dcam = length(wpos - cameraPosition);
         float want = dcam * 0.0011;
@@ -375,11 +395,13 @@ function treeMaterial() {
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
         ${GLSL_NOISE}
-        varying vec3 vLocal; varying vec3 vTree; varying vec3 vInst;`)
+        varying vec3 vLocal; varying vec3 vTree; varying vec3 vInst; varying vec3 vObjN;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
         {
           vec3 alb = diffuseColor.rgb;
-          float seed = hash21(vInst.xz);
+          // vInst is a varying: interpolating three equal values drifts by ~1e-5 and a hash turns that into
+          // per-pixel speckle at every noise threshold, so quantise the hash input to a pixel-stable value
+          float seed = hash21(floor(vInst.xz * 4.0 + 0.5));
           float birch = smoothstep(0.7, 0.95, vTree.z);
           float pine = smoothstep(0.3, 0.5, vTree.z) * (1.0 - birch);
           float twig = 1.0 - smoothstep(0.05, 0.3, vTree.z);
@@ -388,12 +410,21 @@ function treeMaterial() {
           float detail = 1.0 - smoothstep(18.0, 60.0, length(vInst - cameraPosition));
           // birch: black lenticel dashes (short, horizontal), peeling curls of pinkish under-bark, grey weather stains
           float lent = smoothstep(0.66, 0.72, vnoise3(vec3(q.x * 2.4, q.y * 7.5, q.z * 2.4)));
-          float lent2 = smoothstep(0.7, 0.78, vnoise3(vec3(q.x * 3.5, q.y * 16.0 + 3.0, q.z * 3.5))) * detail;
+          // lenticels: each 7 cm band of trunk carries, with some probability, one short dash at a random angle
+          float ang = atan(vObjN.z, vObjN.x) / 6.2832;
+          float bi = floor(vLocal.y * 14.0 + seed * 40.0);
+          float hb1 = hash21(vec2(bi, seed * 91.0)), hb2 = hash21(vec2(bi + 37.0, seed * 53.0)), hb3 = hash21(vec2(bi + 71.0, seed * 17.0));
+          float da = abs(fract(ang - hb2 + 0.5) - 0.5);
+          float dashLen = 0.03 + 0.09 * hb3;
+          float bv = fract(vLocal.y * 14.0 + seed * 40.0);
+          float lent2 = step(hb1, 0.5) * (1.0 - smoothstep(dashLen, dashLen + 0.02, da)) * smoothstep(0.32, 0.4, bv) * (1.0 - smoothstep(0.58, 0.66, bv)) * detail;
+          float band = smoothstep(0.70, 0.78, vnoise3(vec3(q.x * 1.1, q.y * 3.0 + 11.0, q.z * 1.1)))
+                     * smoothstep(0.35, 0.6, vnoise3(vec3(vObjN.x * 1.6 + seed * 5.0, vLocal.y * 0.7, vObjN.z * 1.6)));
           float peel = smoothstep(0.55, 0.72, fbm3d(vec3(q.x * 6.0, q.y * 1.4, q.z * 6.0)));
           float stain = smoothstep(0.45, 0.8, fbm3d(vec3(q.x * 1.5, q.y * 0.35, q.z * 1.5)));
           alb = mix(alb, alb * vec3(0.72, 0.7, 0.68), stain * 0.6 * birch);
-          alb = mix(alb, vec3(0.30, 0.24, 0.20), peel * 0.5 * birch);
-          alb = mix(alb, vec3(0.035, 0.03, 0.028), max(lent * (0.6 + 0.4 * detail), lent2 * 0.6) * 0.92 * birch);
+          alb = mix(alb, vec3(0.30, 0.24, 0.20), peel * (0.25 + 0.25 * detail) * birch);
+          alb = mix(alb, vec3(0.035, 0.03, 0.028), max(max(lent * (0.15 + 0.85 * detail), lent2 * 0.6), band * 0.5) * 0.92 * birch);
           // pine: deep vertical fissures, grey where the bark has dropped
           float fiss = smoothstep(0.38, 0.62, vnoise3(vec3(q.x * 16.0, q.y * 1.4, q.z * 16.0)));
           alb *= mix(1.0, 0.5 + 0.7 * fiss, pine * (0.4 + 0.6 * detail));
@@ -404,7 +435,7 @@ function treeMaterial() {
           alb = mix(alb, vec3(0.20, 0.24, 0.13), lichen * 0.35);
           // dampness creeping up from the ground
           float damp = 1.0 - smoothstep(0.0, 1.4, vLocal.y);
-          alb *= 1.0 - damp * 0.35 * (1.0 - twig);
+          alb *= 1.0 - damp * 0.25 * (1.0 - twig);
           diffuseColor.rgb = alb;
         }`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
@@ -417,13 +448,15 @@ function treeMaterial() {
 // ---------------------------------------------------------------------------------------------
 // Grass / reed geometry and material. Instances are (x,y,z,scale) + (yaw, hueJitter, kind, phase).
 // ---------------------------------------------------------------------------------------------
-const GRASS_BASE = C(0x3e3b22), GRASS_TIP = C(0x6b6a3f), GRASS_STRAW = C(0x8f8858);
-const REED_BASE = C(0x343a1f), REED_TIP = C(0x8a8452), REED_HEAD = C(0x2a1b10), REED_LEAF = C(0x5c5d33);
+// Dead straw. The tips sit at the terrain's own grass albedo (linear ~0.40) so the ground reads lighter through
+// the tufts, not darker; the root colour 0x3e3b22 is confined to the bottom of the blade.
+const GRASS_BASE = C(0x3e3b22), GRASS_TIP = C(0xa9a67e), GRASS_STRAW = C(0xc6bd92);
+const REED_BASE = C(0x343a1f), REED_TIP = C(0x9c9463), REED_HEAD = C(0x2a1b10), REED_LEAF = C(0x6f6f42);
 
 function blade(B, az, lean, h, w, curve, cBase, cTip, cEnd, sway = 1) {
   const ox = Math.cos(az), oz = Math.sin(az);          // outward direction
   const sx = -oz, sz = ox;                              // side
-  const nx = ox * 0.55, ny = 0.8, nz = oz * 0.55;
+  const nx = ox * 0.3, ny = 0.92, nz = oz * 0.3;         // near-vertical: a blade is lit by the sky, like the ground
   const bx = ox * 0.03, bz = oz * 0.03;
   const idx = [];
   const steps = [0, 0.5, 1];
@@ -431,8 +464,8 @@ function blade(B, az, lean, h, w, curve, cBase, cTip, cEnd, sway = 1) {
     const t = steps[k];
     const out = h * Math.sin(lean * t) * (t + curve * t * t), up = h * t * Math.cos(lean * t * 0.9);
     const ww = w * (1 - t * 0.85);
-    mixC(cBase, cTip, smoothstep(0, 0.8, t), tmpC);
-    if (t > 0.9) tmpC.lerp(cEnd, 0.5);
+    mixC(cBase, cTip, smoothstep(0, 0.32, t), tmpC);
+    tmpC.lerp(cEnd, smoothstep(0.4, 1.0, t) * 0.6);
     const px = bx + ox * out, pz = bz + oz * out;
     if (t === 1) idx.push(B.vertex(px, up, pz, nx, ny, nz, tmpC, sway * t, 0, 0));
     else {
@@ -510,11 +543,16 @@ function plantMaterial(cullNear, cullFar) {
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
         varying float vJit; varying float vKind;`)
+      .replace('#include <normal_fragment_begin>', `
+        // a blade is a translucent sheet: both faces take the same sky light (no DOUBLE_SIDED normal flip)
+        float faceDirection = gl_FrontFacing ? 1.0 : -1.0;
+        vec3 normal = normalize(vNormal);
+        vec3 nonPerturbedNormal = normal;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
         {
           vec3 alb = diffuseColor.rgb;
           // per-tuft hue: toward pale straw or toward cold olive
-          alb *= mix(vec3(0.78, 0.86, 0.82), vec3(1.2, 1.08, 0.86), vJit);
+          alb *= mix(vec3(0.84, 0.9, 0.86), vec3(1.15, 1.06, 0.88), vJit);
           // tufts on mud are browner and darker; reeds keep their own palette
           float mud = step(0.5, vKind) * (1.0 - step(1.5, vKind));
           alb = mix(alb, alb * vec3(0.8, 0.68, 0.55), mud);
@@ -596,6 +634,7 @@ export function createFlora(ctx) {
   trees.name = 'flora-trees';
   trees.sortObjects = false; trees.perObjectFrustumCulled = true;
   trees.castShadow = true; trees.receiveShadow = true;
+  trees.customDepthMaterial = treeDepthMaterial();
   for (const v of variants) { v.hiId = trees.addGeometry(v.hi); v.loId = v.lo === v.hi ? v.hiId : trees.addGeometry(v.lo); }
   scene.add(trees);
 
@@ -784,15 +823,15 @@ export function createFlora(ctx) {
   }
 
   // ---- grass: a streamed window around the camera, generated per cell and cached ----
-  const GC = 8, GK = 40, GMAX = 25 * 25 * GK;
+  const GC = 8, GK = 100, GMAX = 25 * 25 * GK;    // 8 m cells, up to 100 tufts each; the window carries ~13k tufts at full density
   const grass = instancedPlants(tuftGeometry(rng.fork(21)), GMAX, plantMaterial(GC * GR * 0.58, GC * GR * 0.92), true);
   grass.mesh.name = 'flora-grass';
   scene.add(grass.mesh);
   const cellCache = new Map();
   let gcx = 1e9, gcz = 1e9;
-  const seedBase = (ctx.state.data.seed | 0) ^ 0x5f3759df;
   const gi = grass.inst.array, gi2 = grass.inst2.array;
   function genCell(ci, cj) {
+    const seedBase = (ctx.state.data.seed | 0) ^ 0x5f3759df;      // read live: game.start() replaces state.data
     const r = mulberry32((seedBase + Math.floor(hash2(ci, cj) * 2147483647)) >>> 0);
     const inForest = forestNorm(ci * GC + 4, cj * GC + 4) < 1.05;
     const out = [];
@@ -826,7 +865,7 @@ export function createFlora(ctx) {
       if (!arr) { arr = genCell(i, j); cellCache.set(key, arr); }
       // far cells keep every 2nd / 4th tuft, scaled up, so the vertex load stays flat
       const dc = Math.hypot((i + 0.5) * GC - cam.x, (j + 0.5) * GC - cam.z);
-      const stride = dc < 40 ? 1 : dc < 68 ? 2 : 4, boost = stride === 1 ? 1 : stride === 2 ? 1.22 : 1.45;
+      const stride = dc < 48 ? 1 : dc < 80 ? 2 : 4, boost = stride === 1 ? 1 : stride === 2 ? 1.22 : 1.45;
       for (let k = 0; k < arr.length && n < GMAX; k += 8 * stride) {
         const s = n * 4;
         gi[s] = arr[k]; gi[s + 1] = arr[k + 1]; gi[s + 2] = arr[k + 2]; gi[s + 3] = arr[k + 3] * boost;
@@ -895,7 +934,7 @@ export function createFlora(ctx) {
   ctx.events.on('gameStart', () => { updateGrass(true); updateLod(true); });
 
   return {
-    wind, counts, trees, variants, tier,
+    wind, counts, trees, variants, tier, placed,
     grass: grass.mesh, reeds: reedMeshes,
     get density() { return density; },
     get lodDist() { return lodDist; },

@@ -160,7 +160,7 @@ class Spawn extends Enemy {
     this.footPos = LEGS.map((L) => new THREE.Vector3(L.rest[0], 0, L.rest[2]));
     this.headYaw = 0; this.breath = rng.range(0, TAU); this.roll = 0;
     // ---- AI ----
-    this.target = null; this.pauseT = rng.range(0.5, 3); this.headT = 0; this.heading = this.yaw; this.biteCool = 0; this.skitterT = rng.range(0, 0.4);
+    this.target = null; this.pauseT = rng.range(0.5, 3); this.headT = 0; this.heading = this.yaw; this.biteCool = 0; this.biteWind = 0; this.rear = 0; this.skitterT = rng.range(0, 0.4);
     this.los = false; this.losT = rng.range(0, 0.2); this.packC = new THREE.Vector3().copy(this.position); this.packN = 1; this.packT = rng.range(0, 0.5);
     this.deathDuration = 1.15; this.ashDone = false;
     this.setState('idle');
@@ -182,6 +182,8 @@ class Spawn extends Enemy {
     const steps = d < 7 ? this.player.noise * (1 - d / 7) : 0;
     return clamp01(steps * 1.3);
   }
+  // a pack arriving together must not all bite in the same instant
+  onStateChange(s) { if (s === 'swarm') { this.biteCool = Math.max(this.biteCool, rng.range(0.15, 0.7)); this.biteWind = 0; } }
   onSpotted() {
     if (this.state !== 'retreat') this.setState('swarm');
     this.headT = 0;
@@ -217,7 +219,16 @@ class Spawn extends Enemy {
     const hop = Math.sin(Math.min(1, t / 0.45) * Math.PI) * 0.12;
     this.pose(dt, 0.35 * fe, Math.PI * fe, BODY_Y - 0.11 * fe + hop, 0);
     this.mu.uTime.value = this.time; this.mu.uFlinch.value = clamp01(1 - t);
-    if (t >= 0.8 && !this.ashDone) { this.ashDone = true; this.ctx.vfx.ash(_v.set(this.position.x, this.position.y + 0.15, this.position.z), 22); this.ctx.vfx.dustPuff(_v, THREE.Object3D.DEFAULT_UP, 6, [0.1, 0.1, 0.11], 0.35); this.mesh.visible = false; }
+    if (t >= 0.8 && !this.ashDone) {
+      this.ashDone = true; this.mesh.visible = false;
+      // a low crumble: dark motes that fall and a small puff, not the mimic's rising plume
+      const vfx = this.ctx.vfx, now = this.ctx.elapsed, px = this.position.x, py = this.position.y, pz = this.position.z;
+      for (let i = 0; i < 18; i++) {
+        const a = rng.range(0, TAU), rr = rng.range(0, 0.28), sh = rng.range(0.04, 0.09);
+        vfx.dust.emit(px + Math.cos(a) * rr, py + rng.range(0.05, 0.28), pz + Math.sin(a) * rr, Math.cos(a) * rng.range(0.1, 0.35), rng.range(0.1, 0.45), Math.sin(a) * rng.range(0.1, 0.35), sh, sh, sh * 1.15, rng.range(1.0, 2.0), rng.range(0.1, 0.24), 0.5, 1, now);
+      }
+      vfx.dustPuff(_v.set(px, py + 0.1, pz), THREE.Object3D.DEFAULT_UP, 5, [0.1, 0.1, 0.11], 0.3);
+    }
   }
   onDispose() { this.mesh.skeleton.dispose(); }
 
@@ -263,10 +274,15 @@ class Spawn extends Enemy {
       case 'swarm': {
         if (!this.engaged || p.dead || p.inBase) { this.setState('return'); break; }
         headYaw = angleDelta(this.yaw, Math.atan2(-(p.position.x - this.position.x), -(p.position.z - this.position.z)));
-        if (hd < 1.2) {
-          // on you: face and bite
+        if (this.biteWind > 0) {
+          // the tell: it rears up on its hind legs for a beat, then snaps down
           this.faceToward(p.position.x, p.position.z, dt, 14);
-          if (this.biteCool <= 0) { this.biteCool = 0.9; this.bite = 1; this.hurtPlayer(7, 'melee'); this.sound('spawn_bite', { gain: 0.9, max: 30, ref: 1.5, rate: rng.range(0.9, 1.15) }); }
+          this.biteWind -= dt;
+          if (this.biteWind <= 0) { this.bite = 1; if (hd < 1.7) { this.hurtPlayer(7, 'melee'); this.sound('spawn_bite', { gain: 0.9, max: 30, ref: 1.5, rate: rng.range(0.9, 1.15) }); } }
+        } else if (hd < 1.2) {
+          // on you: face, wind up, bite
+          this.faceToward(p.position.x, p.position.z, dt, 14);
+          if (this.biteCool <= 0) { this.biteCool = rng.range(1.25, 1.8); this.biteWind = 0.22; this.sound('spawn_skitter', { gain: 0.5, max: 30, ref: 1.5, rate: 1.7 }); }
         } else {
           // a new heading every 0.4-0.8 s, biased toward the player; a gentle pull toward the pack
           this.headT -= dt;
@@ -320,17 +336,18 @@ class Spawn extends Enemy {
     this.twitchT -= dt; if (this.twitchT <= 0) { this.twitchT = rng.range(1, 4); this.twitch = 1; }
     this.twitch = damp(this.twitch, 0, 14, dt);
     this.bite = damp(this.bite, 0, 7, dt);
+    this.rear = damp(this.rear, this.biteWind > 0 ? 1 : 0, 22, dt);
     this.breath += dt * 2.4;
     const ph = this.phase;
     const bob = 0.012 * Math.sin(2 * ph) * g;
-    const y = BODY_Y + bob + Math.sin(this.breath) * 0.004 + this.twitch * 0.015 - this.bite * 0.02;
-    const pitch = 0.05 * Math.sin(2 * ph + 0.5) * g - this.bite * 0.55 * (1 - Math.min(1, this.bite * 1.6)) + this.bite * 0.25 + this.flinch * 0.25 + this.twitch * 0.1;
+    const y = BODY_Y + bob + Math.sin(this.breath) * 0.004 + this.twitch * 0.015 - this.bite * 0.02 + this.rear * 0.05;
+    const pitch = 0.05 * Math.sin(2 * ph + 0.5) * g - this.bite * 0.55 * (1 - Math.min(1, this.bite * 1.6)) + this.bite * 0.25 + this.rear * 0.55 + this.flinch * 0.25 + this.twitch * 0.1;
     const roll = 0.06 * Math.sin(ph) * g + this.twitch * 0.1 * Math.sin(t * 40);
     for (let i = 0; i < 6; i++) {
       const L = LEGS[i], lp = ph + L.off * TAU + this.legJit[i] * g, s = Math.sin(lp), c = Math.cos(lp);
       const swing = Math.max(0, s);
       const fz = L.rest[2] + S * c * g + this.bite * 0.05;
-      const fy = Math.pow(swing, 0.6) * lift * g + this.twitch * 0.02 * (i % 2);
+      const fy = Math.pow(swing, 0.6) * lift * g + this.twitch * 0.02 * (i % 2) + (L.fwd < 0 ? this.rear * 0.12 : 0);
       const fx = L.rest[0] + L.side * 0.02 * Math.sin(lp * 0.5 + i) * g;
       _foot.set(fx, fy, fz);
       this.footPos[i].lerp(_foot, Math.min(1, dt * 40));
@@ -346,7 +363,7 @@ class Spawn extends Enemy {
     body.updateMatrix();
     // the abdomen pumps, the head turns to what it wants
     B.abdomen.rotation.set(0.12 * Math.sin(this.phase * 2 + 1) * this.gait + 0.05 * Math.sin(this.breath) + this.bite * 0.15, 0, 0);
-    B.head.rotation.set(-this.bite * 0.35 + 0.04 * Math.sin(this.breath * 1.3), this.headYaw, 0);
+    B.head.rotation.set(-this.bite * 0.35 + this.rear * 0.3 + 0.04 * Math.sin(this.breath * 1.3), this.headYaw, 0);
     _qi.copy(body.quaternion).invert();
     for (let i = 0; i < 6; i++) {
       const L = LEGS[i];

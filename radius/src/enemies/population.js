@@ -15,10 +15,10 @@ const MIN_PLAYER_DIST = 35, MAX_ALIVE = 28, MAX_NEAR = 8, NEAR_R = 60, ACTIVATE_
 const TABLES = {
   checkpoint: (tide) => [['mimic', 2 + (tide >= 2 ? 1 : 0), 'exterior']],
   convoy: () => [['mimic', 1, 'exterior'], ['slider', 1, 'hidden']],
-  village: () => [['mimic', 3, 'exterior'], ['slider', 2, 'hidden'], ['spawn', 4, 'interior', true]],
+  village: (tide) => [['mimic', 3, 'exterior'], ['slider', 2, 'hidden'], ['spawn', 3 + (tide >= 2 ? 1 : 0), 'interior', true]],
   industrial: (tide) => [['mimic', 3, 'exterior'], ['fragment', 3, 'field'], ...(tide >= 2 ? [['seeker', 1, 'exterior']] : [])],
   church: (tide) => [['mimic', 2, 'exterior'], ['slider', 2, 'hidden'], ...(tide >= 2 ? [['seeker', 1, 'exterior']] : [])],
-  rail: () => [['spawn', 5, 'interior', true], ['slider', 2, 'hidden']],
+  rail: (tide) => [['spawn', 4 + (tide >= 2 ? 1 : 0), 'interior', true], ['slider', 2, 'hidden']],
   forest: () => [['slider', 3, 'hidden']],
   anomaly: (tide, poi, rng) => [['fragment', poi.anomaly === 'gas' ? 3 : rng.int(2, 4), 'field']],
   ridge: (tide) => (tide >= 3 ? [['mimic', 2, 'exterior']] : []),
@@ -151,6 +151,19 @@ export function createPopulation(ctx) {
     // the full census: alive entities plus planned ones, by POI and type
     census() { const c = {}; const add = (poi, type) => { const k = poi || 'wild'; c[k] = c[k] || {}; c[k][type] = (c[k][type] || 0) + 1; }; for (const e of ctx.enemies.list) if (e.alive) add(e.poi, e.type); for (const en of plan) add(en.poi?.id, en.type); return c; },
     reset() { ctx.enemies.removeAll(); plan = []; wanderer = null; pending = false; seeded = false; },
+    // after a debug teleport: census entities that are now in the player's lap or in view go back into the plan
+    // and return the normal way, out of sight, once the player has moved off
+    settle() {
+      const p = ctx.player.position; let n = 0;
+      for (const e of ctx.enemies.list) {
+        if (!e.alive || e.removeMe || !e.census) continue;
+        if (e.position.distanceTo(p) >= MIN_PLAYER_DIST && !visibleFromPlayer(e.position.x, e.position.y, e.position.z)) continue;
+        e.census.pos.copy(e.position); e.census.pos.y = groundY(e.position.x, e.position.z);
+        plan.push(e.census); e.census = null; e.removeMe = true; n++;
+      }
+      ctx.enemies.removeDead();
+      return n;
+    },
     populate() {
       pending = false; seeded = true; plan = [];
       if (ctx.debug.noEnemies) return 0;

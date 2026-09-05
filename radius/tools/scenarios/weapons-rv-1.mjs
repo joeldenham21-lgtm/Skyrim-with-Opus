@@ -5,6 +5,8 @@ export default async function (page, api) {
   await api.start();
   await api.run(`(() => { const a = window.__radius.ctx.audio; const rec = window.__sfxrec = {}; const p = a.play.bind(a); a.play = (n, o) => { rec[n] = (rec[n] || 0) + 1; return p(n, o); }; })()`);
   await api.run(`(() => { const r = window.__radius; r.god(); r.teleport(30, 130); r.setLook(0.2, -0.05); r.setTime(11); })()`);
+  // headless Chromium grants pointer lock, so a mouse move is a look delta: move first, let a frame consume it, then aim
+  await page.mouse.move(320, 180);
   await api.frames(8);
   await api.screenshot('pm-hip-day');
   const eq = await api.run(`(() => { const c = window.__radius.ctx, w = c.weapons.current; return { id: w && w.id, state: w && w.state, chamber: w && w.chamber, mags: w && w.mags.slice(), fov: c.camera.fov, spread: +c.weapons.spreadDeg.toFixed(2), calls: c.renderer.info.render.calls, tris: c.renderer.info.render.triangles }; })()`);
@@ -12,7 +14,7 @@ export default async function (page, api) {
   const target = await api.run(`(() => { const r = window.__radius, c = r.ctx, p = c.player; const yaw = p.yaw; const e = r.spawn('mimic', p.position.x - Math.sin(yaw) * 10, p.position.z - Math.cos(yaw) * 10); const dx = e.position.x - p.eye.x, dz = e.position.z - p.eye.z, dy = (e.position.y + e.height * 0.55) - p.eye.y; r.setLook(Math.atan2(-dx, -dz), Math.atan2(dy, Math.hypot(dx, dz))); return { hp: e.hp, y: +e.position.y.toFixed(2) }; })()`);
   console.log('mimic', JSON.stringify(target));
   await api.frames(2);
-  await page.mouse.move(320, 180);
+  console.log('locked', await api.run('window.__radius.ctx.input.locked'));
   await page.mouse.down();
   await api.frames(1);
   await api.screenshot('pm-shot');

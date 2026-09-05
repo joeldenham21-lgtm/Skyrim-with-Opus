@@ -2,9 +2,12 @@
 // near the anomaly fields and, when it sees you, comes to touch you: faster and faster, the pulse and the chime
 // quickening, until it goes off against your chest. One round pops it. The most beautiful thing in the zone.
 //
-// Build: a refractive MeshPhysicalMaterial shell (transmission, one shared material), an emissive HDR core with
-// a slow internal swirl (bloom catches it), a fog-attenuated additive glow quad turned to the camera, and a
-// pink PointLight that breathes with the pulse and pools on the ground under it.
+// Build: one analytic glass shell (a ShaderMaterial: fresnel reflection of the sky, a sun glint, the torch's
+// reflection at night, and the core seen through the glass by refracting the view ray into the sphere and
+// intersecting it with the core, per channel, so the core is lensed and colour-fringed the way a marble lenses
+// what is inside it; an inner scatter halo around the core), a fog-attenuated additive glow quad turned to the
+// camera, and a pink PointLight that breathes with the pulse and pools on the ground under it. Two draw calls
+// per fragment and no transmission scene pass.
 import * as THREE from 'three';
 import { Enemy } from './common.js';
 import { GLSL_NOISE } from '../render/glsl.js';
@@ -12,50 +15,85 @@ import { fogUniforms } from '../render/fog.js';
 import { glowTexture } from '../render/textures.js';
 import { clamp, clamp01, damp, lerp, TAU } from '../core/math.js';
 
-const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _dir = new THREE.Vector3();
+const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _dir = new THREE.Vector3(), _camF = new THREE.Vector3();
 const PINK = new THREE.Color(0xff6fa8), WHITE = new THREE.Color(0xfff4f8);
-const R_HIT = 0.3, R_SHELL = 0.135, R_CORE = 0.058;
+const R_HIT = 0.3, R_SHELL = 0.15, R_CORE = 0.056;
+const COS_TORCH_OUT = Math.cos(17 * Math.PI / 180), COS_TORCH_IN = Math.cos(9 * Math.PI / 180);
 
-// ---- shared geometry / shell material ----
-let shellGeo = null, coreGeo = null, glowGeo = null, shellMat = null;
+// ---- shared geometry ----
+let shellGeo = null, glowGeo = null;
 function shared() {
   if (shellGeo) return;
-  shellGeo = new THREE.SphereGeometry(R_SHELL, 30, 22); shellGeo.userData.shared = true;
-  coreGeo = new THREE.SphereGeometry(R_CORE, 20, 14); coreGeo.userData.shared = true;
+  shellGeo = new THREE.SphereGeometry(R_SHELL, 32, 24); shellGeo.userData.shared = true;
   glowGeo = new THREE.PlaneGeometry(1, 1); glowGeo.userData.shared = true;
-  shellMat = new THREE.MeshPhysicalMaterial({
-    color: 0xf6f1f5, roughness: 0.05, metalness: 0, transmission: 0.9, thickness: 0.3, ior: 1.5,
-    iridescence: 0.28, iridescenceIOR: 1.25, iridescenceThicknessRange: [140, 460],
-    specularIntensity: 1.0, specularColor: 0xffffff, attenuationColor: 0xffd6e6, attenuationDistance: 0.6,
-  });
-  shellMat.userData.shared = true;
 }
 
-// ---- core: HDR pink-white with a slow swirl inside, brightest at the centre of the disc ----
-const CORE_VERT = /* glsl */`
-  varying vec3 vN, vObj, vV;
+// ---- shell: glass with the core lensed inside it ----
+const SHELL_VERT = /* glsl */`
+  varying vec3 vWorld, vNormalW;
   #include <fog_pars_vertex>
   void main(){
-    vObj = position; vN = normalize(normalMatrix * normal);
     vec3 transformed = position;
-    vec4 mv = modelViewMatrix * vec4(position, 1.0); vV = -mv.xyz;
-    gl_Position = projectionMatrix * mv;
+    vec4 wp = modelMatrix * vec4(position, 1.0);
+    vWorld = wp.xyz; vNormalW = normalize(mat3(modelMatrix) * normal);
+    gl_Position = projectionMatrix * viewMatrix * wp;
     #include <fog_vertex>
   }`;
-const CORE_FRAG = /* glsl */`
+const SHELL_FRAG = /* glsl */`
   ${GLSL_NOISE}
-  uniform float uTime, uPulse, uIntensity, uSeed; uniform vec3 uColorA, uColorB;
-  varying vec3 vN, vObj, vV;
+  uniform float uTime, uPulse, uIntensity, uSeed, uSunI, uTorch, uCoreR;
+  uniform vec3 uColorA, uColorB, uSunDir, uSunColor, uHorizon, uZenith, uCentre;
+  varying vec3 vWorld, vNormalW;
   #include <fog_pars_fragment>
+  // how much of the core the refracted ray (p, d) covers: soft-edged by the closest approach to its centre
+  float coreCov(vec3 p, vec3 d){
+    vec3 oc = p - uCentre; float b = dot(oc, d);
+    float dm = sqrt(max(dot(oc, oc) - b * b, 0.0));
+    return 1.0 - smoothstep(uCoreR * 0.92, uCoreR * 1.06, dm);
+  }
   void main(){
-    vec3 n = normalize(vN), v = normalize(vV);
-    float facing = max(dot(n, v), 0.0);
-    float centre = pow(facing, 1.7);
-    float swirl = fbm3d(vObj * 19.0 + vec3(uSeed, uTime * 0.33, -uTime * 0.21));
+    vec3 N = normalize(vNormalW);
+    vec3 V = normalize(cameraPosition - vWorld);
+    float ndv = max(dot(N, V), 0.0);
+    float fres = 0.04 + 0.96 * pow(1.0 - ndv, 5.0);
+    float rim = pow(1.0 - ndv, 3.0);
+    // the sky and the ground in the glass
+    vec3 R = reflect(-V, N);
+    float up = clamp(R.y * 1.6, 0.0, 1.0);
+    vec3 skyCol = mix(uHorizon, uZenith, pow(up, 0.6));
+    vec3 gndCol = uHorizon * vec3(0.50, 0.54, 0.44);
+    vec3 env = mix(gndCol, skyCol, smoothstep(-0.12, 0.12, R.y));
+    // sun glint (sharp) and sheen (broad); the torch reflected at the eye
+    float sd = max(dot(R, uSunDir), 0.0);
+    vec3 spec = uSunColor * uSunI * (pow(sd, 380.0) * 3.5 + pow(sd, 26.0) * 0.16);
+    spec += vec3(1.0, 0.86, 0.66) * uTorch * (pow(ndv, 180.0) * 1.8 + pow(ndv, 14.0) * 0.08);
+    // into the glass: refract the view ray and look for the core, one ray per channel for the fringe
+    vec3 dG = refract(-V, N, 1.0 / 1.5);
+    vec3 dR = refract(-V, N, 1.0 / 1.468);
+    vec3 dB = refract(-V, N, 1.0 / 1.536);
+    float cR = coreCov(vWorld, dR), cG = coreCov(vWorld, dG), cB = coreCov(vWorld, dB);
+    vec3 oc = vWorld - uCentre; float b = dot(oc, dG);
+    float dmin = sqrt(max(dot(oc, oc) - b * b, 0.0));
+    float disc = b * b - (dot(oc, oc) - uCoreR * uCoreR);
+    float t = disc > 0.0 ? -b - sqrt(disc) : -b;
+    vec3 H = vWorld + dG * t;
+    vec3 nc = normalize(H - uCentre);
+    float facing = max(dot(nc, -dG), 0.0);
+    float centre = pow(facing, 1.6);
+    vec3 q = (H - uCentre) / uCoreR;
+    float swirl = fbm3d(q * 1.3 + vec3(uSeed, uTime * 0.33, -uTime * 0.21));
     float veins = smoothstep(0.34, 0.74, swirl);
-    vec3 col = mix(uColorA, uColorB, clamp(uPulse * 0.75 + veins * 0.3, 0.0, 1.0));
-    float br = uIntensity * (0.5 + 0.5 * centre) * (0.78 + 0.5 * veins);
-    gl_FragColor = vec4(col * br, 1.0);
+    vec3 coreCol = mix(uColorA, uColorB, clamp(uPulse * 0.75 + veins * 0.3, 0.0, 1.0));
+    float br = uIntensity * (0.45 + 0.55 * centre) * (0.78 + 0.5 * veins);
+    vec3 core = coreCol * br * vec3(cR, cG, cB);
+    float cov = max(cR, max(cG, cB));
+    // scatter in the glass around the core, and the sun seen through the sphere
+    float haze = exp(-max(dmin / uCoreR - 1.0, 0.0) * 4.0);
+    vec3 hazeCol = mix(uColorA, uColorB, uPulse * 0.5) * uIntensity * 0.07 * haze * (1.0 - cov);
+    float through = pow(max(dot(dG, uSunDir), 0.0), 80.0) * uSunI;
+    vec3 col = env * fres * (0.85 + 0.6 * rim) + spec + core + hazeCol + uSunColor * through * 0.7;
+    float alpha = clamp(fres * 1.1 + rim * 0.3 + cov + haze * 0.35 + 0.05, 0.0, 1.0);
+    gl_FragColor = vec4(col, alpha);
     #include <fog_fragment>
   }`;
 // ---- glow quad: additive, radial from the shared glow texture, attenuated by the same fog as everything else ----
@@ -85,13 +123,19 @@ class Fragment extends Enemy {
     this.position.y += rng.range(1.3, 2.4);
     this.groundY = this.home.y;
     // ---- visuals ----
-    this.shell = new THREE.Mesh(shellGeo, shellMat); this.shell.castShadow = false; this.shell.renderOrder = 2;
-    this.coreMat = new THREE.ShaderMaterial({ uniforms: fogged({ uTime: { value: 0 }, uPulse: { value: 0 }, uIntensity: { value: 2 }, uSeed: { value: rng.range(0, 40) }, uColorA: { value: PINK.clone() }, uColorB: { value: WHITE.clone() } }), vertexShader: CORE_VERT, fragmentShader: CORE_FRAG, fog: true });
-    this.core = new THREE.Mesh(coreGeo, this.coreMat);
+    this.shellMat = new THREE.ShaderMaterial({
+      uniforms: fogged({
+        uTime: { value: 0 }, uPulse: { value: 0 }, uIntensity: { value: 2.5 }, uSeed: { value: rng.range(0, 40) }, uSunI: { value: 1 }, uTorch: { value: 0 }, uCoreR: { value: R_CORE },
+        uColorA: { value: PINK.clone() }, uColorB: { value: WHITE.clone() }, uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunColor: { value: new THREE.Color(1, 1, 1) },
+        uHorizon: { value: new THREE.Color(0.6, 0.62, 0.64) }, uZenith: { value: new THREE.Color(0.3, 0.34, 0.4) }, uCentre: { value: new THREE.Vector3() },
+      }),
+      vertexShader: SHELL_VERT, fragmentShader: SHELL_FRAG, transparent: true, depthWrite: false, fog: true,
+    });
+    this.shell = new THREE.Mesh(shellGeo, this.shellMat); this.shell.castShadow = false; this.shell.renderOrder = 2;
     this.glowMat = new THREE.ShaderMaterial({ uniforms: fogged({ uMap: { value: glowTexture() }, uAlpha: { value: 0.5 }, uColor: { value: PINK.clone() } }), vertexShader: GLOW_VERT, fragmentShader: GLOW_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: true });
     this.glow = new THREE.Mesh(glowGeo, this.glowMat); this.glow.renderOrder = 6; this.glow.frustumCulled = false;
     this.light = new THREE.PointLight(0xff8ac8, 3, 7, 2); this.light.castShadow = false;
-    this.root.add(this.shell, this.core, this.glow, this.light);
+    this.root.add(this.shell, this.glow, this.light);
     // ---- motion ----
     this.orbitT = rng.range(0, 100);
     this.ax = rng.range(3, 6); this.az = rng.range(3, 6); this.orbitSpeed = rng.range(0.6, 1.2);
@@ -99,9 +143,8 @@ class Fragment extends Enemy {
     this.p1 = rng.range(0, TAU); this.p2 = rng.range(0, TAU); this.p3 = rng.range(0, TAU);
     this.vel = new THREE.Vector3(); this.spin = rng.range(0.25, 0.5) * (rng.chance(0.5) ? 1 : -1);
     this.pulsePhase = rng.range(0, 1); this.period = 1.8; this.pulse = 0;
-    this.losT = 0; this.los = false; this.lostT = 0; this.chime = null; this.loopRetry = 0; this.approached = false;
+    this.losT = 0; this.los = false; this.lostT = 0; this.chime = null; this.chimeState = ''; this.loopRetry = 0; this.approached = false;
     this.deathDuration = 0.45; this.exploded = false;
-    this.tilt = rng.range(0, TAU);
     this.setState('orbit');
     this.syncVisuals(0, this.distanceToPlayer());
   }
@@ -136,20 +179,21 @@ class Fragment extends Enemy {
     this.kill({ kind: 'shock', self: true });
   }
   onDeath(info) {
-    this.shell.visible = this.core.visible = this.glow.visible = false;
+    this.shell.visible = this.glow.visible = false;
+    this.light.visible = true;
     this.lightPeak = this.light.intensity;
+    this.setEngaged(false);
     if (info?.self) { this.light.intensity = 40; this.lightPeak = 40; return; }
     // shot: cold glass and a pink flash
     this.ctx.vfx.shatter(this.position, [1.0, 0.72, 0.9]);
     this.ctx.vfx.light(this.position, 0xff9ad0, 18, 0.3, 9);
     this.sound('fragment_pop', { gain: 0.9, max: 90, ref: 3 });
-    this.setEngaged(false);
   }
   deathTick(dt) { const k = 1 - this.deathT / this.deathDuration; this.light.intensity = (this.lightPeak || 4) * k * k; }
-  onDispose() { this.coreMat.dispose(); this.glowMat.dispose(); }
+  onDispose() { this.shellMat.dispose(); this.glowMat.dispose(); }
 
   tick(dt) {
-    const ctx = this.ctx, p = this.player, w = ctx.world, t = this.time;
+    const ctx = this.ctx, p = this.player, w = ctx.world;
     const d = this.distanceToPlayer();
     // line of sight, throttled
     this.losT -= dt; if (this.losT <= 0) { this.losT = 0.15; this.los = d < 25 && this.playerVisible(); }
@@ -198,37 +242,49 @@ class Fragment extends Enemy {
     this.syncVisuals(dt, d);
   }
   syncVisuals(dt, d) {
-    const t = this.time;
+    const ctx = this.ctx, t = this.time;
     const raw = 0.5 + 0.5 * Math.sin(this.pulsePhase * TAU);
     const pulse = this.pulse = Math.pow(raw, 2.4);
     const near = clamp01(1 - (this.period - 0.25) / 1.55);
-    // core: 1.5..4.5 emissive intensity (bloom threshold is high), pinker when slow, whiter when it beats fast
-    const cu = this.coreMat.uniforms;
-    cu.uTime.value = t; cu.uPulse.value = pulse * (0.6 + 0.4 * near); cu.uIntensity.value = 1.5 + 3.0 * pulse;
+    // shell: the core runs 2.2..5.4 (the bloom threshold is high), pinker when slow, whiter when it beats fast
+    const su = this.shellMat.uniforms;
+    su.uTime.value = t; su.uPulse.value = pulse * (0.6 + 0.4 * near); su.uIntensity.value = (2.2 + 3.2 * pulse) * clamp(0.5 + d / 3, 0.6, 1);   // eased at arm's length so the bloom does not swallow the glass
+    su.uCentre.value.copy(this.position);
+    const L = ctx.lighting;
+    if (L) {
+      su.uSunDir.value.copy(L.sunDir); su.uSunColor.value.copy(L.sunColor); su.uSunI.value = clamp(L.sun.intensity, 0, 2);
+      su.uHorizon.value.copy(L.horizon); su.uZenith.value.copy(L.zenith);
+      // the torch's reflection: only inside its cone
+      let torch = L.flashlight ? clamp01(L.flashlight.intensity / 42) : 0;
+      if (torch > 0.01) {
+        ctx.camera.getWorldDirection(_camF);
+        _v.copy(this.position).sub(this.player.eye); const dl = _v.length() || 1;
+        const c = _v.dot(_camF) / dl;
+        torch *= clamp01((c - COS_TORCH_OUT) / (COS_TORCH_IN - COS_TORCH_OUT)) * clamp01(1.4 - dl / 30);
+      }
+      su.uTorch.value = torch;
+    }
     // glow quad: faces the camera, breathes with the pulse
-    const gs = 0.55 + 0.75 * pulse + near * 0.25;
+    const closeK = clamp(d / 4, 0.3, 1);
+    const gs = (0.6 + 0.8 * pulse + near * 0.25) * closeK;
     this.glow.scale.set(gs, gs, 1);
-    this.glow.lookAt(this.ctx.player.eye);
-    this.glowMat.uniforms.uAlpha.value = 0.28 + 0.55 * pulse;
+    this.glow.lookAt(this.player.eye);
+    this.glowMat.uniforms.uAlpha.value = (0.32 + 0.6 * pulse) * clamp(d / 3, 0.45, 1);
     this.glowMat.uniforms.uColor.value.copy(PINK).lerp(WHITE, pulse * 0.5);
-    // light: 2..5, pink, only paid for when you are near enough to see it
+    // light: 2..5, pink; switched with hysteresis so the light count does not churn at the boundary
     this.light.intensity = 2 + 3 * pulse;
-    this.light.visible = d < 45;
+    if (this.light.visible) { if (d > 44) this.light.visible = false; } else if (d < 36) this.light.visible = true;
     this.light.color.copy(PINK).lerp(WHITE, pulse * 0.35);
-    // the shell rolls slowly, and the core wobbles inside it
-    this.tilt += dt * 0.3;
-    this.shell.rotation.set(Math.sin(this.tilt) * 0.4, this.tilt * 0.5, Math.cos(this.tilt * 0.7) * 0.3);
-    this.core.position.set(Math.sin(t * 1.3 + this.p1) * 0.02, Math.sin(t * 0.9 + this.p2) * 0.02, Math.cos(t * 1.1 + this.p3) * 0.02);
-    const cs = 0.92 + 0.14 * pulse; this.core.scale.setScalar(cs);
     // the chime follows the pulse
-    if (!this.chime) { this.loopRetry -= dt; if (this.loopRetry <= 0) { this.loopRetry = 1; if (this.ctx.audio.ready) this.chime = this.loopSound('fragment_chime', { gain: 0.35, max: 70, ref: 3 }); } }
-    if (this.chime) { this.chime.set('rate', 1 / Math.max(0.05, this.period)); this.chime.set('pulse', pulse); this.chime.set('near', near); this.chime.setGain(this.state === 'attracted' ? 0.9 : 0.4, 0.3); }
+    if (!this.chime) { this.loopRetry -= dt; if (this.loopRetry <= 0) { this.loopRetry = 1; if (ctx.audio.ready) { this.chime = this.loopSound('fragment_chime', { gain: 0.35, max: 70, ref: 3 }); this.chimeState = ''; } } }
+    if (this.chime) {
+      this.chime.set('rate', 1 / Math.max(0.05, this.period)); this.chime.set('pulse', pulse); this.chime.set('near', near);
+      if (this.chimeState !== this.state) { this.chimeState = this.state; this.chime.setGain(this.state === 'attracted' ? 0.9 : 0.4, 0.3); }
+    }
   }
 }
 
 export function registerFragment(ctx) {
   rng = ctx.rng.fork(43);
-  // refraction reads a half-resolution copy of the opaque scene: cheaper, and the glass is small
-  if ('transmissionResolutionScale' in ctx.renderer) ctx.renderer.transmissionResolutionScale = 0.5;
   ctx.enemies.registerType('fragment', Fragment);
 }

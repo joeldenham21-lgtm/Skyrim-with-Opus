@@ -6,8 +6,15 @@
 }
 
 #menus, #panels { position: absolute; inset: 0; pointer-events: none; }
+/* a form on the desk covers the readouts behind it (main hides them for panels; menus do it here) */
+#ui:has(#menus.on) .hud:not(#notify):not(#fade) { opacity: 0; }
 #menus.on, #panels.on { pointer-events: auto; cursor: default; }
 #panels .scrim { position: absolute; inset: 0; background: rgba(8, 8, 7, 0.46); }
+#panels .sheet, #panels .scrim { transition: opacity 1.2s ease; }
+#panels.sleeping .sheet, #panels.sleeping .scrim { opacity: 0; }
+/* a sheet lands: short settle so an opening panel reads as paper put down, not a popup */
+#panels.on .sheet, #menus.on .sheet { animation: sheetIn 0.22s ease-out backwards; }
+@keyframes sheetIn { from { opacity: 0; filter: brightness(1.08); } to { opacity: 1; filter: none; } }
 #menus .wash { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(0, 0, 0, 0.52), rgba(0, 0, 0, 0.22) 40%, rgba(0, 0, 0, 0) 68%); }
 #menus .wash.full { background: rgba(8, 8, 7, 0.42); }
 
@@ -39,8 +46,9 @@
 .sheet.tilt { transform: translate(-50%, -50%) rotate(1.4deg); }
 .sheet.tilt-l { transform: translate(-50%, -50%) rotate(-0.6deg); }
 
-.sheet .hd { display: flex; justify-content: space-between; gap: 18px; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-dim); border-bottom: 1px solid var(--ink); padding-bottom: 7px; margin-bottom: 12px; white-space: nowrap; }
-.sheet .hd .r { text-align: right; }
+.sheet .hd { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 18px; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-dim); border-bottom: 1px solid var(--ink); padding-bottom: 7px; margin-bottom: 12px; }
+.sheet .hd span { white-space: nowrap; }
+.sheet .hd .r { text-align: right; margin-left: auto; }
 .sheet h1 { font-family: var(--display); font-weight: 300; font-size: 30px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink); margin: 0 0 10px; line-height: 1.05; }
 .sheet h1 small { font-size: 12px; letter-spacing: 0.24em; color: var(--ink-dim); margin-left: 12px; font-weight: 300; }
 .sheet .body { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; min-height: 0; padding-right: 8px; margin-right: -8px; scrollbar-width: thin; scrollbar-color: var(--ink-dot) transparent; }
@@ -136,10 +144,15 @@
 .title-card .ft { margin-top: 12px; }
 #menus .advisory { position: absolute; left: 0; right: 0; bottom: 5vh; text-align: center; font-size: 11px; letter-spacing: 0.08em; color: var(--paper-dim); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9); pointer-events: none; }
 #menus .advisory .code { color: var(--amber); letter-spacing: 0.18em; font-size: 10px; text-transform: uppercase; margin-right: 10px; }
+#menus .advisory { transition: opacity 0.5s ease; }
+#menus .advisory.swap { opacity: 0; }
+@media (max-height: 640px) { .title-card { max-height: 96vh; padding: 14px 22px 10px; } .title-card h1.big { font-size: 44px; margin-top: 2px; } .title-card .ctl-list { display: none; } .title-card .stamp-line { margin-bottom: 8px; } .title-card .btn { padding: 6px 8px; } }
 
 /* ---- pause / settings ---- */
 .pause-card { width: 440px; }
 .pause-card .sum { margin: 2px 0 10px; }
+.pause-card .body { min-height: 60px; }
+.death-card .body { min-height: 120px; }
 .settings-card { width: 560px; }
 .confirm { padding: 12px 0 2px; }
 .confirm p { margin: 0 0 12px; color: var(--ink); font-size: 12px; line-height: 1.55; }
@@ -155,6 +168,7 @@
 @keyframes caret { to { visibility: hidden; } }
 .death-card .btns { margin-top: 18px; opacity: 0; transition: opacity 0.6s ease; }
 .death-card .btns.on { opacity: 1; }
+.death-card .ft { margin-top: 16px; }
 
 /* ---- panels ---- */
 .inv-card { width: 720px; }
@@ -169,7 +183,8 @@
 .bed-card h1 { margin-top: 4px; }
 .map-card { padding: 16px 18px 12px; }
 .map-card canvas { display: block; }
-.map-card .legend { display: flex; gap: 18px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-dim); margin-top: 8px; }
+.map-card .legend { display: flex; flex-wrap: wrap; gap: 2px 18px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-dim); margin-top: 8px; }
+.map-card .legend span { white-space: nowrap; }
 .wpn { padding: 8px 2px 4px; border-bottom: 1px solid var(--ink-hair); }
 .wpn .name { display: flex; justify-content: space-between; align-items: baseline; }
 .wpn .name b { font-family: var(--display); font-weight: 400; font-size: 17px; letter-spacing: 0.1em; text-transform: uppercase; }
@@ -181,6 +196,7 @@
 .mission .code { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink); font-weight: 500; }
 .mission .code .st { color: var(--amber-ink); margin-left: 10px; letter-spacing: 0.18em; font-size: 10px; }
 .mission .text { margin: 3px 0 6px; color: var(--ink-dim); font-size: 11px; line-height: 1.55; }
+.mission .req { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); margin: -2px 0 6px; }
 .mission .pay { display: flex; justify-content: space-between; align-items: center; font-size: 11px; }
 .mission .pay b { font-variant-numeric: tabular-nums; }
 .level { display: flex; align-items: baseline; gap: 14px; margin: 4px 0; }

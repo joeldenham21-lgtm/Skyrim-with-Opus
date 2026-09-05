@@ -38,7 +38,9 @@ export const WEAPON_DEFS = {
 let uid = 1;
 export function makeWeapon(id) {
   const def = WEAPON_DEFS[id];
-  return { uid: uid++, id, dirt: 0, jammed: false, chamber: def.breakOpen ? 0 : 1, mags: Array.from({ length: def.mags }, () => def.magSize), magIndex: 0 };
+  const w = { uid: uid++, id, dirt: 0, jammed: false, chamber: def.breakOpen ? 0 : 1, mags: Array.from({ length: def.mags }, () => def.magSize), magIndex: 0 };
+  if (def.bolt) w.mags[0] = def.magSize - 1;   // internal magazine: one round is the chambered one (4+1)
+  return w;
 }
 
 export function createInventory(ctx) {

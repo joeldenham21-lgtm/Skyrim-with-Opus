@@ -13,7 +13,7 @@ export function createCollision(terrain) {
     const z0 = c.kind === 'box' ? c.min.z : c.z - c.r, z1 = c.kind === 'box' ? c.max.z : c.z + c.r;
     for (let i = Math.floor(x0 / CELL); i <= Math.floor(x1 / CELL); i++) for (let j = Math.floor(z0 / CELL); j <= Math.floor(z1 / CELL); j++) fn(key(i, j));
   };
-  const tmpN = new THREE.Vector3();
+  const tmpN = new THREE.Vector3(), tmpD = new THREE.Vector3();
   const api = {
     all,
     add(c) {
@@ -135,7 +135,7 @@ export function createCollision(terrain) {
     },
     // line of sight between two points (true if nothing solid in between)
     lineOfSight(a, b) {
-      const d = new THREE.Vector3().subVectors(b, a); const len = d.length(); if (len < 1e-3) return true; d.divideScalar(len);
+      const d = tmpD.subVectors(b, a); const len = d.length(); if (len < 1e-3) return true; d.divideScalar(len);
       const hit = api.raycast(a, d, len - 0.05);
       return !hit;
     },

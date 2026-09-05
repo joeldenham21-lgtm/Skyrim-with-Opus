@@ -81,7 +81,7 @@ const CONE_FRAG = /* glsl */`
     float edge = 1.0 - abs(dot(normalize(vN), normalize(vV)));
     float fall = pow(1.0 - vT, 1.7) * smoothstep(0.0, 0.06, vT);
     float dust = 0.7 + 0.6 * vnoise(vec2(vUv.x * 9.0, vT * 22.0 - uTime * 0.7)) * vnoise(vec2(vUv.x * 23.0 + uTime * 0.2, vT * 60.0 - uTime * 1.5));
-    float a = (0.08 + 0.6 * edge * edge) * fall * uIntensity * dust;
+    float a = (0.12 + 0.6 * edge * edge) * fall * uIntensity * dust;
     gl_FragColor = vec4(vec3(1.0, 0.92, 0.74) * a, a);
   }`;
 let coneGeo = null;
@@ -93,7 +93,7 @@ function makeCone(length, angle) {
     _m.makeRotationX(Math.PI / 2); coneGeo.applyMatrix4(_m);
     coneGeo.userData.shared = true;
   }
-  const mat = new THREE.ShaderMaterial({ uniforms: { uTime: { value: 0 }, uIntensity: { value: 0.32 } }, vertexShader: CONE_VERT, fragmentShader: CONE_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
+  const mat = new THREE.ShaderMaterial({ uniforms: { uTime: { value: 0 }, uIntensity: { value: 0.8 } }, vertexShader: CONE_VERT, fragmentShader: CONE_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
   const m = new THREE.Mesh(coneGeo, mat); m.renderOrder = 4; m.frustumCulled = false;   // hangs off a bone; one call, never worth a mis-cull
   return m;
 }
@@ -113,10 +113,13 @@ class Seeker extends Enemy {
     // the lens: an emissive disc on the dome front; the searchlight and its cone hang from the head bone
     const head = this.rig.B.head;
     this.lensMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(3.2, 2.9, 2.2), fog: false });
-    const lensGeo = new THREE.CircleGeometry(0.055 * SCALE, 18);
+    // discs face +z by default; the lamp looks down the head's -z, so flip the geometry (not the object: beamTest
+    // reads the lens object's -z axis)
+    const lensGeo = new THREE.CircleGeometry(0.055 * SCALE, 18); lensGeo.rotateY(Math.PI);
     this.lens = new THREE.Mesh(lensGeo, this.lensMat);
     this.lens.position.set(0, 0.06 * SCALE, -0.21 * SCALE); head.add(this.lens);
-    const ring = new THREE.Mesh(new THREE.RingGeometry(0.055 * SCALE, 0.078 * SCALE, 18), new THREE.MeshStandardMaterial({ color: 0x1a1b18, roughness: 0.55, metalness: 0.3 }));
+    const ringGeo = new THREE.RingGeometry(0.055 * SCALE, 0.078 * SCALE, 18); ringGeo.rotateY(Math.PI);
+    const ring = new THREE.Mesh(ringGeo, new THREE.MeshStandardMaterial({ color: 0x1a1b18, roughness: 0.55, metalness: 0.3 }));
     ring.position.copy(this.lens.position); ring.position.z += 0.002; head.add(ring);
     this.light = new THREE.SpotLight(0xffe4bb, 0, 60, 0.25, 0.4, 1.3);
     this.light.position.copy(this.lens.position); this.light.castShadow = false;
@@ -158,7 +161,7 @@ class Seeker extends Enemy {
     this.sound('seeker_spot', { gain: 1.0, max: 120, ref: 6 });
     this.humLoop?.set?.('intensity', 1); this.humT = 1.5;
     if (this.inBeam && !this.flashed) { this.flashed = true; this.ctx.post.flash(0.25); }
-    this.cooldown = 1.1; this.setState('engage'); this.alertPack();
+    this.cooldown = 2.2; this.setState('engage'); this.alertPack();   // the tell: light, hiss, hum, then the gun
   }
   onHit(amount) {
     this.sound(amount > 60 ? 'seeker_hiss' : 'mimic_hit', { gain: 0.7 });
@@ -177,8 +180,9 @@ class Seeker extends Enemy {
     const e1 = 1 - Math.pow(1 - f1, 2), e2 = 1 - Math.pow(1 - f2, 3);
     B.thL.rotation.x = 0.55 * e1 + 0.5 * e2; B.thR.rotation.x = 0.7 * e1 + 0.3 * e2;
     B.snL.rotation.x = -(1.3 * e1 + 0.7 * e2); B.snR.rotation.x = -(1.5 * e1 + 0.5 * e2);
-    B.hips.position.y = rig.rest.hips.y - (0.45 * e1 + 0.30 * e2) * s; B.hips.rotation.x = 0.2 * e1 + 0.25 * e2; B.hips.rotation.z = 0.12 * e2;
-    B.spine.rotation.x = 0.35 * e2; B.chest.rotation.x = 0.4 * e2; B.neck.rotation.x = 0.5 * e2; B.head.rotation.x = 0.4 * e2; B.head.rotation.y = 0.3 * e1;
+    // (a torso bone points up, so -x is the forward slump)
+    B.hips.position.y = rig.rest.hips.y - (0.45 * e1 + 0.30 * e2) * s; B.hips.rotation.x = -(0.2 * e1 + 0.25 * e2); B.hips.rotation.z = 0.12 * e2;
+    B.spine.rotation.x = -0.35 * e2; B.chest.rotation.x = -0.4 * e2; B.neck.rotation.x = -0.5 * e2; B.head.rotation.x = -0.4 * e2; B.head.rotation.y = 0.3 * e1;
     B.gun.rotation.x = -0.42 - 0.6 * e2; B.gun.position.y = rig.gunRest.y - 0.2 * s * e2; B.gun.updateMatrix();
     rig.solveArm(B.shL, B.foL, rig.shPosL, _v.copy(rig.gripL).applyMatrix4(B.gun.matrix), -1);
     rig.solveArm(B.shR, B.foR, rig.shPosR, _v.copy(rig.gripR).applyMatrix4(B.gun.matrix), 1);
@@ -198,7 +202,7 @@ class Seeker extends Enemy {
   // every material in view, so the lamp stays in the light list at zero while it is dark
   setLight(level) {
     this.light.intensity = 46 * level;
-    this.cone.material.uniforms.uIntensity.value = 0.32 * level;
+    this.cone.material.uniforms.uIntensity.value = 0.8 * level;
     this.cone.visible = level > 0.01;
     this.lensMat.color.setRGB(0.4 + 2.8 * level, 0.35 + 2.55 * level, 0.25 + 1.95 * level);
   }
@@ -227,7 +231,8 @@ class Seeker extends Enemy {
     const p = this.player;
     _v3.set(p.position.x, p.position.y + p.eyeHeight * 0.6, p.position.z);
     _dir.subVectors(_v3, muzzle).normalize();
-    enemyShoot(this.ctx, this, muzzle, _dir, 12, 3.5 + dist * 0.04 + (this.moveSpeed > 0.4 ? 1.2 : 0));
+    // a heavy gun walked onto you: roughly a third of a burst lands at 15 m, less further out or on the move
+    enemyShoot(this.ctx, this, muzzle, _dir, 12, 6 + dist * 0.12 + (this.moveSpeed > 0.4 ? 2 : 0));
     this.ctx.vfx.muzzleFlash(muzzle, _dir);
     this.sound('seeker_shot', { pos: muzzle, gain: 1.0, max: 300, ref: 6 });
     this.rig.kick = 1;
@@ -241,7 +246,7 @@ class Seeker extends Enemy {
     const d = this.distanceToPlayer();
     // perception: the beam is the eye. outside it the seeker is slow to notice you.
     this.inBeam = this.beamTest();
-    const { vis } = this.perceive(dt, { fov: 70, maxDay: 60, visGain: 0.7, hearGain: 1.0, decay: 0.06 });
+    const { vis } = this.perceive(dt, { fov: 110, maxDay: 60, visGain: 0.7, hearGain: 1.0, decay: 0.06 });
     if (this.inBeam) { this.aware = clamp01(this.aware + dt * 2.2); if (!this.lastSeenPlayer) this.lastSeenPlayer = new THREE.Vector3(); this.lastSeenPlayer.copy(p.position); this.lastSeenT = t; this.lastVisT = t; if (this.aware >= 1 && !this.engaged) { this.engaged = true; ctx.director?.notify('spotted', { enemy: this }); this.onSpotted(); } }
     else if (vis > 0.05) this.lastVisT = t;
     if (!this.engaged) this.flashed = false;
@@ -288,11 +293,11 @@ class Seeker extends Enemy {
             if (this.shotT <= 0) {
               this.syncRoot(); this.rig.muzzleWorld(_v3);
               _v2.set(p.position.x, p.position.y + p.eyeHeight * 0.6, p.position.z);
-              if (ctx.world.lineOfSight(_v3, _v2) && Math.abs(headYaw) < 0.6) { this.fireOne(_v3, d); this.burstLeft--; this.shotT = 0.075; }
+              if (ctx.world.lineOfSight(_v3, _v2) && Math.abs(headYaw) < 0.6) { this.fireOne(_v3, d); this.burstLeft--; this.shotT = 0.1; }
               else this.burstLeft = 0;
-              if (this.burstLeft === 0) this.cooldown = rng.range(1.5, 3.0);
+              if (this.burstLeft === 0) this.cooldown = rng.range(2.0, 3.5);
             }
-          } else { this.cooldown -= dt; if (this.cooldown <= 0 && (this.inBeam || vis > 0.05)) { this.burstLeft = rng.int(8, 12); this.shotT = 0; } }
+          } else { this.cooldown -= dt; if (this.cooldown <= 0 && (this.inBeam || vis > 0.05)) { this.burstLeft = rng.int(6, 10); this.shotT = 0; } }
         }
         break;
       }

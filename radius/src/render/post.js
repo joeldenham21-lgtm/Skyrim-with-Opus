@@ -86,13 +86,15 @@ const RadiusShader = {
       // vignette
       float v = 1.0 - smoothstep(0.3, 1.7, r2 * (2.2 + uVignette * 3.0)) * 0.7;
       col *= v;
-      // film grain: animated, luminance-weighted (stronger in shadows)
-      float g = hash21(gl_FragCoord.xy + fract(uTime * 13.7) * 977.0) - 0.5;
-      col += g * uGrain * (0.018 + 0.03 * (1.0 - l)) * (1.0 + uDeath * 3.0 + uTide * 2.0);
       // flashes
       col += vec3(1.0, 0.95, 0.85) * uFlash;
       col = mix(col, vec3(1.0), uTide * uTide);
-      gl_FragColor = vec4(toSRGB(clamp(col, 0.0, 1.0)), 1.0);
+      vec3 srgb = toSRGB(clamp(col, 0.0, 1.0));
+      // film grain in display space (perceptually even; no speckle in the blacks), a little stronger in shadow
+      float g = hash21(gl_FragCoord.xy + fract(uTime * 13.7) * 977.0) - 0.5;
+      float ls = luma(srgb);
+      srgb += g * uGrain * (0.025 + 0.025 * (1.0 - ls)) * (1.0 + uDeath * 3.0 + uTide * 2.0);
+      gl_FragColor = vec4(clamp(srgb, 0.0, 1.0), 1.0);
     }`,
 };
 

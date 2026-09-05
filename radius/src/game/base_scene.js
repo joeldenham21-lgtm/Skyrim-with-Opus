@@ -46,7 +46,7 @@ export function createBase(ctx) {
   B.cyl('metal', 0.14, 0.05, 0.18, 0, FY + 2.62, DOOR_Z - 0.55, [0.25, 0.25, 0.24], { seg: 10, open: true });
   const lampBulb = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), new THREE.MeshStandardMaterial({ color: 0x1a1612, emissive: 0xffb070, emissiveIntensity: 0, roughness: 0.4 }));
   lampBulb.position.set(0, FY + 2.55, DOOR_Z - 0.55); scene.add(lampBulb); anim.lampBulb = lampBulb;
-  const doorLight = new THREE.PointLight(0xffb070, 0, 26, 1.8); doorLight.position.set(0, FY + 2.5, DOOR_Z - 0.7); scene.add(doorLight); anim.doorLight = doorLight;
+  const doorLight = new THREE.PointLight(0xffb070, 0, 26, 1.8); doorLight.position.set(0, FY + 2.45, DOOR_Z - 1.25); scene.add(doorLight); anim.doorLight = doorLight;   // ahead of the hood so the leaf and the wheel catch it
   // the earth mound over the blockhouse: a lumpy ellipsoid, front cut back so the face stays clear
   const mound = new THREE.SphereGeometry(1, 28, 18);
   { const p = mound.attributes.position; for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i); const n = 1 + 0.08 * Math.sin(x * 7.1 + z * 3.3) * Math.cos(y * 5.7 + x * 2.2) + 0.05 * Math.sin(z * 11.0 + y * 4.0); p.setXYZ(i, x * 9.8 * n, y * 4.6 * n, z * 7.6 * n); } mound.computeVertexNormals(); }
@@ -87,7 +87,7 @@ export function createBase(ctx) {
   wallBox(-0.9, 0.9, 295.95, DOOR_Z + 0.1, 6.0, 10.5);                          // the door itself (closed)
   wallBox(-5.2, -4.5, 298.2, 305.2); wallBox(4.5, 5.2, 298.2, 305.2);          // west / east
   wallBox(-5.2, 5.2, 304.6, 305.2);                                             // south
-  world.addBox(0, 10.75, 301.6, 10.8, 0.5, 7.6, { tag, surface: 'concrete' });  // roof
+  world.addBox(0, 10.75, 301.6, 10.8, 0.5, 7.6, { tag, surface: 'concrete', passable: true, blocksBullets: true });  // roof: stops bullets and sight, never a floor (the load spawn probes from above)
   world.addBox(0, FY + 3.4, 297.5, 3.0, 0.4, 2.4, { tag, surface: 'concrete' });   // throat ceiling
   world.addBox(0, FY - 0.75, (ROOM.z0 + ROOM.z1) / 2, 9.0, 1.5, 6.0, { tag, surface: 'concrete' });   // floor
   world.addBox(0, FY - 0.75, (295.7 + HALL.z1) / 2, 1.8, 1.5, HALL.z1 - 295.7, { tag, surface: 'concrete' });   // corridor floor + sill
@@ -234,12 +234,12 @@ export function createBase(ctx) {
       ctx.hud.fadeOut(); ctx.audio.play('door_open', { pos: doorPos, gain: 0.9 });
     },
   });
-  const station = (x, z, y, prompt, panel, radius = 2.0) => ctx.interact.register({ position: V3(x, y, z), radius, prompt, onInteract() { ctx.audio.play('ui_open', { gain: 0.5 }); ctx.panels.open(panel); } });
+  const station = (x, z, y, prompt, panel, radius = 2.0) => ctx.interact.register({ position: V3(x, y, z), radius, prompt, onInteract() { ctx.panels.open(panel); } });
   station(dx + 0.55, dz, FY + 1.0, '[E] TERMINAL · MISSIONS', 'terminal');
   station(wx - 0.55, wz, FY + 1.0, '[E] WORKBENCH · CLEAN AND LOAD', 'workbench');
-  station(sx - 0.4, sz - 0.4, FY + 0.7, '[E] SUPPLY CRATE · BUY AND SELL', 'supply');
+  station(sx - 0.4, sz - 0.4, FY + 0.95, '[E] SUPPLY CRATE · BUY AND SELL', 'supply');
   station(lx + 0.4, lz, FY + 1.0, '[E] LOCKER · STORAGE', 'storage', 1.8);
-  station(cx, cz - 0.5, FY + 0.6, '[E] COT · SLEEP UNTIL MORNING', 'bed');
+  station(cx, cz - 0.5, FY + 0.9, '[E] COT · SLEEP UNTIL MORNING', 'bed', 2.2);
 
   // ---------------------------------------------------------------- update
   let dripT = 3 + rnd() * 4, dropT = -1, flickerSeed = 0, flickA = 1;

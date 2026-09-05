@@ -285,7 +285,7 @@ export class Rig {
     // hips: bob, sway, lean into the walk
     this.bob = damp(this.bob, g, 6, dt);
     B.hips.position.set(this.rest.hips.x + Math.sin(ph) * 0.018 * s * g, this.rest.hips.y - (0.5 + 0.5 * Math.cos(2 * ph)) * 0.035 * s * this.bob - (c.crouch || 0) * 0.28 * s, this.rest.hips.z);
-    B.hips.rotation.set(0.10 * g + (c.lean || 0), Math.sin(ph) * 0.05 * g, -Math.sin(ph) * 0.03 * g);
+    B.hips.rotation.set(-(0.10 * g + (c.lean || 0)), Math.sin(ph) * 0.05 * g, -Math.sin(ph) * 0.03 * g);   // -x leans the torso into the walk
     B.spine.rotation.set(0.02 - 0.04 * g, -Math.sin(ph) * 0.05 * g, 0);
     // flinch: torso jerk
     this.flinch = damp(this.flinch, 0, 9, dt);
@@ -446,8 +446,9 @@ class Mimic extends Enemy {
     // fold inward over 0.6 s: knees give, spine curls, arms drop, the whole thing narrows
     const f = clamp01(t / 0.6), fe = 1 - Math.pow(1 - f, 3);
     B.thL.rotation.x = 0.9 * fe; B.thR.rotation.x = 0.8 * fe; B.snL.rotation.x = -1.9 * fe; B.snR.rotation.x = -1.7 * fe;
-    B.hips.position.y = rig.rest.hips.y - 0.62 * fe; B.hips.rotation.x = 0.35 * fe;
-    B.spine.rotation.x = 0.55 * fe; B.chest.rotation.x = 0.7 * fe; B.neck.rotation.x = 0.5 * fe;
+    // (torso bones point up, so the forward curl is -x)
+    B.hips.position.y = rig.rest.hips.y - 0.62 * fe; B.hips.rotation.x = -0.35 * fe;
+    B.spine.rotation.x = -0.55 * fe; B.chest.rotation.x = -0.7 * fe; B.neck.rotation.x = -0.5 * fe;
     B.gun.rotation.x = -0.42 - 0.9 * fe; B.gun.position.y = rig.gunRest.y - 0.25 * fe;
     B.gun.updateMatrix();
     rig.solveArm(B.shL, B.foL, rig.shPosL, _v.copy(rig.gripL).applyMatrix4(B.gun.matrix), -1);
@@ -530,8 +531,9 @@ class Mimic extends Enemy {
     const p = this.player;
     _v3.set(p.position.x, p.position.y + p.eyeHeight * 0.62, p.position.z);
     _dir.subVectors(_v3, muzzle).normalize();
-    // ~70 % of rounds find a standing target at 15 m, falling with distance, worse on the move (either side)
-    const spread = 1.5 + dist * 0.05 + p.speed * 0.4 + (this.moveSpeed > 0.5 ? 2.0 : 0);
+    // ballistics draws a triangular cone, so this is ~70 % of rounds on a standing target at 15 m, ~30 % at 30 m,
+    // worse when either side is moving
+    const spread = 4.5 + dist * 0.12 + p.speed * 0.5 + (this.moveSpeed > 0.5 ? 2.0 : 0);
     enemyShoot(this.ctx, this, muzzle, _dir, 8, spread);
     this.ctx.vfx.muzzleFlash(muzzle, _dir);
     this.sound('mimic_shot', { pos: muzzle, gain: 1.0, max: 220, ref: 4 });

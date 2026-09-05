@@ -123,7 +123,7 @@ const game = {
     const M = ctx.world.map;
     ctx.player.revive();
     if (newGame) { ctx.player.setLook(M.START.yaw, 0); ctx.player.teleport(M.START.x, M.START.z); }
-    else { ctx.player.setLook(0, 0); ctx.player.teleport(M.BASE.x, M.BASE.z, ctx.world.groundHeight(M.BASE.x, M.BASE.z, 60).y); }   // the bunker floor is a box above the terrain
+    else { ctx.player.setLook(0, 0); ctx.player.teleport(M.BASE.x, M.BASE.z, ctx.base.floorY ?? ctx.world.groundHeight(M.BASE.x, M.BASE.z, 60).y); }   // the bunker floor is a box above the terrain
     ctx.weapons.onInventoryChanged?.();
     ctx.director.rest();
     ctx.post.setDeath(0);
@@ -178,7 +178,7 @@ function loop(now) {
     else if (ctx.mode === 'playing' && !ctx.panels.isOpen && ctx.input.pressed('inventory')) ctx.panels.open('inventory');
     else if (ctx.mode === 'playing' && !ctx.panels.isOpen && ctx.input.pressed('map')) ctx.panels.open('map');
     else if (ctx.mode === 'playing' && ctx.panels.isOpen && (ctx.input.rawPressed('inventory') || ctx.input.rawPressed('map'))) ctx.panels.close();
-    else if (ctx.mode === 'paused' && ctx.input.rawPressed('pause')) game.resume();
+    else if (ctx.mode === 'paused' && ctx.input.rawPressed('pause')) { if (ctx.menus.current === 'settings') ctx.menus.show('pause'); else game.resume(); }
     const playing = ctx.mode === 'playing' || ctx.mode === 'dead';
     if (playing) {
       const gdt = ctx.panels.isOpen ? 0 : dt;      // world freezes while a base panel is open
@@ -196,6 +196,7 @@ function loop(now) {
     } else {
       ctx.player.update(0);
     }
+    ctx.hands.root.visible = ctx.mode !== 'title';
     ctx.lighting.update(dt); ctx.sky.update(dt, t); ctx.world.update(dt, t);
     ctx.vfx.update(dt, t); ctx.post.update(dt, t); ctx.audio.update(dt);
     ctx.hud.update(dt); ctx.music.update(dt); ctx.ambience.update(dt); ctx.menus.update(dt); ctx.panels.update(dt);

@@ -97,7 +97,7 @@ export function createLighting(ctx) {
       api.flashLevel += (api.flashTarget - api.flashLevel) * Math.min(1, dt * 14);
       const bat = ctx.state.data.flashlight.battery / 100;
       flashlight.intensity = api.flashLevel * 42 * (0.55 + 0.45 * clamp01(bat * 3));
-      flashlight.visible = flashlight.intensity > 0.5;
+      flashlight.visible = true;   // stays in the light list; toggling visibility would recompile every material
     },
     setFlashlight(on) { api.flashOn = on; api.flashTarget = on ? 1 : 0; },
   };

@@ -19,7 +19,7 @@ const WEAR_FRAG = /* glsl */`
   float n3 = vnoise3(op * 13.0);
   // grime gathers in soft blotches
   float grime = smoothstep(0.45, 0.85, vnoise3(op * 0.35) * 0.75 + n3 * 0.25) * uWear.y;
-  diffuseColor.rgb *= 1.0 - grime * 0.38;
+  diffuseColor.rgb *= 1.0 - grime * 0.3;
   // edge wear: normal turn per metre of surface (resolution independent), high on bevels, rims and knurls
   float curv = length(fwidth(vNormal)) / max(length(fwidth(vOPos)), 1e-6);
   float edge = smoothstep(220.0, 700.0, curv) * smoothstep(0.3, 0.75, n2) * uWear.x;
@@ -35,9 +35,26 @@ const WEAR_FRAG = /* glsl */`
   roughnessFactor = clamp(roughnessFactor + (n3 - 0.5) * 0.18 + grime * 0.2 - bare * 0.3, 0.06, 1.0);
 }`;
 
-export function weathered({ color, roughness, metalness = 0, wear = [0.6, 0.5, 0.3, 0], bare = 0x888888, seed = 0, side = THREE.DoubleSide }) {
+// The viewmodel sits centimetres from the torch and the muzzle flash, where inverse-square lighting is hundreds of
+// times the daylight level and burns it to white. Spot and point irradiance is capped per fragment (x: spot, y: point);
+// the sun, moon and hemisphere are untouched so the gun still reads the time of day.
+export const lightCap = { value: new THREE.Vector2(4.5, 7.0) };
+// Bounce onto the viewmodel: the torch head rides ahead of the hands (render/lighting.js), so what lights them is the
+// beam coming back off the ground, plus a little sky by day. A wrapped half-Lambert from below-ahead in view space,
+// diffuse only, viewmodel materials only. hands.js drives the colour each frame from the scene lights.
+export const viewFill = { value: new THREE.Color(0, 0, 0) };
+const NO_FILL = { value: new THREE.Color(0, 0, 0) };
+const FILL_DIR = { value: new THREE.Vector3(0.12, -0.72, -0.68).normalize() };
+const FILL_FRAG = /* glsl */`
+#include <lights_fragment_end>
+reflectedLight.indirectDiffuse += uFill * (0.72 + 0.28 * dot(geometryNormal, uFillDir)) * BRDF_Lambert(material.diffuseColor);`;
+const LIGHTS_BEGIN = THREE.ShaderChunk.lights_fragment_begin
+  .replace('getPointLightInfo( pointLight, geometryPosition, directLight );', 'getPointLightInfo( pointLight, geometryPosition, directLight ); directLight.color = min( directLight.color, vec3( uLightCap.y ) );')
+  .replace('getSpotLightInfo( spotLight, geometryPosition, directLight );', 'getSpotLightInfo( spotLight, geometryPosition, directLight ); directLight.color = min( directLight.color, vec3( uLightCap.x ) );');
+
+export function weathered({ color, roughness, metalness = 0, wear = [0.6, 0.5, 0.3, 0], bare = 0x888888, seed = 0, side = THREE.DoubleSide, fill = true }) {
   const m = new THREE.MeshStandardMaterial({ color, roughness, metalness, side });
-  const uniforms = { uWear: { value: new THREE.Vector4(...wear) }, uBare: { value: new THREE.Color(bare) }, uSeed: { value: seed } };
+  const uniforms = { uWear: { value: new THREE.Vector4(...wear) }, uBare: { value: new THREE.Color(bare) }, uSeed: { value: seed }, uLightCap: lightCap, uFill: fill ? viewFill : NO_FILL, uFillDir: FILL_DIR };
   m.onBeforeCompile = (shader) => {
     for (const k in fogUniforms) shader.uniforms[k] = fogUniforms[k];
     Object.assign(shader.uniforms, uniforms);
@@ -45,8 +62,10 @@ export function weathered({ color, roughness, metalness = 0, wear = [0.6, 0.5, 0
       .replace('#include <common>', '#include <common>\nvarying vec3 vOPos;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvOPos = position;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\n${GLSL_NOISE}\nvarying vec3 vOPos; uniform vec4 uWear; uniform vec3 uBare; uniform float uSeed;`)
-      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\n${WEAR_FRAG}`);
+      .replace('#include <common>', `#include <common>\n${GLSL_NOISE}\nvarying vec3 vOPos; uniform vec4 uWear; uniform vec3 uBare; uniform float uSeed; uniform vec2 uLightCap; uniform vec3 uFill; uniform vec3 uFillDir;`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\n${WEAR_FRAG}`)
+      .replace('#include <lights_fragment_begin>', LIGHTS_BEGIN)
+      .replace('#include <lights_fragment_end>', FILL_FRAG);
   };
   m.customProgramCacheKey = () => 'radius-wear';
   m.userData.shared = true; m.userData.wear = uniforms;
@@ -57,16 +76,18 @@ let MAT = null;
 export function materials() {
   if (MAT) return MAT;
   MAT = {
-    steel: weathered({ color: 0x33373d, roughness: 0.46, metalness: 0.62, wear: [0.9, 0.55, 0.7, 0], bare: 0x9a9ea3, seed: 1.7 }),
-    steelDark: weathered({ color: 0x2a2c30, roughness: 0.6, metalness: 0.5, wear: [0.75, 0.7, 0.45, 0], bare: 0x7e8288, seed: 4.2 }),
+    // no environment map in this renderer: high metalness has nothing to reflect and reads as black, so gunmetal
+    // is a dark grey dielectric-leaning blend with bright worn edges rather than a mirror
+    steel: weathered({ color: 0x585d63, roughness: 0.5, metalness: 0.35, wear: [0.9, 0.45, 0.7, 0], bare: 0xa8acb0, seed: 1.7 }),
+    steelDark: weathered({ color: 0x45484d, roughness: 0.62, metalness: 0.3, wear: [0.75, 0.6, 0.45, 0], bare: 0x8e9297, seed: 4.2 }),
     bore: weathered({ color: 0x08090a, roughness: 0.9, metalness: 0.3, wear: [0, 0.2, 0, 0], bare: 0x111111, seed: 0.3 }),
-    bakelite: weathered({ color: 0x6e3a1f, roughness: 0.42, metalness: 0.04, wear: [0.55, 0.5, 0.25, 0.35], bare: 0xa2643c, seed: 9.1 }),
-    wood: weathered({ color: 0x5c3a1e, roughness: 0.64, metalness: 0, wear: [0.55, 0.6, 0.15, 1.0], bare: 0x8f6a42, seed: 2.9 }),
-    woodDark: weathered({ color: 0x4a2c15, roughness: 0.6, metalness: 0, wear: [0.5, 0.65, 0.1, 1.0], bare: 0x7c5a36, seed: 6.4 }),
-    rubber: weathered({ color: 0x1c1b1a, roughness: 0.92, metalness: 0, wear: [0.35, 0.4, 0, 0], bare: 0x3a3836, seed: 3.3 }),
-    brass: weathered({ color: 0xffffff, roughness: 0.34, metalness: 0.9, wear: [0.25, 0.3, 0.3, 0], bare: 0xe8d090, seed: 5.5, side: THREE.FrontSide }),
-    glove: weathered({ color: 0x3a3d2b, roughness: 0.96, metalness: 0, wear: [0.25, 0.65, 0, 0.55], bare: 0x585b41, seed: 7.7 }),
-    cuff: weathered({ color: 0x2b2d25, roughness: 0.97, metalness: 0, wear: [0.15, 0.6, 0, 0.7], bare: 0x40433a, seed: 8.8 }),
+    bakelite: weathered({ color: 0x7a4426, roughness: 0.42, metalness: 0.04, wear: [0.55, 0.45, 0.25, 0.35], bare: 0xb07046, seed: 9.1 }),
+    wood: weathered({ color: 0x6a4424, roughness: 0.64, metalness: 0, wear: [0.55, 0.55, 0.15, 1.0], bare: 0x9c7449, seed: 2.9 }),
+    woodDark: weathered({ color: 0x563618, roughness: 0.6, metalness: 0, wear: [0.5, 0.6, 0.1, 1.0], bare: 0x86633c, seed: 6.4 }),
+    rubber: weathered({ color: 0x26251f, roughness: 0.92, metalness: 0, wear: [0.35, 0.4, 0, 0], bare: 0x44423e, seed: 3.3 }),
+    brass: weathered({ color: 0xffffff, roughness: 0.34, metalness: 0.9, wear: [0.25, 0.3, 0.3, 0], bare: 0xe8d090, seed: 5.5, side: THREE.FrontSide, fill: false }),   // casings lie in the world, not in the hands
+    glove: weathered({ color: 0x5c5f47, roughness: 0.95, metalness: 0, wear: [0.25, 0.55, 0, 0.55], bare: 0x767a5d, seed: 7.7 }),
+    cuff: weathered({ color: 0x474a3d, roughness: 0.97, metalness: 0, wear: [0.15, 0.55, 0, 0.7], bare: 0x5c6050, seed: 8.8 }),
   };
   return MAT;
 }

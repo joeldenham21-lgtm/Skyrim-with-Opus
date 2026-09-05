@@ -24,14 +24,16 @@ const DOWN = new THREE.Vector3(0, -1, 0);
 // ---- rig layout ----
 const BONES = ['body', 'chest', 'neck', 'head', 'pelvis', 'upFL', 'upFR', 'upHL', 'upHR', 'loFL', 'loFR', 'loHL', 'loHR'];
 const bi = (n) => BONES.indexOf(n);
-const L1 = 0.52, L2 = 0.56;                    // upper / lower limb lengths
-const TORSO_Y = 0.50, HIDDEN_Y = 0.09;
+// human-ish limbs on a body carried high: the joints bend out and up, but only so far that it still reads as a
+// person on all fours and not as a spider
+const L1 = 0.42, L2 = 0.46;                    // upper / lower limb lengths
+const TORSO_Y = 0.66, HIDDEN_Y = 0.09;
 // legs: [name, side(-1 left / +1 right), fwd(-1 front / +1 hind), hip (body-local), rest foot (mesh), hidden foot (mesh), phase offset]
 const LEGS = [
-  { up: 'upFL', lo: 'loFL', side: -1, fwd: -1, hip: [-0.15, -0.03, -0.34], rest: [-0.36, 0, -0.44], flat: [-1.02, 0, -0.84], off: 0.50 },
-  { up: 'upFR', lo: 'loFR', side: 1, fwd: -1, hip: [0.15, -0.03, -0.34], rest: [0.36, 0, -0.44], flat: [1.02, 0, -0.84], off: 0.63 },
-  { up: 'upHL', lo: 'loHL', side: -1, fwd: 1, hip: [-0.15, -0.02, 0.36], rest: [-0.34, 0, 0.46], flat: [-1.02, 0, 0.86], off: 0.0 },
-  { up: 'upHR', lo: 'loHR', side: 1, fwd: 1, hip: [0.15, -0.02, 0.36], rest: [0.34, 0, 0.46], flat: [1.02, 0, 0.86], off: 0.12 },
+  { up: 'upFL', lo: 'loFL', side: -1, fwd: -1, hip: [-0.15, -0.03, -0.34], rest: [-0.33, 0, -0.50], flat: [-0.90, 0, -0.80], off: 0.50 },
+  { up: 'upFR', lo: 'loFR', side: 1, fwd: -1, hip: [0.15, -0.03, -0.34], rest: [0.33, 0, -0.50], flat: [0.90, 0, -0.80], off: 0.63 },
+  { up: 'upHL', lo: 'loHL', side: -1, fwd: 1, hip: [-0.15, -0.02, 0.36], rest: [-0.31, 0, 0.50], flat: [-0.90, 0, 0.82], off: 0.0 },
+  { up: 'upHR', lo: 'loHR', side: 1, fwd: 1, hip: [0.15, -0.02, 0.36], rest: [0.31, 0, 0.50], flat: [0.90, 0, 0.82], off: 0.12 },
 ];
 
 // One irregular tapered box in mesh space, bound to a bone. Taper along y (top/bottom) and z (front/back).
@@ -131,7 +133,7 @@ class Slider extends Enemy {
   }
   onStateChange(s) {
     if (s === 'hidden') { this.riseTarget = 0; this.radius = 0.55; this.height = 0.3; }
-    else { this.riseTarget = 1; this.radius = 0.45; this.height = 0.9; }
+    else { this.riseTarget = 1; this.radius = 0.45; this.height = 1.0; }
   }
   setEngaged(v) {
     if (v && !this.engaged) { this.engaged = true; this.aware = 1; this.ctx.director?.notify('spotted', { enemy: this }); }
@@ -240,8 +242,10 @@ class Slider extends Enemy {
     // throttled "is the player looking at me" test
     this.obsT += dt; if (this.obsT > 0.12) { this.obsT = 0; this.observed = this.observedByPlayer(40); }
     this.flinch = damp(this.flinch, 0, 7, dt);
-    let headYaw = 0, headPitch = 0, torsoY = TORSO_Y, crouch = 0, stretch = 0, speed = SPEED.charge;
-    const trackPlayer = () => { headYaw = angleDelta(this.yaw, Math.atan2(-(p.position.x - this.position.x), -(p.position.z - this.position.z))); headPitch = Math.atan2(p.eye.y - (this.position.y + 0.35), Math.max(1, d)); };
+    let headYaw = 0, headPitch = 0, torsoY = TORSO_Y, crouch = 0, stretch = 0;
+    // head tracking values (computed without a per-frame closure)
+    const trackYaw = angleDelta(this.yaw, Math.atan2(-(p.position.x - this.position.x), -(p.position.z - this.position.z)));
+    const trackPitch = Math.atan2(p.eye.y - (this.position.y + TORSO_Y * 0.7), Math.max(1, d));
     const canCharge = !p.dead && !p.inBase && ((d < 15 && !this.observed) || d < 6);
 
     switch (this.state) {
@@ -255,7 +259,7 @@ class Slider extends Enemy {
         break;
       }
       case 'charge': {
-        trackPlayer();
+        headYaw = trackYaw; headPitch = trackPitch;
         // zigzag: lateral sinusoid across the line to the player, amplitude 1.5 m, period 0.7 s
         _dir.set(p.position.x - this.position.x, 0, p.position.z - this.position.z); const len = _dir.length() || 1; _dir.divideScalar(len);
         const lat = Math.sin((this.stateT / 0.7) * TAU) * 1.5 * clamp01((d - 2) / 5);
@@ -268,7 +272,7 @@ class Slider extends Enemy {
         break;
       }
       case 'lunge': {
-        trackPlayer();
+        headYaw = trackYaw; headPitch = trackPitch;
         this.faceToward(p.position.x, p.position.z, dt, 16);
         if (this.stateT < 0.25) { crouch = clamp01(this.stateT / 0.2); }
         else {
@@ -291,7 +295,7 @@ class Slider extends Enemy {
         break;
       }
       case 'circle': {
-        trackPlayer();
+        headYaw = trackYaw; headPitch = trackPitch;
         this.clickT -= dt; if (this.clickT <= 0) { this.clickT = rng.range(2, 5); if (d < 45) this.sound('slider_click', { gain: 0.5, max: 45, ref: 2, rate: rng.range(0.85, 1.1) }); }
         if (!this.target) {
           // wait low at the retreat point, then choose a new bearing
@@ -412,7 +416,7 @@ class Slider extends Enemy {
       const L = LEGS[i], up = B[L.up], lo = B[L.lo];
       _hip.set(L.hip[0], L.hip[1], L.hip[2]).applyMatrix4(body.matrix);
       _foot.copy(this.footPos[i]);
-      _pole.set(L.side * lerp(1.0, 0.5, this.rise), lerp(0.25, 1.0, this.rise) + fold * 0.6, L.fwd * 0.35 * this.rise).normalize();
+      _pole.set(L.side * lerp(1.0, 0.45, this.rise), lerp(0.25, 1.0, this.rise) + fold * 0.6, L.fwd * 0.3 * this.rise).normalize();
       this.solveLeg(up, lo, _hip, _foot, _pole);
     }
   }

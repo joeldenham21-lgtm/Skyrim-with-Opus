@@ -13,7 +13,7 @@ export function spanText(seconds) {
   return d > 0 ? `${d}d ${h}h` : h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
 }
 export const visible = (e) => e.offsetParent !== null || e === document.activeElement;
-export function focusables(root) { return [...root.querySelectorAll('button:not([disabled]), [tabindex="0"]')].filter(visible); }
+export function focusables(root) { return [...root.querySelectorAll('button:not([disabled]):not([tabindex="-1"]), [tabindex="0"]')].filter(visible); }
 // Arrow keys walk the focusables, Tab/Shift+Tab too (input.js swallows the browser default), digits pick the nth action.
 export function navigate(e, root, actionSel = 'button.btn:not([disabled]), button.act:not([disabled])') {
   const list = focusables(root); if (!list.length) return false;
@@ -44,6 +44,7 @@ export function keepFocus(root, rebuild) {
 }
 
 const weaponName = (w) => WEAPON_DEFS[w.id]?.full || w.id;
+const BUNDLE = { probe: 5 };   // supply-crate quantities for cheap consumables
 const loadedText = (w) => `${w.chamber + (w.mags[w.magIndex] ?? 0)} · ${w.mags.join('/')}`;
 
 export function createPanels(ctx) {
@@ -85,7 +86,7 @@ export function createPanels(ctx) {
   const act = (a, label, opts = {}) => `<button class="act ${opts.deny ? 'deny' : ''}" data-a="${a}" ${opts.disabled ? 'disabled' : ''}>${label}</button>`;
   const tabsHtml = (list, counts = {}) => `<div class="tabs">${list.map((t) => `<button class="tab ${t === tab ? 'on' : ''}" data-a="tab:${t}">${t}${counts[t] ? `<span class="n">${counts[t]}</span>` : ''}</button>`).join('')}</div>`;
   const dayLine = () => `Day ${D().day} · ${ctx.time.clockText()}`;
-  const KEYS = 'Esc close · arrows select · Enter confirm · digits quick-select';
+  const KEYS = 'Esc close · ↑↓ select · Enter confirm · 1–9 pick';
 
   // ---------- inventory (I) ----------
   function weaponBlock(w, actions) {
@@ -113,9 +114,9 @@ export function createPanels(ctx) {
     }).join('') : '<div class="empty">Kit bag empty.</div>';
     const arts = inv.artifacts();
     const artifacts = arts.length ? arts.map(([id, n]) => row(`${esc(ITEMS[id].name)}<span class="sub">${esc(ITEMS[id].desc)}</span>`, `${n > 1 ? `${n} × ` : ''}${money(ITEMS[id].price)}`)).join('') : '<div class="empty">None recovered.</div>';
-    frame('inv-card', 'UNPSC · Kit manifest · Form 61-K', `Explorer ${d.explorer} · ${dayLine()} · Tide in ${ctx.time.tideInText()}`,
+    frame('inv-card', 'UNPSC · Kit manifest · Form 61-K', `Explorer ${d.explorer} · ${dayLine()}`,
       sec('Condition', null, cond) + sec('Weapons', inv.weapons.length, weapons) + sec('Ammunition', null, ammo) + sec('Items', itemIds.length, items) + sec('Artifacts', arts.length, artifacts) + noticeHtml(),
-      KEYS, `Funds <b>${money(d.money)}</b>`, '<h1>Kit manifest<small>carried</small></h1>');
+      KEYS, `Tide in <b>${ctx.time.tideInText()}</b> · Funds <b>${money(d.money)}</b>`, '<h1>Kit manifest<small>carried</small></h1>');
   }
   const invHandlers = {
     use(id) {
@@ -131,11 +132,16 @@ export function createPanels(ctx) {
 
   // ---------- terminal ----------
   function missionHtml(m, active) {
-    const code = esc(m.code || m.id || 'PSC-0000'), title = esc(m.title || m.name || ''), body = esc(m.body || m.text || m.desc || '');
+    const code = esc(m.code || m.id || 'PSC-0000'), title = esc(m.title || m.name || '');
+    // the record's own closing sentence ("Payment 1,800 ₽ on delivery.") becomes the figure line so it is not printed twice
+    let body = String(m.body || m.text || m.desc || ''); const pm = body.match(/\s*(Payment [^.]*\.)\s*$/);
+    if (pm) body = body.slice(0, pm.index);
     const pay = m.payment ?? m.reward ?? 0; const status = m.status || (active ? 'in progress' : 'posted');
+    const payLine = pm ? esc(pm[1]).replace(/(\d),(?=\d{3})/g, '$1' + THIN).replace(/(\S+ ₽)/, '<b>$1</b>') : `Payment <b>${money(pay)}</b> on delivery.`;
+    const reqs = Array.isArray(m.requirements) && m.requirements.length ? `<div class="req">${m.requirements.map(esc).join(' · ')}</div>` : '';
     const canDeliver = active && (ctx.missions.deliverable?.(m) === true || m.status === 'complete' || m.status === 'ready');
     const action = active ? (canDeliver ? act(`deliver:${m.id}`, 'Deliver') : `<span class="dimink" style="font-size:10px;letter-spacing:.16em;text-transform:uppercase">${esc(status)}</span>`) : act(`accept:${m.id}`, 'Accept');
-    return `<div class="mission"><div class="code">${code}${title ? ` / ${title}` : ''}${active ? `<span class="st">${canDeliver ? 'ready for delivery' : 'active'}</span>` : ''}</div><div class="text">${body}</div><div class="pay"><span>Payment <b>${money(pay)}</b> on delivery</span>${action}</div></div>`;
+    return `<div class="mission"><div class="code">${code}${title ? ` / ${title}` : ''}${active ? `<span class="st">${canDeliver ? 'ready for delivery' : 'active'}</span>` : ''}</div><div class="text">${esc(body)}</div>${reqs}<div class="pay"><span>${payLine}</span>${action}</div></div>`;
   }
   function renderTerminal() {
     const d = D();
@@ -163,8 +169,17 @@ export function createPanels(ctx) {
   }
   const termHandlers = {
     tab(t) { tab = t; render(); return 'ui_click'; },
-    accept(id) { const m = (ctx.missions.available?.() || []).find((x) => String(x.id) === id); if (!m) return false; ctx.missions.accept(m.id); say(`${m.code || m.id} accepted. Terms on file.`); render(); return 'ui_stamp'; },
-    deliver(id) { const m = activeMissions().find((x) => String(x.id) === id); if (!m) return false; ctx.missions.complete(m.id); say(`${m.code || m.id} closed. Payment credited.`); render(); return 'ui_stamp'; },
+    // missions.accept/complete play their own stamp and notify; the handlers only echo the outcome on the sheet
+    accept(id) {
+      const m = (ctx.missions.available?.() || []).find((x) => String(x.id) === id); if (!m) return false;
+      if (ctx.missions.accept(m.id) === false) { say(`${m.code || m.id} not issued. Two contracts may be open at once; conclude one first.`, true); render(); return null; }
+      say(`${m.code || m.id} accepted. Terms on file.`); render(); return null;
+    },
+    deliver(id) {
+      const m = activeMissions().find((x) => String(x.id) === id); if (!m) return false;
+      if (ctx.missions.complete(m.id) === false) { say(`${m.code || m.id}: conditions not met. See the terms.`, true); render(); return null; }
+      say(`${m.code || m.id} closed. ${money(m.payment ?? 0)} credited.`); render(); return 'ui_stamp';
+    },
     sell(id) {
       const it = ITEMS[id]; if (!it || !ctx.inventory.has(id)) return false;
       const price = Math.round(it.kind === 'artifact' ? it.price : it.price * 0.4);
@@ -204,7 +219,7 @@ export function createPanels(ctx) {
     if (tab === 'buy') {
       const ammo = Object.entries(AMMO).map(([c, a]) => line(`buy:ammo:${c}`, `${a.name} · 10 rounds`, `carried ${inv.ammoCount(c)}`, a.price * 10, funds >= a.price * 10)).join('');
       const med = Object.entries(ITEMS).filter(([, it]) => it.kind === 'med').map(([id, it]) => line(`buy:item:${id}`, it.name, it.desc, it.price, funds >= it.price)).join('');
-      const tools = Object.entries(ITEMS).filter(([, it]) => it.kind === 'tool').map(([id, it]) => line(`buy:item:${id}`, it.name, it.desc, it.price, funds >= it.price)).join('');
+      const tools = Object.entries(ITEMS).filter(([, it]) => it.kind === 'tool').map(([id, it]) => { const q = BUNDLE[id] || 1; return line(`buy:item:${id}`, q > 1 ? `${it.name} · ${q}` : it.name, `${it.desc}${q > 1 ? ` carried ${inv.count(id)}` : ''}`, it.price * q, funds >= it.price * q); }).join('');
       const weapons = Object.entries(WEAPON_DEFS).map(([id, w]) => w.level <= d.securityLevel
         ? line(`buy:weapon:${id}`, w.full, `${AMMO[w.ammo].name} · ${w.mags} magazines, loaded`, w.price, funds >= w.price && freeSlot())
         : `<button class="btn" disabled>${esc(w.full)} <span class="dimink" style="text-transform:none;letter-spacing:0">· security level ${w.level} required</span><span class="price">${money(w.price)}</span></button>`).join('');
@@ -217,7 +232,7 @@ export function createPanels(ctx) {
       body = sec('Weapons', null, wl || '<div class="empty">No weapons carried.</div>') + sec('Ammunition', null, al || '<div class="empty">No ammunition carried.</div>') + sec('Items', null, il || '<div class="empty">Nothing to return.</div>') +
         `<div class="note">Buy-back at 40 % of list. Artifacts are submitted at the terminal, not here.</div>`;
     }
-    frame('supply-card', 'Vanno Outpost · Supply crate', `Requisition · Explorer ${d.explorer} · Security level ${d.securityLevel}`,
+    frame('supply-card', 'Vanno Outpost · Supply crate', `Explorer ${d.explorer} · Security level ${d.securityLevel}`,
       tabsHtml(PANELS.supply.tabs) + body + noticeHtml(), KEYS + ' · ←→ tabs', `Funds <b>${money(d.money)}</b>`);
   }
   const supplyHandlers = {
@@ -225,7 +240,7 @@ export function createPanels(ctx) {
     buy(arg) {
       const [kind, id] = arg.split(':'); const inv = ctx.inventory;
       if (kind === 'ammo') { const a = AMMO[id]; const p = a.price * 10; if (!inv.spend(p)) { say('Insufficient funds.', true); render(); return false; } inv.addAmmo(id, 10); say(`10 rounds of ${a.name} issued. ${money(p)} deducted.`); render(); return 'ui_buy'; }
-      if (kind === 'item') { const it = ITEMS[id]; if (!inv.spend(it.price)) { say('Insufficient funds.', true); render(); return false; } inv.add(id, 1); say(`${it.name} issued. ${money(it.price)} deducted.`); render(); return 'ui_buy'; }
+      if (kind === 'item') { const it = ITEMS[id], q = BUNDLE[id] || 1, p = it.price * q; if (!inv.spend(p)) { say('Insufficient funds.', true); render(); return false; } inv.add(id, q); say(`${q > 1 ? `${q} × ` : ''}${it.name} issued. ${money(p)} deducted.`); render(); return 'ui_buy'; }
       if (kind === 'weapon') {
         const w = WEAPON_DEFS[id]; if (w.level > D().securityLevel) { say(`Security level ${w.level} required.`, true); render(); return false; }
         if (!freeSlot()) { say('All four carry slots occupied. Store a weapon at the locker first.', true); render(); return false; }
@@ -296,15 +311,16 @@ export function createPanels(ctx) {
     cancel() { api.close(); return 'ui_close'; },
     sleep() {
       if (sleeping) return false;
-      sleeping = true; ctx.hud.fadeOut(); snd('sleep', 0.8);
+      // the sheet sits above the HUD fade in the DOM, so it dims itself while the room goes dark
+      sleeping = true; root.classList.add('sleeping'); ctx.hud.fadeOut(); snd('sleep', 0.8);
       const gen = D();
       setTimeout(() => {
-        sleeping = false;
+        sleeping = false; root.classList.remove('sleeping');
         if (D() !== gen) return;   // a new game replaced the state mid-fade; abandon quietly
         ctx.time.sleepToMorning(); ctx.player.heal(10); ctx.director.rest(); ctx.state.save(); ctx.events.emit('sleep');
-        api.close(); ctx.hud.fadeIn();
-        ctx.hud.notify(`Slept. Day ${D().day}. Tide in ${ctx.time.tideInText()}.`, { code: 'Vanno · Log' });
-      }, 1200);
+        api.close();
+        setTimeout(() => { ctx.hud.fadeIn(); ctx.hud.notify(`Log recorded. Day ${D().day}, ${ctx.time.clockText()}. Tide in ${ctx.time.tideInText()}.`, { code: 'Vanno · Bunk' }); }, 500);
+      }, 1400);
       return 'ui_click';
     },
   };
@@ -321,7 +337,15 @@ export function createPanels(ctx) {
     const M = ctx.world.map, dpr = Math.min(2, window.devicePixelRatio || 1);
     const S = cv.clientWidth; cv.width = Math.round(S * dpr); cv.height = Math.round(S * dpr);
     const g = cv.getContext('2d'); g.scale(dpr, dpr);
-    const margin = 34, scale = (S - margin * 2) / M.SIZE;
+    const margin = 38, scale = (S - margin * 2) / M.SIZE, fs = Math.max(7.5, Math.min(11, S / 64));   // label size follows the sheet
+    // a label that stays inside the frame: measured, flipped or clamped when it would run off the edge
+    const label = (text, x, y, align = 'left') => {
+      const w = g.measureText(text).width;
+      let lx = align === 'center' ? x - w / 2 : align === 'right' ? x - w : x;
+      if (align === 'left' && lx + w > S - margin - 2) lx = x - 18 - w;   // flip to the other side of the symbol
+      lx = Math.max(margin + 2, Math.min(S - margin - 2 - w, lx));
+      g.textAlign = 'left'; g.fillText(text, lx, y);
+    };
     const X = (x) => margin + (x + M.HALF) * scale, Y = (z) => margin + (z + M.HALF) * scale;
     let seed = 1987; const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
     const INK = 'rgba(26,25,23,';
@@ -363,30 +387,31 @@ export function createPanels(ctx) {
       for (let t = 0; t < len; t += 9) { const x = ax + (bx - ax) * (t / len), z = az + (bz - az) * (t / len); g.beginPath(); g.moveTo(X(x + nx * 2.4), Y(z + nz * 2.4)); g.lineTo(X(x - nx * 2.4), Y(z - nz * 2.4)); g.stroke(); }
     }
     // points of interest
-    g.font = '10px "IBM Plex Mono", monospace'; g.textAlign = 'left';
+    g.font = `${fs}px "IBM Plex Mono", monospace`; g.textAlign = 'left';
     for (const p of M.POIS) {
       const px = X(p.x), py = Y(p.z); g.strokeStyle = INK + '0.85)'; g.fillStyle = INK + '0.85)'; g.lineWidth = 1.1; g.setLineDash([]);
-      let lx = px + 9, ly = py + 4;
+      let lx = px + 9, ly = py + 4, al = 'left';
       switch (p.kind) {
         case 'base': g.strokeRect(px - 5, py - 5, 10, 10); g.fillRect(px - 1.5, py - 1.5, 3, 3); break;
         case 'checkpoint': g.beginPath(); g.moveTo(px - 6, py); g.lineTo(px + 6, py); g.moveTo(px - 6, py - 3); g.lineTo(px - 6, py + 3); g.moveTo(px + 6, py - 3); g.lineTo(px + 6, py + 3); g.stroke(); break;
         case 'convoy': for (let k = -1; k <= 1; k++) g.strokeRect(px - 3 + k * 5, py - 2 + k * 3, 5, 3); break;
-        case 'village': for (let k = 0; k < 6; k++) { const a = k * 1.05 + 0.4, r = 4 + (k % 3) * 4; g.strokeRect(px + Math.cos(a) * r - 2, py + Math.sin(a) * r * 0.7 - 2, 4, 4); } lx = px + 16; break;
+        case 'village': for (let k = 0; k < 6; k++) { const a = k * 1.05 + 0.4, r = 4 + (k % 3) * 4; g.strokeRect(px + Math.cos(a) * r - 2, py + Math.sin(a) * r * 0.7 - 2, 4, 4); } al = 'center'; lx = px; ly = py - 12; break;
         case 'industrial': g.beginPath(); g.moveTo(px - 6, py + 5); g.lineTo(px - 6, py - 3); g.lineTo(px - 2, py - 6); g.lineTo(px + 2, py - 3); g.lineTo(px + 6, py - 6); g.lineTo(px + 6, py + 5); g.closePath(); g.stroke(); g.beginPath(); g.moveTo(px - 8, py - 8); g.lineTo(px + 8, py - 8); g.stroke(); break;
         case 'church': g.beginPath(); g.moveTo(px, py - 9); g.lineTo(px, py + 6); g.moveTo(px - 4, py - 5); g.lineTo(px + 4, py - 5); g.stroke(); g.strokeRect(px - 4, py + 1, 8, 5); break;
         case 'rail': lx = px + 9; ly = py - 8; break;
-        case 'anomaly': g.setLineDash([2, 3]); g.beginPath(); g.arc(px, py, p.r * scale * 0.55, 0, Math.PI * 2); g.stroke(); g.setLineDash([]); g.beginPath(); g.arc(px, py, 1.6, 0, Math.PI * 2); g.fill(); ly = py - p.r * scale * 0.55 - 4; lx = px - 20; break;
-        case 'marsh': lx = px - 30; ly = py + 4; break;
-        case 'forest': lx = px - 30; ly = py - forest.r * scale - 4; break;
-        case 'ridge': lx = px - 42; ly = py + 22; break;
+        case 'anomaly': g.setLineDash([2, 3]); g.beginPath(); g.arc(px, py, p.r * scale * 0.55, 0, Math.PI * 2); g.stroke(); g.setLineDash([]); g.beginPath(); g.arc(px, py, 1.6, 0, Math.PI * 2); g.fill();
+          al = 'center'; lx = px; ly = p.id === 'vents' ? py + p.r * scale * 0.55 + fs + 2 : py - p.r * scale * 0.55 - 4; break;   // the vents sit under the marsh label, so theirs hangs below
+        case 'marsh': al = 'center'; lx = px; ly = py + p.r * scale * 0.8 + fs + 3; break;   // under the stipple, clear of the ink
+        case 'forest': al = 'center'; lx = px; ly = py - forest.r * scale - 4; break;
+        case 'ridge': al = 'center'; lx = px; ly = py + 26; break;
       }
       g.fillStyle = INK + (p.kind === 'anomaly' || p.kind === 'marsh' ? '0.6)' : '0.88)');
-      g.fillText(p.name, lx, ly);
+      label(p.name, lx, ly, al);
     }
     // the Column: an arrow at the top edge toward its bearing
     const cx = X(M.COLUMN.x); g.strokeStyle = INK + '0.8)'; g.fillStyle = INK + '0.8)'; g.lineWidth = 1.2;
-    g.beginPath(); g.moveTo(cx, margin - 2); g.lineTo(cx, margin - 22); g.moveTo(cx - 4, margin - 17); g.lineTo(cx, margin - 22); g.lineTo(cx + 4, margin - 17); g.stroke();
-    g.textAlign = 'left'; g.font = '9px "IBM Plex Mono", monospace'; g.fillText(`THE COLUMN · ${((M.COLUMN.z - 0) / -1000).toFixed(1)} km`, cx + 8, margin - 12);
+    g.beginPath(); g.moveTo(cx, margin - 14); g.lineTo(cx, margin - 32); g.moveTo(cx - 4, margin - 27); g.lineTo(cx, margin - 32); g.lineTo(cx + 4, margin - 27); g.stroke();
+    g.font = '9px "IBM Plex Mono", monospace'; label(`THE COLUMN · ${((M.COLUMN.z - 0) / -1000).toFixed(1)} km`, cx + 8, margin - 20);
     // north mark and scale bar
     g.textAlign = 'center'; g.font = '11px "Oswald", "Arial Narrow", sans-serif'; g.fillText('N', S - margin + 16, margin + 12);
     g.beginPath(); g.moveTo(S - margin + 16, margin + 32); g.lineTo(S - margin + 16, margin + 16); g.moveTo(S - margin + 13, margin + 20); g.lineTo(S - margin + 16, margin + 16); g.lineTo(S - margin + 19, margin + 20); g.stroke();
@@ -399,10 +424,10 @@ export function createPanels(ctx) {
     const p = ctx.player.position, px = X(p.x), py = Y(p.z), yaw = ctx.player.yaw;
     g.strokeStyle = INK + '0.95)'; g.lineWidth = 1.4; g.beginPath(); g.arc(px, py, 4, 0, Math.PI * 2); g.stroke();
     g.beginPath(); g.moveTo(px - Math.sin(yaw) * 4, py - Math.cos(yaw) * 4); g.lineTo(px - Math.sin(yaw) * 11, py - Math.cos(yaw) * 11); g.stroke();
-    g.font = '9px "IBM Plex Mono", monospace'; g.fillStyle = INK + '0.9)'; g.fillText('E61', px + 7, py + 10);
+    g.font = '9px "IBM Plex Mono", monospace'; g.fillStyle = INK + '0.9)'; label('E61', px + 7, py + 10);
   }
   function renderMap() {
-    const d = D(); const size = Math.round(Math.min(window.innerHeight * 0.8, window.innerWidth * 0.62, 760));
+    const d = D(); const size = Math.round(Math.max(220, Math.min(window.innerHeight * 0.88 - 150, window.innerWidth * 0.62, 760)));   // 150: header, legend, contract line, footer, padding
     const m = activeMissions()[0], t = missionTarget(m); const p = ctx.player.position;
     const dist = t ? Math.hypot(t.x - p.x, t.z - p.z) : 0;
     const legend = `<div class="legend"><span>— — road</span><span>┼┼ rail</span><span>· · · marsh</span><span>◌ anomaly field</span><span>○ Explorer 61</span><span class="amb">× contract objective</span></div>`;

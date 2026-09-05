@@ -6,7 +6,7 @@ export default async function (page, api) {
   const report = [];
   let i = 0;
   for (const [x, z, yaw] of stops) {
-    await api.run(`(() => { const r = window.__radius; r.teleport(${x}, ${z}); r.setLook(${yaw}, -0.08); })()`);
+    await api.run(`(() => { const r = window.__radius; r.teleport(${x}, ${z}); r.setLook(${yaw}, -0.08); r.ctx.population.settle?.(); })()`);
     await api.frames(12);
     if (i % 3 === 0) await api.screenshot(`stop-${i}-${x}_${z}`);
     const s = await api.run('window.__radius.stats()');

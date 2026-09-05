@@ -202,8 +202,9 @@ export function material(kind, opts = {}) {
   const key = kind + (opts.key || '');
   if (materialCache.has(key)) return materialCache.get(key);
   const params = Object.assign({ color: 0xffffff, roughness: 0.86, metalness: 0.0, vertexColors: true, side: THREE.FrontSide }, opts.params || {});
-  if (kind === 'metal' || kind === 'corrugated') { params.roughness = 0.62; params.metalness = 0.55; }
-  if (kind === 'glass') { params.roughness = 0.18; params.metalness = 0.55; }
+  // no environment map in the scene: metalness above ~0.3 renders as a black silhouette under the overcast sun
+  if (kind === 'metal' || kind === 'corrugated') { params.roughness = 0.78; params.metalness = 0.22; }
+  if (kind === 'glass') { params.roughness = 0.3; params.metalness = 0.15; }
   if (kind === 'canvas' || kind === 'chainlink' || kind === 'flag') { params.side = THREE.DoubleSide; }
   if (kind === 'scorch') { params.transparent = true; params.depthWrite = false; params.polygonOffset = true; params.polygonOffsetFactor = -2; params.polygonOffsetUnits = -2; }
   if (kind === 'crt' || kind === 'tube') { params.emissive = 0xffffff; params.emissiveIntensity = 1.0; params.roughness = 0.35; }   // the shader supplies the emissive shape; `emissive` carries the intensity
@@ -601,14 +602,14 @@ export function gableEnd(B, kind, rgb, F, u, v, y0, halfSpan, height, t, o = {})
 }
 // Wheel: a dark rubber tyre with a rim, lying on its axle along local x
 export function wheel(B, x, y, z, r, w, ry, o = {}) {
-  const rubber = o.burnt ? [0.08, 0.08, 0.08] : [0.10, 0.10, 0.10];
+  const rubber = o.burnt ? [0.10, 0.10, 0.10] : [0.14, 0.14, 0.135];
   B.cyl('metal', r, r, w, x, y, z, rubber, { rx: Math.PI / 2, ry, seg: 14, jitter: 0.04 });   // axle across the vehicle (local v)
   B.cyl('metal', r * 0.55, r * 0.55, w + 0.04, x, y, z, o.rim || [0.34, 0.33, 0.30], { rx: Math.PI / 2, ry, seg: 10, jitter: 0.05 });
 }
 
 // URAL-style truck: long bonnet cab, flatbed with canvas hoops. F frame at the truck centre, facing +u.
 export function truck(B, world, F, y, rnd, o = {}) {
-  const tag = o.tag; const paint = o.paint || [0.30, 0.36, 0.26];
+  const tag = o.tag; const paint = o.paint || [0.34, 0.40, 0.29];
   const ry = F.ry;
   const P = (u, v) => [F.x(u, v), F.z(u, v)];
   // chassis rails
@@ -652,7 +653,7 @@ function ctx_scene(B) { return B.group; }
 
 // UAZ-469: boxy jeep, soft top rotted to the frame
 export function uaz(B, world, F, y, rnd, o = {}) {
-  const ry = F.ry, paint = o.burnt ? [0.09, 0.085, 0.08] : (o.paint || [0.35, 0.40, 0.30]);
+  const ry = F.ry, paint = o.burnt ? [0.27, 0.25, 0.23] : (o.paint || [0.35, 0.40, 0.30]);
   const P = (u, v) => [F.x(u, v), F.z(u, v)];
   let [x, z] = P(0, 0); B.box('metal', 3.9, 0.55, 1.75, x, y + 0.85, z, paint, { ry, jitter: 0.05, ground: y + 0.6 });
   [x, z] = P(1.3, 0); B.box('metal', 1.3, 0.35, 1.7, x, y + 1.28, z, paint, { ry, jitter: 0.05 });   // bonnet
@@ -797,11 +798,13 @@ export function izba(B, world, F, rnd, o = {}) {
   B.box('plank', 1.8, 0.14, 1.5, px, floorY - 0.07, pz, PLANK, { ry: F.ry, jitter: 0.05 });
   slabCollider(world, px, pz, 1.8, 1.5, F.ry, floorY, 0.6, { surface: 'wood', tag });
   const gAt = world.getHeight(F.x(doorU, dv + doorSide * 2.2), F.z(doorU, dv + doorSide * 2.2));
-  const rise = floorY - gAt; const nSteps = Math.max(1, Math.ceil(rise / 0.42));
+  // treads butt against the porch edge (0.75 out) and each other, and are deeper than the player capsule radius:
+  // a tread shallower than 0.35 lets the capsule touch the riser after next before the ground test lifts it
+  const rise = floorY - gAt; const nSteps = rise > 0.2 ? Math.ceil(rise / 0.42) : 0;
   for (let i = 1; i <= nSteps; i++) {
-    const sy = floorY - (rise * i) / nSteps; const sv = pv + doorSide * (0.75 + i * 0.32);
-    B.box('plank', 1.8, 0.12, 0.34, F.x(doorU, sv), sy - 0.06, F.z(doorU, sv), PLANK, { ry: F.ry, jitter: 0.06 });
-    slabCollider(world, F.x(doorU, sv), F.z(doorU, sv), 1.8, 0.34, F.ry, sy, 0.5, { surface: 'wood', tag });
+    const sy = floorY - (rise * i) / nSteps; const sv = pv + doorSide * (0.75 + 0.46 * i - 0.23);
+    B.box('plank', 1.8, 0.12, 0.46, F.x(doorU, sv), sy - 0.06, F.z(doorU, sv), PLANK, { ry: F.ry, jitter: 0.06 });
+    slabCollider(world, F.x(doorU, sv), F.z(doorU, sv), 1.8, 0.46, F.ry, sy, 0.5, { surface: 'wood', tag });
   }
   for (const s of [-1, 1]) B.box('plank', 0.12, 2.3, 0.12, F.x(doorU + s * 0.8, pv + doorSide * 0.6), floorY + 1.15, F.z(doorU + s * 0.8, pv + doorSide * 0.6), PLANK, { ry: F.ry, jitter: 0.05 });
   B.box('plank', 2.0, 0.08, 1.9, F.x(doorU, pv + doorSide * 0.15), floorY + 2.4, F.z(doorU, pv + doorSide * 0.15), PLANK_GREY, { ry: F.ry, rx: doorSide * 0.28, jitter: 0.05 });
@@ -1025,14 +1028,23 @@ export function steps(B, world, x, z, dx, dz, topY, width, tag, kind = 'stone') 
   const rise = topY - gAt; if (rise < 0.2) return;
   const n = Math.ceil(rise / 0.4); const ry = Math.atan2(-dz, dx);
   for (let i = 1; i <= n; i++) {
-    const sy = topY - (rise * i) / n, u = 0.36 * (i - 0.5);
+    const sy = topY - (rise * i) / n, u = 0.46 * (i - 0.5) - 0.12;   // treads deeper than the capsule radius; the first tucks under the sill
     const sx = x + dx * u, sz = z + dz * u;
-    B.box(kind, 0.36, 0.5, width, sx, sy - 0.25, sz, [0.42, 0.41, 0.38], { ry, jitter: 0.06 });
-    objCollider(world, sx, sy - 0.25, sz, 0.36, 0.5, width, ry, { surface: 'concrete', tag });
+    B.box(kind, 0.46, 0.5, width, sx, sy - 0.25, sz, [0.42, 0.41, 0.38], { ry, jitter: 0.06 });
+    objCollider(world, sx, sy - 0.25, sz, 0.46, 0.5, width, ry, { surface: 'concrete', tag });
   }
 }
 // perpendicular offset from a road point: side +1 = right of travel direction
 function roadOff(p, side, along = 0) { return { x: p.x + (-p.dz) * side + p.dx * along, z: p.z + p.dx * side + p.dz * along }; }
+// intersection of segments a-b and c-d ([x,z] pairs) -> { x, z, rdx, rdz (unit a-b), ldx, ldz (unit c-d) } | null
+function segmentHit(a, b, c, d) {
+  const r = [b[0] - a[0], b[1] - a[1]], s = [d[0] - c[0], d[1] - c[1]]; const den = r[0] * s[1] - r[1] * s[0];
+  if (Math.abs(den) < 1e-9) return null;
+  const t = ((c[0] - a[0]) * s[1] - (c[1] - a[1]) * s[0]) / den, u = ((c[0] - a[0]) * r[1] - (c[1] - a[1]) * r[0]) / den;
+  if (t < 0 || t > 1 || u < 0 || u > 1) return null;
+  const rl = Math.hypot(r[0], r[1]), sl = Math.hypot(s[0], s[1]);
+  return { x: a[0] + r[0] * t, z: a[1] + r[1] * t, rdx: r[0] / rl, rdz: r[1] / rl, ldx: s[0] / sl, ldz: s[1] / sl };
+}
 
 export function buildCheckpoint(ctx, world, rnd, sandbags) {
   const B = createBuilder(ctx, 'checkpoint'); const tag = 'checkpoint';
@@ -1143,7 +1155,7 @@ export function buildConvoy(ctx, world, rnd) {
     const p = roadFrame(road, t0 + L.dt); const o = roadOff(p, L.side, 0);
     const F = frame(o.x, o.z, roadRy(p) + L.yaw);
     const y = footprint(world, o.x, o.z, 4, 4, F.ry).min - 0.05;
-    if (L.kind === 'ural') { truck(B, world, F, y, rnd, { tag, poi: tag, burnt: L.burnt, paint: L.burnt ? [0.09, 0.085, 0.08] : [0.30, 0.36, 0.26], canvas: L.burnt ? [0.12, 0.11, 0.1] : [0.36, 0.36, 0.25], noCanvas: false }); if (L.burnt) scorch(B, o.x, y, o.z, 9); }
+    if (L.kind === 'ural') { truck(B, world, F, y, rnd, { tag, poi: tag, burnt: L.burnt, paint: L.burnt ? [0.27, 0.25, 0.23] : [0.34, 0.40, 0.29], canvas: L.burnt ? [0.14, 0.13, 0.12] : [0.36, 0.36, 0.25], noCanvas: false }); if (L.burnt) scorch(B, o.x, y, o.z, 9); }
     else if (L.kind === 'btr') btr(B, world, F, y, rnd, { tag, poi: tag });
     else uaz(B, world, F, y, rnd, { tag, poi: tag, paint: [0.36, 0.42, 0.32] });
     addSpawn(world, tag, 'hidden', F.x(-1, 0), F.z(-1, 0));
@@ -1176,8 +1188,13 @@ export function buildZarya(ctx, world, rnd, pickets) {
     [0.83, 1, 12, 0.08, 'izba'], [0.845, -1, 14, -0.12, 'izba'], [0.875, 1, 11, 0.0, 'ruin'], [0.895, -1, 13, 0.06, 'izba'], [0.915, 1, 14, -0.04, 'izba'],
   ];
   for (const [t, side, setback, jy, kind] of plots) {
-    const p = roadFrame(road, t); const o = roadOff(p, side * setback + (rnd() - 0.5) * 2, (rnd() - 0.5) * 3);
-    if (world.getHeight(o.x, o.z) < WATER_LEVEL + 0.3) continue;
+    const p = roadFrame(road, t); const along = (rnd() - 0.5) * 3, jit = (rnd() - 0.5) * 2;
+    let o = null;
+    for (let k = 0; k < 3 && !o; k++) {   // step outward until the plot clears every other road
+      const c = roadOff(p, side * (setback + k * 8) + jit, along);
+      if (ROADS.every((r) => r === road || distToPolyline(c.x, c.z, r.pts).d > r.width * 0.5 + 8.5)) o = c;
+    }
+    if (!o || world.getHeight(o.x, o.z) < WATER_LEVEL + 0.3) continue;
     // house faces the street: its door side (-v) must point back toward the road
     const ry = roadRy(p) + jy + (rnd() - 0.5) * 0.15;
     const F = frame(o.x, o.z, side > 0 ? ry : ry + Math.PI);
@@ -1278,15 +1295,29 @@ function transformer(B, world, F, y, tag, rnd) {
   for (const s of [-1, 1]) addCover(world, F.x(s * 2.2, 0), F.z(s * 2.2, 0));
   addHide(world, 'object12', F.x(0, 1.8), F.z(0, 1.8));
 }
-function chainFence(B, world, pts, rnd, posts, tag, gaps = []) {
+// distance from (x,z) to the nearest road centreline, minus that road's half width (negative = on the road)
+function roadClearance(x, z) {
+  let best = Infinity;
+  for (const r of ROADS) { const d = distToPolyline(x, z, r.pts).d - r.width * 0.5; if (d < best) best = d; }
+  return best;
+}
+// `gaps`: [segment, panel] pairs torn out; `roadMargin`: panels (and posts) this close to a road are missing too,
+// so a road that crosses the fence line always passes through a hole, never a closed panel.
+function chainFence(B, world, pts, rnd, posts, tag, gaps = [], roadMargin = 0) {
   for (let s = 0; s < pts.length - 1; s++) {
     const [ax, az] = pts[s], [bx, bz] = pts[s + 1];
     const L = Math.hypot(bx - ax, bz - az), n = Math.ceil(L / 3.0);
     const yaw = Math.atan2(bx - ax, bz - az) + Math.PI / 2;
-    for (let i = 0; i <= n; i++) { const t = i / n; const x = ax + (bx - ax) * t, z = az + (bz - az) * t, y = world.getHeight(x, z); posts.push(placeMatrix(x, y, z, (rnd() - 0.5) * 0.06, yaw, (rnd() - 0.5) * 0.06)); }
+    for (let i = 0; i <= n; i++) {
+      const t = i / n; const x = ax + (bx - ax) * t, z = az + (bz - az) * t, y = world.getHeight(x, z);
+      if (roadMargin > 0 && roadClearance(x, z) < 0.6) continue;   // no post standing in the road
+      posts.push(placeMatrix(x, y, z, (rnd() - 0.5) * 0.06, yaw, (rnd() - 0.5) * 0.06));
+      world.addCylinder(x, z, 0.08, y, y + 2.2, { surface: 'metal', tag });
+    }
     for (let i = 0; i < n; i++) {
       const gap = gaps.some(([gs, gi]) => gs === s && gi === i);
       if (gap) continue;
+      if (roadMargin > 0 && roadClearance(ax + (bx - ax) * (i + 0.5) / n, az + (bz - az) * (i + 0.5) / n) < roadMargin) continue;
       const t0 = i / n, t1 = (i + 1) / n; const x = ax + (bx - ax) * (t0 + t1) / 2, z = az + (bz - az) * (t0 + t1) / 2;
       const y = (world.getHeight(ax + (bx - ax) * t0, az + (bz - az) * t0) + world.getHeight(ax + (bx - ax) * t1, az + (bz - az) * t1)) / 2;
       const sagged = rnd() < 0.15;
@@ -1300,8 +1331,9 @@ function chainFence(B, world, pts, rnd, posts, tag, gaps = []) {
 export function buildObject12(ctx, world, rnd) {
   const B = createBuilder(ctx, 'object12'); B._world = world; const tag = 'object12';
   const P = poi('object12'); const cx = P.x, cz = P.z;
-  // control building: 12 x 8, two storeys, entrance on the west, stair inside along the north wall
-  const F = frame(cx - 4, cz + 8, 0.12);
+  // control building: 12 x 8, two storeys, entrance on the west (toward the road junction), stair inside along the
+  // north wall. Three roads meet at the POI centre, so the building sits in the south-east quarter of the compound.
+  const F = frame(cx + 13, cz + 9, 0.12);
   const W = 12, D = 8, t = 0.35, S = 3.3;
   const fp = footprint(world, F.cx, F.cz, W + 2, D + 2, F.ry); const y = fp.max + 0.35;
   B.box('concrete', W + 0.6, y - fp.min + 0.8, D + 0.6, F.cx, (y + fp.min - 0.8) / 2, F.cz, [0.40, 0.39, 0.37], { ry: F.ry, jitter: 0.03 });
@@ -1373,9 +1405,9 @@ export function buildObject12(ctx, world, rnd) {
   // a scatter of papers/boxes upstairs
   for (let i = 0; i < 4; i++) B.box('paint', 0.3, 0.005, 0.21, F.x(-3 + rnd() * 6, -2 + rnd() * 3), cy + 0.01, F.z(-3 + rnd() * 6, -2 + rnd() * 3), [0.8, 0.78, 0.7], { ry: rnd() * 3, noShadow: true });
 
-  // transformer yard: 4 blocks on plinths in a jittered row east of the building
-  const Y = frame(cx + 10, cz - 2, -0.08);
-  const tPos = [[-6, -5], [-6, 4], [3, -6], [4, 5]];
+  // transformer yard: 4 blocks on plinths in a jittered row, east of the road that leaves north-east
+  const Y = frame(cx + 14, cz - 10, -0.08);
+  const tPos = [[-4, -5], [-5, 4], [4, -6], [5, 5]];
   for (const [u, v] of tPos) { const x = Y.x(u + (rnd() - 0.5) * 2, v + (rnd() - 0.5) * 2), z = Y.z(u, v); const Ft = frame(x, z, Y.ry + (rnd() - 0.5) * 0.4); transformer(B, world, Ft, footprint(world, x, z, 3, 3, Ft.ry).max + 0.05, tag, rnd); }
   // bus-bar gantry: two lattice-ish portals with cross beams and insulators
   for (const u of [-1.5, 8]) {
@@ -1389,16 +1421,24 @@ export function buildObject12(ctx, world, rnd) {
   // fence with gaps, and a gate on the west (road) side
   const fencePts = [[cx - 26, cz - 20], [cx + 24, cz - 22], [cx + 26, cz + 20], [cx - 24, cz + 22], [cx - 26, cz - 20]];
   const posts = [];
-  chainFence(B, world, fencePts, rnd, posts, tag, [[0, 3], [1, 5], [2, 8], [3, 2], [3, 9]]);
+  chainFence(B, world, fencePts, rnd, posts, tag, [[0, 3], [1, 5], [3, 9]], 3.4);
   const postG = new THREE.CylinderGeometry(0.05, 0.06, 2.2, 6); postG.translate(0, 1.1, 0); colorize(postG, [0.38, 0.36, 0.33], { jitter: 0 });
   instanced(ctx, 'metal', postG, posts, null, { name: 'o12-posts', noShadow: true });
-  // gate: on the west fence segment (3), leaves of tube frame with mesh; one open
-  const gx = cx - 25, gz = cz + 2; const gy = world.getHeight(gx, gz);
-  for (const s of [-1, 1]) { B.box('concrete', 0.5, 2.6, 0.5, gx, gy + 1.3, gz + s * 2.4, CONC, { ground: gy }); world.addBox(gx, gy + 1.3, gz + s * 2.4, 0.5, 2.6, 0.5, { tag }); }
-  const leaf = (px, pz, ry) => { const Fl = frame(px, pz, ry); B.box('metal', 2.1, 0.06, 0.06, Fl.x(1.05, 0), gy + 2.0, Fl.z(1.05, 0), [0.4, 0.4, 0.38], { ry }); B.box('metal', 2.1, 0.06, 0.06, Fl.x(1.05, 0), gy + 0.3, Fl.z(1.05, 0), [0.4, 0.4, 0.38], { ry }); B.box('metal', 0.06, 1.76, 0.06, Fl.x(2.1, 0), gy + 1.15, Fl.z(2.1, 0), [0.4, 0.4, 0.38], { ry }); const g = new THREE.PlaneGeometry(2.0, 1.6); B.geo('chainlink', g, placeMatrix(Fl.x(1.05, 0), gy + 1.15, Fl.z(1.05, 0), 0, ry, 0), [1, 1, 1], { jitter: 0, noShadow: true }); objCollider(world, Fl.x(1.05, 0), gy + 1.15, Fl.z(1.05, 0), 2.1, 2.0, 0.1, ry, { surface: 'metal', tag, blocksBullets: false }); };
-  leaf(gx, gz - 2.15, Math.PI / 2 + 0.15); leaf(gx, gz + 2.15, -Math.PI / 2 - 1.3);
-  // water tower: tall cylinder with a wider tank on top, north-east corner
-  const wx = cx + 18, wz = cz - 15, wy = world.getHeight(wx, wz);
+  // gate: where the road from the marsh side enters through the south fence (segment 2); tube-frame leaves with
+  // mesh, one swung open along the road, the other hanging off its top hinge
+  const [sa, sb] = [fencePts[2], fencePts[3]];
+  const east = ROADS[1].pts; let hit = null;
+  for (let i = 0; i < east.length - 1 && !hit; i++) hit = segmentHit(east[i], east[i + 1], sa, sb);
+  const gx = hit ? hit.x : cx - 10, gz = hit ? hit.z : cz + 21; const gy = world.getHeight(gx, gz);
+  const fl = Math.hypot(sb[0] - sa[0], sb[1] - sa[1]), fdx = (sb[0] - sa[0]) / fl, fdz = (sb[1] - sa[1]) / fl;
+  for (const s of [-1, 1]) { const px = gx + fdx * s * 3.2, pz = gz + fdz * s * 3.2; B.box('concrete', 0.5, 2.6, 0.5, px, gy + 1.3, pz, CONC, { ground: gy, ry: Math.atan2(-fdz, fdx) }); world.addBox(px, gy + 1.3, pz, 0.55, 2.6, 0.55, { tag }); }
+  const leaf = (px, pz, ry, sagged) => { const Fl = frame(px, pz, ry); const rz = sagged ? -0.18 : 0; B.box('metal', 2.4, 0.06, 0.06, Fl.x(1.2, 0), gy + 2.0, Fl.z(1.2, 0), [0.4, 0.4, 0.38], { ry, rz }); B.box('metal', 2.4, 0.06, 0.06, Fl.x(1.2, 0), gy + 0.3 - (sagged ? 0.2 : 0), Fl.z(1.2, 0), [0.4, 0.4, 0.38], { ry, rz }); B.box('metal', 0.06, 1.76, 0.06, Fl.x(2.4, 0), gy + 1.15 - (sagged ? 0.3 : 0), Fl.z(2.4, 0), [0.4, 0.4, 0.38], { ry }); const g = new THREE.PlaneGeometry(2.3, 1.6); B.geo('chainlink', g, placeMatrix(Fl.x(1.2, 0), gy + 1.15 - (sagged ? 0.15 : 0), Fl.z(1.2, 0), 0, ry, rz), [1, 1, 1], { jitter: 0, noShadow: true }); wallCollider(world, Fl.x(0, 0), Fl.z(0, 0), Fl.x(2.4, 0), Fl.z(2.4, 0), gy, gy + 2.0, 0.12, { surface: 'metal', tag, blocksBullets: false }); };
+  const fenceRy = Math.atan2(-fdz, fdx);
+  leaf(gx - fdx * 3.0, gz - fdz * 3.0, fenceRy + 1.35, false);              // swung inward, off the road
+  leaf(gx + fdx * 3.0, gz + fdz * 3.0, fenceRy + Math.PI - 1.0, true);     // hangs ajar from the other post, half across its side of the opening
+  addCover(world, gx - fdx * 4.2, gz - fdz * 4.2); addCover(world, gx + fdx * 4.2, gz + fdz * 4.2);
+  // water tower: tall cylinder with a wider tank on top, in the west of the compound
+  const wx = cx - 16, wz = cz - 12, wy = world.getHeight(wx, wz);
   B.cyl('concrete', 1.4, 1.6, 0.6, wx, wy + 0.3, wz, CONC, { seg: 12, ground: wy });
   B.cyl('metal', 0.75, 0.8, 9, wx, wy + 5.1, wz, [0.34, 0.30, 0.26], { seg: 14, ground: wy, dampH: 3 });
   B.cyl('metal', 1.7, 1.7, 4.2, wx, wy + 11.7, wz, [0.36, 0.32, 0.27], { seg: 16 });
@@ -1454,8 +1494,10 @@ export function buildObject12(ctx, world, rnd) {
 // ---------------------------------------------------------------------------------------------
 export function buildChurch(ctx, world, rnd) {
   const B = createBuilder(ctx, 'church'); B._world = world; const tag = 'church';
-  const P = poi('church');
-  const F = frame(P.x + 1, P.z - 3, 0.35);   // +u east-west nave axis
+  // the church road ends at the POI centre: put the tower door there and run the nave axis on along the road
+  const rp = ROADS[2].pts, ra = rp[rp.length - 2], rb = rp[rp.length - 1];
+  const rl = Math.hypot(rb[0] - ra[0], rb[1] - ra[1]), rdx = (rb[0] - ra[0]) / rl, rdz = (rb[1] - ra[1]) / rl;
+  const F = frame(rb[0] + rdx * 12.0, rb[1] + rdz * 12.0, Math.atan2(-rdz, rdx));   // +u along the road heading; the tower (-u) faces the road end
   const W = 11, D = 7, t = 0.3, H = 4.2;
   const fp = footprint(world, F.cx, F.cz, W + 6, D + 2, F.ry); const y = fp.max + 0.3;
   const dark = [0.30, 0.25, 0.18];
@@ -1551,9 +1593,9 @@ export function buildChurch(ctx, world, rnd) {
   // stone wall: rubble boxes around an ellipse, gaps at the gates
   for (let i = 0; i < 64; i++) {
     const a = (i / 64) * Math.PI * 2;
-    if (Math.abs(a - Math.PI * 1.0) < 0.12 || Math.abs(a - Math.PI * 1.5) < 0.1) continue;
+    if (Math.abs(a - Math.PI * 1.0) < 0.21 || Math.abs(a - Math.PI * 1.5) < 0.1) continue;   // the road gate (-u) and a side gap
     if (rnd() < 0.1) continue;
-    const u = Math.cos(a) * 15 - 2, v = Math.sin(a) * 12 + 3;
+    const u = Math.cos(a) * 15 - 2, v = Math.sin(a) * 13 + 1;
     const x = F.x(u, v), z = F.z(u, v), gy = world.getHeight(x, z);
     const h = 0.5 + rnd() * 0.45;
     B.box('stone', 1.6, h, 0.7, x, gy + h / 2 - 0.1, z, [0.44, 0.43, 0.40], { ry: F.ry - a + (rnd() - 0.5) * 0.3, rz: (rnd() - 0.5) * 0.1, jitter: 0.1, ground: gy });
@@ -1624,8 +1666,7 @@ export function buildRail(ctx, world, rnd) {
   B.box('plank', 0.8, 0.5, 0.6, Fk.x(-6, -1), world.getHeight(Fk.x(-6, -1), Fk.z(-6, -1)) + 0.25, Fk.z(-6, -1), [0.36, 0.38, 0.26], { ry: Fk.ry + 0.5, jitter: 0.06 });
   // level crossings where roads cross the rail: timber decking, a cross sign, a broken barrier arm
   const crossings = [];
-  const segInt = (a, b, c, d) => { const r = [b[0] - a[0], b[1] - a[1]], s = [d[0] - c[0], d[1] - c[1]]; const den = r[0] * s[1] - r[1] * s[0]; if (Math.abs(den) < 1e-9) return null; const t = ((c[0] - a[0]) * s[1] - (c[1] - a[1]) * s[0]) / den, u = ((c[0] - a[0]) * r[1] - (c[1] - a[1]) * r[0]) / den; if (t < 0 || t > 1 || u < 0 || u > 1) return null; return { x: a[0] + r[0] * t, z: a[1] + r[1] * t, rdx: r[0] / Math.hypot(r[0], r[1]), rdz: r[1] / Math.hypot(r[0], r[1]), ldx: s[0] / Math.hypot(s[0], s[1]), ldz: s[1] / Math.hypot(s[0], s[1]) }; };
-  for (const road of ROADS) for (let i = 0; i < road.pts.length - 1; i++) for (let j = 0; j < pts.length - 1; j++) { const p = segInt(road.pts[i], road.pts[i + 1], pts[j], pts[j + 1]); if (p) crossings.push(p); }
+  for (const road of ROADS) for (let i = 0; i < road.pts.length - 1; i++) for (let j = 0; j < pts.length - 1; j++) { const p = segmentHit(road.pts[i], road.pts[i + 1], pts[j], pts[j + 1]); if (p) crossings.push(p); }
   for (const c of crossings) {
     const y = world.getHeight(c.x, c.z); const yawL = Math.atan2(c.ldx, c.ldz) + Math.PI / 2, yawR = Math.atan2(c.rdx, c.rdz) + Math.PI / 2;
     for (const v of [-1.15, 0, 1.15]) B.box('plank', 6.5, 0.14, 0.7, c.x - c.ldz * v, y + 0.2, c.z + c.ldx * v, [0.30, 0.27, 0.21], { ry: yawL, jitter: 0.06, noShadow: true });

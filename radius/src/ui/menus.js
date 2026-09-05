@@ -20,6 +20,7 @@ const CAUSE = {
   blast: 'Cause: contact with class Fragment.', melee: 'Cause: bite trauma, class Spawn.', anomaly: 'Cause: anomalous exposure.', burn: 'Cause: anomalous exposure.',
   fall: 'Cause: fall. Terrain.', tide: 'Cause: Tide exposure. No remains.', bleed: 'Cause: exsanguination.',
 };
+const CAUSE_WHAT = { electric: 'Cause: anomalous discharge.', crush: 'Cause: anomalous compression.', reflector: 'Cause: lacerations, anomalous.', gas: 'Cause: anomalous exposure, respiratory.' };
 const SETTINGS = [
   { key: 'sensitivity', label: 'Look sensitivity', min: 0.3, max: 3, step: 0.1, fmt: (v) => v.toFixed(1) },
   { key: 'fov', label: 'Field of view', sub: 'degrees, hip', min: 60, max: 100, step: 1, fmt: (v) => `${Math.round(v)}°` },
@@ -36,9 +37,10 @@ export function createMenus(ctx) {
   const wash = document.createElement('div'); wash.className = 'wash'; root.appendChild(wash);
   const card = document.createElement('div'); card.className = 'sheet'; root.appendChild(card);
   const advisory = document.createElement('div'); advisory.className = 'advisory'; root.appendChild(advisory);
-  let current = null, prev = null, adv = Math.floor(Math.random() * ADVISORIES.length), confirming = false;
+  let current = null, prev = null, adv = Math.floor(Math.random() * ADVISORIES.length), confirming = false, advT = 0, advSwap = 0;
+  const setAdvisory = () => { advisory.innerHTML = `<span class="code">Committee advisory</span>${esc(ADVISORIES[adv])}`; };
   // death typewriter state
-  const tw = { lines: [], li: 0, ci: 0, acc: 0, done: false, els: [], btn: null, tick: 0 };
+  const tw = { lines: [], li: 0, ci: 0, acc: 0, done: false, els: [], btn: null, tick: 0, readyAt: 0 };
   const snd = (n, g = 0.5) => ctx.audio.play(n, { gain: g });
   const S = () => ctx.state.data.settings;
 
@@ -47,7 +49,7 @@ export function createMenus(ctx) {
     if (!current) return;
     ctx.audio.resume();
     if (current === 'death') {
-      if (e.code === 'Enter' || e.code === 'NumpadEnter') { if (!tw.done) finishTypewriter(); else if (document.activeElement !== tw.btn) tw.btn?.click(); }
+      if (e.code === 'Enter' || e.code === 'NumpadEnter') { if (!tw.done) finishTypewriter(); else if (performance.now() >= tw.readyAt && document.activeElement !== tw.btn) tw.btn?.click(); }
       return;
     }
     if (e.code === 'Escape') {
@@ -79,7 +81,7 @@ export function createMenus(ctx) {
       <div class="ctl-list">${CONTROLS.map(([k, v]) => `<span><b>${k}</b>${v}</span>`).join('')}</div>
       <div class="ft"><span>Explorer 61 · Vanno Outpost</span><span>Rev. 3 · 1987</span></div>`;
     wash.className = 'wash';
-    advisory.innerHTML = `<span class="code">Committee advisory</span>${esc(ADVISORIES[adv])}`; advisory.style.display = '';
+    setAdvisory(); advisory.style.display = ''; advisory.classList.remove('swap'); advT = 0;
     bindActions(card, {
       begin() { ctx.game.start(true); return 'ui_stamp'; },
       continue() { if (!ctx.state.hasSave()) return false; ctx.game.start(false); return 'ui_stamp'; },
@@ -101,7 +103,7 @@ export function createMenus(ctx) {
     const body = confirming
       ? `<div class="confirm"><p>Abandon current expedition? Progress since the last sleep is lost.</p><div class="btns"><button class="btn" data-a="abandon">Abandon · return to title</button><button class="btn" data-a="cancel">Cancel</button></div></div>`
       : `<div class="btns"><button class="btn primary" data-a="resume">Resume</button><button class="btn" data-a="settings">Settings</button><button class="btn" data-a="title">Return to title</button></div>`;
-    card.innerHTML = `<div class="hd"><span>UNPSC · Explorer ${d.explorer}</span><span class="r">Security level ${d.securityLevel}</span></div><h1>Contract suspended</h1>${summary}${body}<div class="ft"><span>Esc resume · arrows select · Enter confirm</span><span>Vanno Outpost</span></div>`;
+    card.innerHTML = `<div class="hd"><span>UNPSC · Explorer ${d.explorer}</span><span class="r">Security level ${d.securityLevel}</span></div><h1>Contract suspended</h1><div class="body">${summary}</div>${body}<div class="ft"><span>Esc resume · arrows select · Enter confirm</span><span>Vanno Outpost</span></div>`;
     wash.className = 'wash full'; advisory.style.display = 'none';
     bindActions(card, {
       resume() { ctx.game.resume(); return 'ui_close'; },
@@ -145,8 +147,8 @@ export function createMenus(ctx) {
   function renderSettings() {
     card.className = 'sheet center settings-card';
     card.innerHTML = `<div class="hd"><span>UNPSC · Explorer preferences</span><span class="r">Form 61-S</span></div><h1>Settings</h1>
-      ${SETTINGS.map(settingRow).join('')}
-      <div class="note">Applied at once and kept on file. Invert Y is not offered.</div>
+      <div class="body">${SETTINGS.map(settingRow).join('')}
+      <div class="note">Applied at once and kept on file. Invert Y is not offered.</div></div>
       <div class="btns"><button class="btn" data-a="back">Back</button></div>
       <div class="ft"><span>arrows select · ←→ adjust · click the track to set</span><span>Vanno Outpost</span></div>`;
     wash.className = 'wash full'; advisory.style.display = 'none';
@@ -172,7 +174,7 @@ export function createMenus(ctx) {
     return [
       ['h', `UNPSC · Incident report 61-${String(st.deaths || 1).padStart(3, '0')}`],
       ['s', 'Explorer 61 — status: missing'],
-      ['', CAUSE[info?.kind] || 'Cause: undetermined.'],
+      ['', (info?.what && CAUSE_WHAT[info.what]) || CAUSE[info?.kind] || 'Cause: undetermined.'],
       ['', `Last entry: day ${d.day}, ${ctx.time.clockText()}. Tide level ${d.tideLevel}.`],
       ['gap', ''],
       ['', dots('Entities neutralised', st.kills)],
@@ -186,7 +188,7 @@ export function createMenus(ctx) {
   function renderDeath(info) {
     card.className = 'sheet center death-card';
     tw.lines = deathLines(info); tw.li = 0; tw.ci = 0; tw.acc = 0; tw.done = false; tw.tick = 0;
-    card.innerHTML = `<div class="hd"><span>UN Pechorsk Special Committee</span><span class="r">Form 61-I</span></div><div class="report"></div><div class="btns"><button class="btn primary" data-a="respawn">Return to Vanno</button></div>`;
+    card.innerHTML = `<div class="hd"><span>UN Pechorsk Special Committee</span><span class="r">Form 61-I</span></div><div class="body"><div class="report"></div></div><div class="btns"><button class="btn primary" data-a="respawn">Return to Vanno</button></div><div class="ft"><span class="skip">Enter · continue</span><span>Section 61 · Vanno Outpost</span></div>`;
     const rep = card.querySelector('.report');
     tw.els = tw.lines.map(([cls]) => { const el = document.createElement('div'); el.className = `ln ${cls}`; rep.appendChild(el); return el; });
     tw.btn = card.querySelector('[data-a]'); tw.btn.tabIndex = -1;
@@ -197,20 +199,23 @@ export function createMenus(ctx) {
   function setLineText(i, text) { const el = tw.els[i]; el.textContent = text; if (i === tw.li && !tw.done) el.appendChild(tw.caret); }
   function finishTypewriter() {
     for (let i = 0; i < tw.lines.length; i++) tw.els[i].textContent = tw.lines[i][1];
-    tw.done = true; tw.caret.remove();
-    card.querySelector('.btns').classList.add('on'); tw.btn.tabIndex = 0; tw.btn.focus({ preventScroll: true });
+    tw.done = true; tw.caret.remove(); tw.readyAt = performance.now() + 400;
+    card.querySelector('.btns').classList.add('on');
+    const btn = tw.btn; setTimeout(() => { if (current === 'death' && tw.btn === btn) { btn.tabIndex = 0; btn.focus({ preventScroll: true }); } }, 400);
+    const skip = card.querySelector('.ft .skip'); if (skip) skip.textContent = 'Enter · return to Vanno';
   }
+  const TYPE_S = 0.026;   // seconds per character; the whole report lands in roughly nine seconds, Enter skips
   function typeStep(dt) {
     if (tw.done) return;
     tw.acc += dt;
-    while (tw.acc >= 0.04 && !tw.done) {
-      tw.acc -= 0.04;
+    while (tw.acc >= TYPE_S && !tw.done) {
+      tw.acc -= TYPE_S;
       const [cls, text] = tw.lines[tw.li];
       if (tw.ci < text.length) {
         tw.ci++; setLineText(tw.li, text.slice(0, tw.ci));
         if (text[tw.ci - 1] !== ' ' && ++tw.tick % 6 === 0) snd('ui_click', 0.16);
       } else {
-        tw.li++; tw.ci = 0; tw.acc -= cls === 'gap' ? 0.1 : 0.32;   // a beat between lines
+        tw.li++; tw.ci = 0; tw.acc -= cls === 'gap' ? 0.08 : 0.24;   // a beat between lines
         if (tw.li >= tw.lines.length) { finishTypewriter(); break; }
         setLineText(tw.li, '');
       }
@@ -239,7 +244,15 @@ export function createMenus(ctx) {
       root.classList.remove('on'); card.style.display = 'none'; wash.style.display = 'none'; card.innerHTML = ''; advisory.style.display = 'none';
       if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     },
-    update(dt) { if (current === 'death') typeStep(dt); },
+    update(dt) {
+      if (current === 'death') typeStep(dt);
+      else if (current === 'title') {
+        // the advisory line rotates while the form waits: fade out, swap the text, fade back in
+        advT += dt;
+        if (advSwap > 0) { advSwap -= dt; if (advSwap <= 0) { adv = (adv + 1) % ADVISORIES.length; setAdvisory(); advisory.classList.remove('swap'); } }
+        else if (advT > 9) { advT = 0; advSwap = 0.5; advisory.classList.add('swap'); }
+      }
+    },
   };
   card.style.display = 'none'; wash.style.display = 'none'; advisory.style.display = 'none';
   return api;
