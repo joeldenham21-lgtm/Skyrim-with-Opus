@@ -26,12 +26,15 @@ const RadiusShader = {
     uDeath: { value: 0 },         // desaturate + hold
     uBlur: { value: 0 },          // gas / stun blur
     uExposure: { value: 1.0 },
+    uNvg: { value: 0 },          // 0 off, 1 gen1 (grainy, bloomy), 2 gen2 (clean)
+    uMask: { value: 0 },         // 0 none, 1 respirator (light), 2 full mask (lenses)
+    uScope: { value: 0 },        // scope vignette strength
   },
   vertexShader: /* glsl */`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: /* glsl */`
     ${GLSL_NOISE}
     ${GLSL_ACES}
-    uniform sampler2D tDiffuse; uniform float uTime, uGrain, uVignette, uHurt, uLowHp, uAberration, uDistort, uTide, uShock, uFlash, uNight, uDeath, uBlur, uExposure;
+    uniform sampler2D tDiffuse; uniform float uTime, uGrain, uVignette, uHurt, uLowHp, uAberration, uDistort, uTide, uShock, uFlash, uNight, uDeath, uBlur, uExposure, uNvg, uMask, uScope;
     uniform vec2 uRes, uDistortCenter; varying vec2 vUv;
     vec3 sampleBlur(vec2 uv, float r){
       vec3 s = vec3(0.0); float w = 0.0;
@@ -66,6 +69,19 @@ const RadiusShader = {
         col.r = texture2D(tDiffuse, uv + dir).r; col.g = texture2D(tDiffuse, uv).g; col.b = texture2D(tDiffuse, uv - dir).b;
       }
       col *= uExposure;
+      // night vision: intensify, phosphor tint, tube bloom on bright sources, gen-1 grain and vignette
+      if (uNvg > 0.5) {
+        float lum = luma(col);
+        float gain = uNvg > 1.5 ? 14.0 : 22.0;
+        float v = 1.0 - exp(-lum * gain);
+        float bloomK = smoothstep(0.35, 1.0, lum) * (uNvg > 1.5 ? 0.8 : 1.6);
+        vec3 tint = uNvg > 1.5 ? vec3(0.78, 0.98, 0.72) : vec3(0.42, 1.0, 0.45);
+        col = tint * (v + bloomK);
+        float ng = hash21(gl_FragCoord.xy * 0.5 + fract(uTime * 7.3) * 611.0) - 0.5;
+        col += ng * (uNvg > 1.5 ? 0.05 : 0.14) * (0.5 + v);
+        col *= 1.0 - smoothstep(0.18, 0.6, r2) * (uNvg > 1.5 ? 0.55 : 0.85);
+        // scanline-free, but tube edge: soft circular mask
+      }
       // tone map
       col = aces(col);
       // grade: lifted blacks, cool shadows, warm highlights, desaturate
@@ -86,6 +102,16 @@ const RadiusShader = {
       // vignette
       float v = 1.0 - smoothstep(0.3, 1.7, r2 * (2.2 + uVignette * 3.0)) * 0.7;
       col *= v;
+      // scope: black outside the tube, soft edge
+      if (uScope > 0.001) { float sr = length(cen * vec2(uRes.x / uRes.y, 1.0)); col *= 1.0 - uScope * smoothstep(0.40, 0.46, sr); }
+      // mask: lens edges and a breath fog band
+      if (uMask > 0.5) {
+        float lensA = length((cen - vec2(-0.16, -0.03)) * vec2(uRes.x / uRes.y, 1.0)), lensB = length((cen - vec2(0.16, -0.03)) * vec2(uRes.x / uRes.y, 1.0));
+        float inside = uMask > 1.5 ? max(1.0 - smoothstep(0.30, 0.36, lensA), 1.0 - smoothstep(0.30, 0.36, lensB)) : 1.0 - smoothstep(0.62, 0.9, r2 * 2.0);
+        col *= mix(0.06, 1.0, inside);
+        float fog = (0.5 + 0.5 * sin(uTime * 1.3)) * 0.12 * (uMask > 1.5 ? 1.0 : 0.4);
+        col = mix(col, vec3(0.8, 0.85, 0.85), fog * smoothstep(0.2, 0.55, -cen.y + 0.1) * inside);
+      }
       // flashes
       col += vec3(1.0, 0.95, 0.85) * uFlash;
       col = mix(col, vec3(1.0), uTide * uTide);
@@ -124,6 +150,9 @@ export function createPost(ctx) {
     setBlur(v) { st.blur = v; },
     setTide(v) { st.tide = v; },
     setDeath(v) { st.death = v; },
+    setNvg(gen) { u.uNvg.value = gen || 0; },
+    setMask(kind) { u.uMask.value = kind === 'respirator' ? 1 : kind ? 2 : 0; },
+    setScope(v) { u.uScope.value = v || 0; },
     // returns camera offset applied by the player controller each frame
     shakeOffset(out) { const s = st.shake; if (s <= 0.001) return out.set(0, 0, 0); st.shakeT += 1; return out.set((Math.sin(st.shakeT * 1.7) + Math.sin(st.shakeT * 3.1)) * 0.012 * s, (Math.sin(st.shakeT * 2.3) + Math.sin(st.shakeT * 4.7)) * 0.01 * s, 0); },
     update(dt, t) {

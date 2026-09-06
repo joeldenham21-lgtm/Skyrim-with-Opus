@@ -16,6 +16,10 @@ export function createHud(ctx) {
   const status = el('status');
   const hint = el('hint', 'hud hidden');
   const fade = el('fade', 'hud');
+  const scope = el('scope', 'hud hidden', '<canvas width="512" height="512"></canvas>');
+  const quick = el('quick', 'hud');
+  const extra = el('statusx', 'hud');
+  const scopeCanvas = scope.querySelector('canvas');
   const dmgdir = el('dmgdir', 'hud', '<div class="arc"></div>');
   const dmgArc = dmgdir.querySelector('.arc');
   let dmgT = 0, dmgAngle = 0;
@@ -66,7 +70,7 @@ export function createHud(ctx) {
     // ---- fade ----
     fadeOut(white = false) { fade.classList.toggle('white', white); fade.classList.remove('clear'); },
     fadeIn() { fade.classList.add('clear'); },
-    setGameVisible(v) { gameVisible = v; for (const e of [crosshair, compass, status, objective]) e.classList.toggle('hidden', !v); if (!v) { prompt.classList.add('hidden'); watch.classList.add('hidden'); ammo.classList.add('hidden'); } },
+    setGameVisible(v) { gameVisible = v; for (const e of [crosshair, compass, status, objective, quick, extra]) e.classList.toggle('hidden', !v); if (!v) { prompt.classList.add('hidden'); watch.classList.add('hidden'); ammo.classList.add('hidden'); scope.classList.add('hidden'); } },
     // brief arc toward where damage came from (source: Vector3 | { position }) — fades over ~1.2 s
     damageFrom(source) {
       const pos = source && (source.position || source);
@@ -77,7 +81,24 @@ export function createHud(ctx) {
       dmgAngle = bearing + p.yaw;                       // relative to view (yaw rotates the view left)
       dmgT = 1.2;
     },
-    elements: { crosshair, prompt, notify, objective, compass, ammo, watch, status, hint, fade, dmgdir },
+    // scope reticle overlay: def = { zoom, reticle: 'dot'|'holo'|'pso'|'pu'|'acog'|'chevron'|'mildot' } or null
+    setScope(def) {
+      if (!def) { scope.classList.add('hidden'); crosshair.classList.remove('hidden'); ctx.post.setScope(0); return; }
+      scope.classList.remove('hidden'); crosshair.classList.add('hidden');
+      const magnified = (def.zoom || 1) > 1.5;
+      ctx.post.setScope(magnified ? 1 : 0);
+      const g = scopeCanvas.getContext('2d'); const S = 512, c = S / 2; g.clearRect(0, 0, S, S);
+      g.strokeStyle = 'rgba(20,18,16,0.9)'; g.fillStyle = 'rgba(20,18,16,0.9)'; g.lineWidth = 2;
+      const r = def.reticle || 'dot';
+      if (r === 'dot' || r === 'holo') { g.fillStyle = 'rgba(255,70,50,0.95)'; g.beginPath(); g.arc(c, c, r === 'dot' ? 3 : 2, 0, 6.283); g.fill(); if (r === 'holo') { g.strokeStyle = 'rgba(255,70,50,0.8)'; g.lineWidth = 2; g.beginPath(); g.arc(c, c, 34, 0, 6.283); g.stroke(); } }
+      else if (r === 'pso' || r === 'chevron' || r === 'acog') { g.beginPath(); g.moveTo(c, c - 14); g.lineTo(c - 12, c + 6); g.lineTo(c + 12, c + 6); g.closePath(); g.stroke(); for (let i = 1; i <= 4; i++) { g.beginPath(); g.moveTo(c - 6, c + 6 + i * 22); g.lineTo(c + 6, c + 6 + i * 22); g.stroke(); } g.beginPath(); g.moveTo(c - 120, c); g.lineTo(c - 26, c); g.moveTo(c + 26, c); g.lineTo(c + 120, c); g.stroke(); if (r === 'pso') { g.beginPath(); g.moveTo(c - 110, c + 110); for (let i = 0; i <= 10; i++) g.lineTo(c - 110 + i * 22, c + 110 - Math.sqrt(i) * 30); g.stroke(); } if (r === 'acog') { g.fillStyle = 'rgba(255,60,40,0.9)'; g.beginPath(); g.moveTo(c, c - 14); g.lineTo(c - 12, c + 6); g.lineTo(c + 12, c + 6); g.closePath(); g.fill(); } }
+      else if (r === 'pu') { g.lineWidth = 3; g.beginPath(); g.moveTo(c, c + 6); g.lineTo(c, c + 200); g.moveTo(c - 200, c); g.lineTo(c - 12, c); g.moveTo(c + 12, c); g.lineTo(c + 200, c); g.stroke(); g.beginPath(); g.moveTo(c, c + 6); g.lineTo(c - 5, c + 24); g.lineTo(c + 5, c + 24); g.closePath(); g.fill(); }
+      else if (r === 'mildot') { g.lineWidth = 1.5; g.beginPath(); g.moveTo(c - 220, c); g.lineTo(c + 220, c); g.moveTo(c, c - 220); g.lineTo(c, c + 220); g.stroke(); for (let i = -4; i <= 4; i++) { if (!i) continue; g.beginPath(); g.arc(c + i * 40, c, 2.5, 0, 6.283); g.fill(); g.beginPath(); g.arc(c, c + i * 40, 2.5, 0, 6.283); g.fill(); } }
+    },
+    // quick slots 6-9: [{ id, name, count } | null x4]
+    setQuick(slots) { const html = slots.map((q, i) => `<div class="qs ${q ? '' : 'empty'}"><span class="k">${i + 6}</span>${q ? `<span class="n">${q.name}</span><span class="c">${q.count}</span>` : ''}</div>`).join(''); if (quick.innerHTML !== html) quick.innerHTML = html; },
+    setStatusExtra(html) { if (extra.innerHTML !== html) extra.innerHTML = html; },
+    elements: { crosshair, prompt, notify, objective, compass, ammo, watch, status, hint, fade, dmgdir, scope, quick, extra },
     update(dt) {
       if (!gameVisible) return;
       const d = ctx.state.data, p = ctx.player;
@@ -111,7 +132,9 @@ export function createHud(ctx) {
           <div class="row"><span class="k">Stamina</span></div><div class="bar"><i style="width:${d.stamina}%"></i></div>
           <div class="row"><span class="k">Torch</span><span>${Math.round(d.flashlight.battery)}%</span></div>
           <div class="row"><span class="k">Funds</span><span>${d.money.toLocaleString('ru-RU')} ₽</span></div>
-          ${w ? `<div class="row"><span class="k">${w.def.name}</span><span>${w.chamber + (w.mags[w.magIndex] ?? 0)} · ${w.mags.map((m) => m).join('/')}</span></div>` : ''}
+          ${w ? `<div class="row"><span class="k">${w.def.name}</span><span>${(w.chamber ? 1 : 0) + (w.mag ? w.mag.rounds : (w.tube ? w.tube.length : 0))} · ${w.fireMode || ''}</span></div>` : ''}
+          <div class="row"><span class="k">Load</span><span>${ctx.inventory.weight ? ctx.inventory.weight().toFixed(1) : '0'} / ${ctx.inventory.capacity ? ctx.inventory.capacity() : 0} kg</span></div>
+          ${(() => { const v = ctx.inventory.equipped?.('vest'), h = ctx.inventory.equipped?.('helmet'); const dv = v && ctx.inventory.equippedDef('vest'), dh = h && ctx.inventory.equippedDef('helmet'); return (dv ? `<div class="row"><span class="k">${dv.name}</span><span>${Math.round(v.durability)} / ${dv.durability}</span></div>` : '') + (dh ? `<div class="row"><span class="k">${dh.name}</span><span>${Math.round(h.durability)} / ${dh.durability}</span></div>` : ''); })()}
           ${d.bleeding ? '<div class="bleed">Bleeding — bandage</div>' : ''}`;
       } else {
         const parts = [];

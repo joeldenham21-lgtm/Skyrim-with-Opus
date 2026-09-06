@@ -41,10 +41,17 @@ export function createLighting(ctx) {
   flashlight.target.position.set(0.05, -0.08, -7);
   flashlight.castShadow = false;
   ctx.camera.add(flashlight); ctx.camera.add(flashlight.target);
+  // headlamp: wider, weaker, mounted at the brow; weapon light: parented to the hands root, positioned by weapons at the muzzle
+  const headlamp = new THREE.SpotLight(0xfff0d0, 0, 40, 0.62, 0.8, 1.5);
+  headlamp.position.set(0, 0.12, -0.05); headlamp.target.position.set(0, 0.0, -6);
+  ctx.camera.add(headlamp); ctx.camera.add(headlamp.target);
+  const weaponLight = new THREE.SpotLight(0xf4f0ff, 0, 55, 0.36, 0.6, 1.5);
+  weaponLight.position.set(0, 0, 0); weaponLight.target.position.set(0, 0, -8);
+  ctx.hands.root ? (ctx.hands.root.add(weaponLight), ctx.hands.root.add(weaponLight.target)) : (ctx.camera.add(weaponLight), ctx.camera.add(weaponLight.target));
 
   const sunDir = new THREE.Vector3(), tmp = new THREE.Vector3();
   const api = {
-    sun, moon, hemi, ambient, flashlight, sunDir,
+    sun, moon, hemi, ambient, flashlight, headlamp, weaponLight, sunDir, headlampTarget: 0, headlampLevel: 0, weaponLightTarget: 0, weaponLightLevel: 0, weaponLightIntensity: 30,
     horizon: new THREE.Color(), zenith: new THREE.Color(), sunColor: new THREE.Color(),
     flashOn: false, flashTarget: 0, flashLevel: 0, storm: 0,
     update(dt) {
@@ -98,8 +105,16 @@ export function createLighting(ctx) {
       const bat = ctx.state.data.flashlight.battery / 100;
       flashlight.intensity = api.flashLevel * 42 * (0.55 + 0.45 * clamp01(bat * 3));
       flashlight.visible = true;   // stays in the light list; toggling visibility would recompile every material
+      api.headlampLevel += (api.headlampTarget - api.headlampLevel) * Math.min(1, dt * 12);
+      headlamp.intensity = api.headlampLevel * (api.headlampIntensity || 18); headlamp.visible = true;
+      api.weaponLightLevel += (api.weaponLightTarget - api.weaponLightLevel) * Math.min(1, dt * 16);
+      weaponLight.intensity = api.weaponLightLevel * (api.weaponLightIntensity || 30); weaponLight.visible = true;
     },
     setFlashlight(on) { api.flashOn = on; api.flashTarget = on ? 1 : 0; },
+    setHeadlamp(on, intensity = 18) { api.headlampTarget = on ? 1 : 0; api.headlampIntensity = intensity; },
+    setWeaponLight(on, intensity = 30) { api.weaponLightTarget = on ? 1 : 0; api.weaponLightIntensity = intensity; },
+    // any light the player carries is on: entities use this for visibility
+    get anyLightOn() { return api.flashTarget > 0 || api.headlampTarget > 0 || api.weaponLightTarget > 0; },
   };
   return api;
 }

@@ -6,6 +6,8 @@ const BINDINGS = {
   interact: ['KeyE'], watch: ['Tab'], inventory: ['KeyI'], pause: ['Escape'],
   slot1: ['Digit1'], slot2: ['Digit2'], slot3: ['Digit3'], slot4: ['Digit4'], slot5: ['Digit5'], holster: ['KeyH'],
   map: ['KeyM'], lean: ['KeyQ'],
+  fireMode: ['KeyB'], weaponLight: ['KeyL'], melee: ['KeyV'], grenade: ['KeyX'], binoculars: ['KeyN'],
+  quick1: ['Digit6'], quick2: ['Digit7'], quick3: ['Digit8'], quick4: ['Digit9'],
 };
 
 export function createInput(canvas, events) {

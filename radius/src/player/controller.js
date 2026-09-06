@@ -32,7 +32,7 @@ export function createPlayer(ctx) {
     get moving() { return speedNow > 0.3; }, get speed() { return speedNow; },
     get noise() { return noiseLevel; }, get dead() { return dead; }, get eyeHeight() { return eyeH; },
     get bleeding() { return state.data.bleeding; },
-    inBase: false, inWater: false, moveLock: 0,
+    inBase: false, inWater: false, moveLock: 0, loadFactor: 1,
     eye: new THREE.Vector3(),
     forward: fwd,
     setLook(y, p) { yaw = y; pitch = p; },
@@ -91,6 +91,15 @@ export function createPlayer(ctx) {
       target *= lerp(1, 0.7, ads);
       if (state.data.hp < 25) target *= 0.85;
       if (api.inWater) target *= 0.65;
+      // load: armour and pack slow you; overweight slows more and forbids sprinting past 1.5x capacity
+      const inv = ctx.inventory;
+      let gearSpeed = 1, gearStamina = 1;
+      for (const slot of ['vest', 'helmet', 'backpack', 'rig']) { const gd = inv.equippedDef?.(slot); if (gd) { gearSpeed *= gd.speed || 1; gearStamina *= gd.stamina || 1; } }
+      const over = inv.overweight ? inv.overweight() : 0, cap = inv.capacity ? inv.capacity() : 30;
+      const overK = clamp01(over / Math.max(1, cap * 0.5));
+      target *= gearSpeed * lerp(1, 0.6, overK) * (ctx.damage ? ctx.damage.speedMul : 1);
+      api.loadFactor = gearStamina * (1 + overK * 0.8);
+      if (over > cap * 0.5) sprinting = false;
       fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw)); right.set(fwd.z, 0, -fwd.x);
       const len = Math.hypot(mx, mz) || 1;
       tmp.set(0, 0, 0).addScaledVector(fwd, -mz / len).addScaledVector(right, mx / len);
@@ -99,7 +108,7 @@ export function createPlayer(ctx) {
       velocity.x = damp(velocity.x, tmp.x * target, accel, dt);
       velocity.z = damp(velocity.z, tmp.z * target, accel, dt);
       // stamina
-      if (sprinting) state.data.stamina = Math.max(0, state.data.stamina - 16 * dt); else state.data.stamina = Math.min(100, state.data.stamina + (crouched ? 8 : 11) * dt);
+      if (sprinting) state.data.stamina = Math.max(0, state.data.stamina - 16 * dt * (api.loadFactor || 1)); else state.data.stamina = Math.min(100, state.data.stamina + (crouched ? 8 : 11) * dt * (ctx.damage ? ctx.damage.staminaRegenMul : 1) / Math.sqrt(api.loadFactor || 1));
       breathe = damp(breathe, state.data.stamina < 25 ? 1 : 0, 1.5, dt);
       // gravity + ground
       velocity.y -= GRAVITY * dt;

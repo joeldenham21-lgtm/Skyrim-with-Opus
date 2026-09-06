@@ -1,0 +1,48 @@
+# RADIUS — Gear, Progression and AI v2
+
+Companion to DESIGN.md (tone, pillars) and ARCHITECTURE.md (contracts). This file is the spec for the second act:
+the arsenal, armour, loot economy, maintenance and attachments, clearance ranks, and the smarter entities.
+The catalogue lives in `src/data/` and is the single source of truth; nothing hard-codes an item outside it.
+
+## 1. Catalogue (src/data)
+- `calibers.js` — 10 calibres, 32 ammunition types (`AMMO`): damage, penetration class (`pen`), pellets, noise, speed, price, rank, rarity, tracer.
+- `magazines.js` — 36 magazines/clips/belts (`MAGAZINES`): capacity, weight, which weapon `family` they fit.
+- `weapons.js` — 35 weapons (`WEAPONS`): class, calibre, family, default magazine, rpm, fire modes, base dispersion (`moa`, degrees), recoil, ergonomics, wear per shot, mounts (top/muzzle/under/side/stock standards), build recipe id, price, rank, rarity, weight.
+- `attachments.js` — 36 attachments: rails (convert mount standards), optics (zoom, reticle), suppressors, brakes, grips, bipod, lights, lasers, stocks; `effects` multipliers.
+- `armor.js` — 9 vests, 7 helmets, 5 backpacks, 5 rigs, 3 headgear (headlamp, two night-vision sets), 3 masks.
+- `items.js` — meds, food, tools, detectors, melee, lockpicks, 6 grenades, 3 repair parts, 12 artifacts, mission objects, keys.
+- `loadouts.js` — mimic classes (recruit, regular, veteran, elite, sniper, gunner, shotgunner) with weapons, armour, attachments, grenades, drops; `CLASS_MIX` by tide level; `POI_TIER`.
+- `loot.js` — container kinds, category weights, rarity weighting by tier, containers by POI kind, ammo roll sizes.
+- `index.js` — `def(id)`, `categoryOf`, `magsFor`, `attachmentsFor`, `shopItems(rank)`, `RANKS`, `rankFor`, `resolveHit`, `zoneFromHit`, `ZONE_MULT`, `weightOf`, `nameOf`, `priceOf`.
+
+## 2. Inventory v2 (`src/player/inventory.js`)
+Instances: weapons `{uid,id,parts{barrel,bolt,frame},dirt,jammed,chamber,mag,tube[],fireMode,attachments{slot:id},rails[]}`, magazines `{uid,id,cal,ammo,rounds}` (one ammo type per magazine), gear `{uid,id,durability?,charge?,uses?}`; stackables in `items{id:count}` (loose rounds are stackables keyed by ammo id). Equipment slots: primary, secondary, sidearm, melee, vest, helmet, backpack, rig, headgear, mask. `readyMags` are the uids in rig pouches (the rig's `readyMags` count): reloads from ready mags are fast (1.0×), from the pack 1.8× slower. `quick[4]` hotkeys 6–9 hold consumable ids or grenades.
+Weight: `weight()` vs `capacity()` (10 kg + backpack). Overweight slows walking (down to 0.6×) and drains stamina; 1.5× capacity cannot sprint.
+Helpers: `makeWeapon(id,{ammo,condition,loaded,attachments})`, `makeMag`, `makeGear`, `attach/detach(w,id)`, `weaponEffects(w)` (merged attachment effects + wear/fouling), `weaponWeight`, `bestMag(w)`, `loadMag`, `unloadMag`, `fillMags`, `armorPieces()`, `preferredAmmo(cal)`.
+
+## 3. Ballistics and armour (`data/index.js resolveHit`, `player/damage.js`)
+Hit zones by capsule height: head (×1.9), torso, stomach (×0.9), arms (×0.55), legs (×0.6). Armour covers zones per piece. Penetration: probability from `pen` vs the piece's effective class (class × (0.55 + 0.45 × durability fraction)): equal → ~70 %, one class under → ~15 %, one over → ~97 %. Penetrating hits do 85 % damage and cost the armour 25 % of the damage in durability; stopped hits do 12–20 % as blunt trauma (35 % for rubber) and cost the armour 70 %. Expanding rounds: more damage, poor pen; AP: less flesh damage, high pen; subsonic: quiet. The same resolution applies to entities: mimics wear real vests and helmets from the catalogue, and a helmet ring is audible.
+Player: `ctx.damage.bullet(ammo, h01, lateral01, {source})`, `ctx.damage.other(amount, info)`, `ctx.damage.use(itemId)`; buffs: painkiller (no low-health blur, −10 % damage), steady (cigarettes: −40 % sway/spread), speed and stamina-regen windows.
+
+## 4. Weapons v2 (`weapons/*`)
+- Fire modes (B cycles), ammo per magazine, chamber tracking, internal tubes/clips, belts (PKM).
+- Attachments change: ADS zoom + reticle overlay (`hud.setScope`), ADS speed, recoil, dispersion, noise radius and flash (suppressors), weapon light (L toggles: SpotLight from the muzzle via `lighting.weaponLight`), laser (hip-fire dispersion ×0.7, a red line), bipod (crouched & still: −40 % recoil), night optic (nvg view through the scope).
+- Condition: parts wear per shot × ammo (AP ×1.3) × suppressor. Barrel wear widens dispersion (up to +90 %) and lowers damage (−15 % at 0); bolt wear raises jam chance (`0.18 × dirt³ + 0.12 × (1 − bolt/100)²`); frame wear below 30 % risks a misfire (dry click). Cleaning kit resets dirt (4 uses). Repair kit +35 % to one part (2 uses). Replacement part → 100 %. All at the workbench (`panels.open('workbench')`).
+- Reloads: R swaps to `bestMag` (fast if ready), chamber if empty; tube guns load one shell at a time; bolt/pump cycles. T loads loose rounds (preferred ammo type) into the emptiest compatible magazine, 0.6 s per round while still.
+- Melee (V): the melee slot item (knife/bayonet/machete) — a quick stab with 0.35 s wind-up, 1.6 m reach, damage from the item; silent.
+- Grenades: the selected quick slot holding a grenade throws on X (cook not needed): arc, bounce, fuse, blast via `enemies.blast` + player damage; flashbang blinds entities (aware → 0, stun 4 s) and whites the screen if you look; smoke spawns a 25 s cloud that blocks entity vision (`world.smokeAt(pos)` registry read by entities).
+
+## 5. Player kit (`player/gear.js`)
+Headgear: headlamp (a second SpotLight on the camera, `lighting.headlamp`), night vision (post `setNvg(gen)`: green/white phosphor look, grain, bloom of lights, phantoms visible; batteries drain 100 → 0 over 4 in-game hours; tubes bloom and blind on torch/muzzle flash). Masks: respirator halves gas burn, GP-5/GP-7 stop it; filters drain in gas; masks narrow FOV overlay (`hud.setMask`), muffle audio slightly (`audio.setMuffle 0.85`). Binoculars (hold): 8× zoom with overlay. Detectors: Veer (30 m ticks), Bear (50 m, direction needle), Svarog (70 m, names the type). Torch battery, lamp battery, NVG battery share `battery` cells.
+
+## 6. Loot v2 (`game/loot.js`)
+Containers by POI kind (`CONTAINERS_BY_POI`), rolling `CONTAINERS` tables with rarity weights by tier (`POI_TIER` + tide level − 1). Locked lockers/safes need lockpicks (3 tries, 60 % each) or a key from a desk. Explorer corpses (with tags, letters and a pack) lie where explorers died: church, rail cutting, marsh, forest, ridge. Mimic drops: on death a mimic leaves a pile (`loot.spawnPile(pos, items)`) with its weapon (worn condition 30–70 %, mag partially spent, attachments intact), 1–2 spare mags, its armour (damaged) 40 % of the time, and one item from its class drop list 50 % of the time. Piles are interactable (`[E] SEARCH · MIMIC`) and open the loot panel.
+
+## 7. Base and progression
+Clearance ranks 1–5 (`RANKS`: earned money + missions completed) gate the supply crate (`shopItems(rank)`) and the terminal's contract tiers; rank-ups are announced as Committee notices. Workbench: attachments (mount/unmount with rail dependencies), maintenance (clean/repair/replace parts per weapon), magazine loading with ammo type choice, armour repair. Storage stash unlimited. Supply sells everything the rank allows in categories; buys back at 40 % (artifacts at full price at the terminal).
+
+## 8. Entities v2 (`enemies/*`)
+Mimics are squads of 2–4 with a leader; roles: base of fire (holds cover, suppresses in bursts), flankers (move cover to cover along a path that stays out of the player's view, then engage from the side), a watcher (holds back, reports). They count rounds and reload behind cover (audible); throw grenades at a player who holds one cover spot > 6 s (a squelch tell, then the arc and a 3.5 s hiss); retreat and regroup when the squad loses half; use skips tactically to flank when unobserved; converge on shots from up to 120 m; search last known positions in a sweep; at night use weapon lights (visible beams) if their loadout has them, otherwise hunt by ear. The stalker: one mimic per day shadows the player at 60–100 m, never first to fire, always behind; closes in at night. Snipers hold high ground with a laser glint tell; gunners suppress; shotgunners breach doors. Armour: mimics take hits through `resolveHit` with their vest/helmet; headshots on a helmet ring. Phantom (new): near-invisible refractive silhouette (distortion via post) that circles, screams, and grabs (30 dmg + drag 2 m); plainly visible in night vision. Seeker: heavy class 6, PKM, calls a squad. Sliders ambush from roofs and doorways in pairs; fragments form rings and split to surround; spawn nests spit more when disturbed.
+
+## 9. Graphics v2 (`render/materials.js` and friends)
+A procedural texture library generates albedo/normal/roughness/AO maps on canvases (concrete, plaster, brick, rust, painted metal, bare steel, wood planks, log bark, birch bark, fabric, leather, rubber, dead grass blade cards, leaf cards, gravel, mud, road, tile). `materials.get(kind, params)` returns tuned MeshStandardMaterial instances with those maps, cached by params. Lighting: cascaded shadow maps, ground-truth ambient occlusion pass, volumetric light shafts for the sun and the torch, better bloom, contact shadows under props. Models: modular weapons with real part detail, rigged and skinned characters with proper anatomy and animation, buildings with framed windows, doors, roof tiles, interiors with clutter, textured grass and branch cards.

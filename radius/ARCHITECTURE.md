@@ -119,6 +119,17 @@ API: `count(id)`, `has(id,n)`, `add(id,n)`, `remove(id,n)`, `addAmmo(cal,n)`, `a
 ## Testing
 `node tools/smoke.mjs --out .smoke/<name> [--scenario file.mjs] [--seconds N]` builds and runs the game headless (SwiftShader WebGL2), screenshots, and prints console errors + `__radius.stats()`. Scenarios: `export default async (page, api) => { await api.start(); await api.run('window.__radius.teleport(-130, 60)'); await api.screenshot('zarya'); }`. Debug API: `window.__radius.{start, teleport(x,z), look(dx,dy), setLook(yaw,pitch), setTime(h), spawn(type,x,z), spawnAnomaly(type,x,z), god(), give(id,n), giveWeapon(id), press(action), stats(), ctx}`. Use `--out` under `.smoke/` with your own name so parallel runs don't collide. Expect ~15–25 fps under SwiftShader; that's the software renderer, not the game.
 
+## v2 additions (see GEAR.md for the systems)
+- `src/data/index.js` is the catalogue door: `def(id)`, `WEAPONS/AMMO/MAGAZINES/ATTACHMENTS/ARMOR/ITEMS`, `MIMIC_CLASSES/CLASS_MIX/POI_TIER`, `CONTAINERS/CONTAINERS_BY_POI`, `resolveHit/zoneFromHit`, `RANKS/rankFor`, `shopItems(rank)`, `magsFor/attachmentsFor`.
+- `ctx.inventory` v2 (see GEAR.md §2): instances with uids; equipment slots; `list()`; `armorPieces()`; weight/capacity.
+- `ctx.damage` (player/damage.js): `bullet(ammo, h01, lateral01, info)`, `other(amount, info)`, `use(itemId)`, buffs (`speedMul`, `staminaRegenMul`, `steadyMul`, `painkiller`).
+- `ctx.gear` (player/gear.js, gear agent): headgear/mask/binoculars/detector handling, batteries and filters, quick-slot use (keys 6–9 → `input.pressed('quick1'..'quick4')`), grenade throw (X → `input.pressed('grenade')`), melee (V → `input.pressed('melee')` handled by weapons).
+- `ctx.post`: `setNvg(gen 0|1|2)`, `setMask(kind|null)`, `setScope({zoom, reticle}|null)`; `ctx.lighting`: `headlamp` (SpotLight), `setHeadlamp(on)`, `weaponLight` (SpotLight parented to `hands.root`, positioned by weapons at the muzzle), `setWeaponLight(on)`; `ctx.hud`: `setScope(def|null)`, `setQuick(slots)`, `setStatusExtra(html)`.
+- Input actions added: `fireMode` (B), `weaponLight` (L), `melee` (V), `grenade` (X), `quick1..quick4` (6–9), `binoculars` (N).
+- Smoke: `ctx.world.smoke` = [{position, radius, t}] registry maintained by the gear agent's grenades; entity vision must test `world.smokeBlocks(a, b)`.
+- Loot piles: `ctx.loot.spawnPile(position, entries)` where entries are `[{ kind:'weapon'|'mag'|'gear'|'item', inst?, id, count }]`; the UI's loot panel transfers them.
+- Mimic loadouts: `enemies/loadout.js` `rollLoadout(className, tideLevel)` returns `{ weapon: WeaponInst, mags: [MagInst], vest, helmet, grenades, items }` built with inventory.makeWeapon/makeMag/makeGear; mimics use the weapon def for rpm/noise/damage and drop the instances.
+
 ## Conventions
 - **Never cache `ctx.state.data`** (or anything inside it) across frames: `game.start()` replaces the object. Read `ctx.state.data.x` when you need it.
 - ES modules, no TypeScript, no external deps beyond three. Prefer `const`, small pure helpers, early returns.

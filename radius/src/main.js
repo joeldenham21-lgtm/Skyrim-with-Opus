@@ -19,6 +19,10 @@ import { createFlora } from './world/flora.js';
 import { createDebris } from './world/debris.js';
 import { createPlayer } from './player/controller.js';
 import { createInventory, makeWeapon } from './player/inventory.js';
+import { createDamage } from './player/damage.js';
+import { createGear } from './player/gear.js';
+import { registerPhantom } from './enemies/phantom.js';
+import { createMaterials } from './render/materials.js';
 import { createHands } from './player/hands.js';
 import { createWeapons } from './weapons/weapons.js';
 import { createBallistics } from './weapons/ballistics.js';
@@ -68,21 +72,24 @@ function boot() {
   ctx.lighting = createLighting(ctx);
   ctx.post = createPost(ctx);
   ctx.vfx = createVfx(ctx);
+  ctx.materials = createMaterials(ctx);
   ctx.world = createWorld(ctx);
   ctx.inventory = createInventory(ctx);
   ctx.player = createPlayer(ctx);
+  ctx.damage = createDamage(ctx);
   ctx.interact = createInteract(ctx);
   ctx.hands = createHands(ctx);
   ctx.ballistics = createBallistics(ctx);
   ctx.weapons = createWeapons(ctx);
   ctx.enemies = createEnemies(ctx);
   ctx.director = createDirector(ctx);
-  registerMimic(ctx); registerSeeker(ctx); registerSlider(ctx); registerFragment(ctx); registerSpawn(ctx);
+  registerMimic(ctx); registerSeeker(ctx); registerSlider(ctx); registerFragment(ctx); registerSpawn(ctx); registerPhantom(ctx);
   ctx.population = createPopulation(ctx);
   ctx.anomalies = createAnomalies(ctx);
   ctx.artifacts = createArtifacts(ctx);
   ctx.probes = createProbes(ctx);
   ctx.detector = createDetector(ctx);
+  ctx.gear = createGear(ctx);
   ctx.structures = createStructures(ctx);
   ctx.props = createProps(ctx);
   ctx.base = createBase(ctx);
@@ -166,6 +173,15 @@ const game = {
 ctx.game = game;
 
 let last = performance.now(), fpsAcc = 0, fpsN = 0, fps = 0, lastReal = performance.now();
+const errs = new Map();
+function step(name, fn) {
+  try { fn(); } catch (e) {
+    const key = name + ':' + String(e && e.message);
+    const n = (errs.get(key) || 0) + 1; errs.set(key, n);
+    if (n === 1) console.error(`[${name}]`, e);
+    ctx._errorLogged = true; ctx._errors = errs;
+  }
+}
 function loop(now) {
   requestAnimationFrame(loop);
   let dt = Math.min(0.05, (now - last) / 1000); last = now;
@@ -180,26 +196,29 @@ function loop(now) {
     else if (ctx.mode === 'playing' && ctx.panels.isOpen && (ctx.input.rawPressed('inventory') || ctx.input.rawPressed('map'))) ctx.panels.close();
     else if (ctx.mode === 'paused' && ctx.input.rawPressed('pause')) { if (ctx.menus.current === 'settings') ctx.menus.show('pause'); else game.resume(); }
     const playing = ctx.mode === 'playing' || ctx.mode === 'dead';
+    // every subsystem steps in its own try/catch so one broken module cannot freeze the others
     if (playing) {
       const gdt = ctx.panels.isOpen ? 0 : dt;      // world freezes while a base panel is open
-      if (!ctx.panels.isOpen) ctx.time.update(dt);
-      ctx.player.update(gdt);
-      ctx.hands.update(gdt); ctx.weapons.update(gdt);
-      if (ctx.mode === 'playing' && !ctx.panels.isOpen) ctx.interact.update(dt);
-      ctx.probes.update(gdt); ctx.detector.update(gdt);
-      ctx.enemies.update(gdt); ctx.population.update(gdt);
-      ctx.anomalies.update(gdt); ctx.artifacts.update(gdt);
-      ctx.director.update(gdt); ctx.scares.update(gdt);
-      ctx.missions.update(gdt); ctx.loot.update(gdt); ctx.base.update(gdt); ctx.tide.update(gdt);
-      ctx.structures.update(gdt, t); ctx.props.update(gdt, t); ctx.flora.update(gdt, t); ctx.debris.update(gdt, t);
-      ctx.ballistics.update?.(gdt);
+      if (!ctx.panels.isOpen) step('time', () => ctx.time.update(dt));
+      step('player', () => ctx.player.update(gdt));
+      step('damage', () => ctx.damage.update(gdt));
+      step('hands', () => ctx.hands.update(gdt)); step('weapons', () => ctx.weapons.update(gdt)); step('gear', () => ctx.gear.update(gdt));
+      if (ctx.mode === 'playing' && !ctx.panels.isOpen) step('interact', () => ctx.interact.update(dt));
+      step('probes', () => ctx.probes.update(gdt)); step('detector', () => ctx.detector.update(gdt));
+      step('enemies', () => ctx.enemies.update(gdt)); step('population', () => ctx.population.update(gdt));
+      step('anomalies', () => ctx.anomalies.update(gdt)); step('artifacts', () => ctx.artifacts.update(gdt));
+      step('director', () => ctx.director.update(gdt)); step('scares', () => ctx.scares.update(gdt));
+      step('missions', () => ctx.missions.update(gdt)); step('loot', () => ctx.loot.update(gdt)); step('base', () => ctx.base.update(gdt)); step('tide', () => ctx.tide.update(gdt));
+      step('structures', () => ctx.structures.update(gdt, t)); step('props', () => ctx.props.update(gdt, t)); step('flora', () => ctx.flora.update(gdt, t)); step('debris', () => ctx.debris.update(gdt, t));
+      step('ballistics', () => ctx.ballistics.update?.(gdt));
     } else {
-      ctx.player.update(0);
+      step('player', () => ctx.player.update(0));
     }
     ctx.hands.root.visible = ctx.mode !== 'title';
-    ctx.lighting.update(dt); ctx.sky.update(dt, t); ctx.world.update(dt, t);
-    ctx.vfx.update(dt, t); ctx.post.update(dt, t); ctx.audio.update(dt);
-    ctx.hud.update(dt); ctx.music.update(dt); ctx.ambience.update(dt); ctx.menus.update(dt); ctx.panels.update(dt);
+    step('lighting', () => ctx.lighting.update(dt)); step('sky', () => ctx.sky.update(dt, t)); step('world', () => ctx.world.update(dt, t));
+    step('vfx', () => ctx.vfx.update(dt, t)); step('post', () => ctx.post.update(dt, t)); step('audio', () => ctx.audio.update(dt));
+    step('hud', () => ctx.hud.update(dt)); step('music', () => ctx.music.update(dt)); step('ambience', () => ctx.ambience.update(dt)); step('menus', () => ctx.menus.update(dt)); step('panels', () => ctx.panels.update(dt));
+    step('materials', () => ctx.materials.update?.(dt, t));
     ctx.renderer.info.reset();
     ctx.post.render();
   } catch (e) {
@@ -227,7 +246,7 @@ Object.assign(window.__radius, {
   press(action) { const code = ctx.input.bindings[action][0]; window.dispatchEvent(new KeyboardEvent('keydown', { code })); setTimeout(() => window.dispatchEvent(new KeyboardEvent('keyup', { code })), 60); },
   stats() {
     const info = ctx.renderer.info;
-    return { fps: Math.round(fps), mode: ctx.mode, calls: info.render.calls, triangles: info.render.triangles, enemies: ctx.enemies.list.length, anomalies: ctx.anomalies.list?.length, missingSounds: [...ctx.audio.missing], hp: ctx.state.data.hp, pos: ctx.player.position.toArray().map((v) => +v.toFixed(1)), director: ctx.director.state, tension: +ctx.director.tension.toFixed(2), hour: +ctx.state.data.hour.toFixed(2), error: ctx._errorLogged || false };
+    return { fps: Math.round(fps), mode: ctx.mode, calls: info.render.calls, triangles: info.render.triangles, enemies: ctx.enemies.list.length, anomalies: ctx.anomalies.list?.length, missingSounds: [...ctx.audio.missing], hp: ctx.state.data.hp, pos: ctx.player.position.toArray().map((v) => +v.toFixed(1)), director: ctx.director.state, tension: +ctx.director.tension.toFixed(2), hour: +ctx.state.data.hour.toFixed(2), error: ctx._errorLogged || false, errors: ctx._errors ? [...ctx._errors.entries()].map(([k, n]) => `${k} x${n}`).slice(0, 8) : [] };
   },
 });
 
