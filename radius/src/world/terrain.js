@@ -233,9 +233,20 @@ export function createTerrain(ctx) {
   scene.add(mesh);
 
   // ---- water (marsh) ----
-  const waterUniforms = Object.assign({ uTime: { value: 0 }, uHorizon: { value: new THREE.Color(0.5, 0.55, 0.6) }, uNight: { value: 0 } }, fogUniforms);
+  // a half-float height texture lets the water know how deep it is: shallow edges show the mud, deep water goes dark
+  const heightTex = (() => {
+    const data = new Uint16Array(V * V);
+    // encode metres to half float
+    const f32 = new Float32Array(1), u32 = new Uint32Array(f32.buffer);
+    const toHalf = (v) => { f32[0] = v; const x = u32[0]; const sign = (x >> 16) & 0x8000; let exp = ((x >> 23) & 0xff) - 112; let mant = (x >> 13) & 0x3ff; if (exp <= 0) return sign; if (exp >= 31) return sign | 0x7c00; return sign | (exp << 10) | mant; };
+    for (let i = 0; i < V * V; i++) data[i] = toHalf(heights[i]);
+    const t = new THREE.DataTexture(data, V, V, THREE.RedFormat, THREE.HalfFloatType);
+    t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; t.needsUpdate = true;
+    return t;
+  })();
+  const waterUniforms = Object.assign({ uTime: { value: 0 }, uHorizon: { value: new THREE.Color(0.5, 0.55, 0.6) }, uZenith: { value: new THREE.Color(0.3, 0.34, 0.4) }, uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunColor: { value: new THREE.Color(1, 0.95, 0.9) }, uSunI: { value: 1 }, uNight: { value: 0 }, uHeight: { value: heightTex }, uWind: { value: new THREE.Vector2(0.8, 0.3) }, uStorm: { value: 0 } }, fogUniforms);
   const water = new THREE.Mesh(
-    new THREE.PlaneGeometry(SIZE, SIZE, 1, 1).rotateX(-Math.PI / 2),
+    new THREE.PlaneGeometry(SIZE, SIZE, 64, 64).rotateX(-Math.PI / 2),
     new THREE.ShaderMaterial({
       uniforms: Object.assign(waterUniforms, THREE.UniformsUtils.clone(THREE.UniformsLib.fog)), transparent: true, depthWrite: false, fog: true,
       vertexShader: /* glsl */`
@@ -247,24 +258,62 @@ export function createTerrain(ctx) {
       fragmentShader: /* glsl */`
         ${GLSL_NOISE}
         #include <fog_pars_fragment>
-        uniform float uTime, uNight; uniform vec3 uHorizon; varying vec3 vW; varying vec3 vV;
+        uniform float uTime, uNight, uSunI, uStorm; uniform vec3 uHorizon, uZenith, uSunDir, uSunColor; uniform sampler2D uHeight; uniform vec2 uWind;
+        varying vec3 vW; varying vec3 vV;
+        // a cheap copy of the sky for reflections: gradient, cloud lid, sun
+        vec3 skyFor(vec3 d){
+          float up = clamp(d.y, 0.0, 1.0);
+          vec3 col = mix(uHorizon, uZenith, pow(up, 0.55));
+          vec2 cuv = d.xz / (up * 1.6 + 0.24);
+          float c1 = fbm3(cuv * 1.7 + vec2(uTime * 0.008, uTime * 0.004));
+          float c2 = vnoise(cuv * 3.9 - vec2(uTime * 0.013, -uTime * 0.006) + 5.0);
+          float cloud = smoothstep(0.32, 0.72, c1 * 0.7 + c2 * 0.45);
+          vec3 cloudCol = mix(uZenith * 0.78, uHorizon * 1.05, 1.0 - cloud);
+          col = mix(col, cloudCol, cloud * 0.78 * smoothstep(-0.02, 0.12, d.y));
+          float sd = max(dot(d, uSunDir), 0.0);
+          col += uSunColor * (pow(sd, 90.0) * 0.5 + pow(sd, 8.0) * 0.12) * uSunI;
+          return col;
+        }
         void main(){
           vec2 p = vW.xz;
-          float e = 0.15;
-          float n0 = fbm3(p * 0.6 + uTime * 0.03) + 0.35 * vnoise(p * 3.0 - uTime * 0.08);
-          float nx = fbm3((p + vec2(e, 0.0)) * 0.6 + uTime * 0.03) + 0.35 * vnoise((p + vec2(e, 0.0)) * 3.0 - uTime * 0.08);
-          float nz = fbm3((p + vec2(0.0, e)) * 0.6 + uTime * 0.03) + 0.35 * vnoise((p + vec2(0.0, e)) * 3.0 - uTime * 0.08);
-          vec3 n = normalize(vec3((n0 - nx) / e * 0.06, 1.0, (n0 - nz) / e * 0.06));
-          vec3 v = normalize(vV);
-          float fres = pow(1.0 - max(dot(n, v), 0.0), 3.0);
           float lum = clamp(dot(uHorizon, vec3(0.3, 0.5, 0.2)) * 1.9, 0.04, 1.0);
-          vec3 deep = vec3(0.06, 0.07, 0.06) * lum;
-          vec3 refl = mix(uHorizon * 0.55, uHorizon * 0.95, fres);
-          vec3 col = mix(deep, refl, 0.35 + 0.6 * fres);
-          // scum and duckweed patches
-          float scum = smoothstep(0.55, 0.75, fbm3(p * 0.12 + 40.0));
-          col = mix(col, vec3(0.25, 0.27, 0.12) * lum, scum * 0.7);
-          float alpha = 0.82 + 0.15 * fres;
+          // depth below the surface from the height texture (grid covers -HALF..HALF)
+          vec2 huv = (p + vec2(${HALF}.0)) / ${SIZE}.0;
+          float ground = texture2D(uHeight, huv).r;
+          float depth = max(0.0, ${WATER_LEVEL}.0 - ground);
+          // ripples: two wind-driven layers and a fine chop, stretched along the wind
+          vec2 wdir = normalize(uWind);
+          vec2 pw = vec2(dot(p, wdir), dot(p, vec2(-wdir.y, wdir.x)));
+          float e = 0.12;
+          #define RIP(q) (fbm3((q) * vec2(0.35, 0.9) + vec2(uTime * 0.18, uTime * 0.05)) * 0.7 + vnoise((q) * vec2(1.6, 3.2) - vec2(uTime * 0.35, 0.0)) * 0.3 + vnoise((q) * 7.0 + uTime * 0.9) * 0.12 * (1.0 + uStorm * 3.0))
+          float n0 = RIP(pw), nx = RIP(pw + vec2(e, 0.0)), nz = RIP(pw + vec2(0.0, e));
+          float amp = 0.045 + 0.06 * uStorm;
+          vec2 g = vec2(n0 - nx, n0 - nz) / e * amp;
+          vec2 gw = g.x * wdir + g.y * vec2(-wdir.y, wdir.x);
+          vec3 n = normalize(vec3(gw.x, 1.0, gw.y));
+          vec3 v = normalize(vV);
+          vec3 r = reflect(-v, n); r.y = abs(r.y);
+          float cosT = max(dot(n, v), 0.0);
+          float fres = 0.02 + 0.98 * pow(1.0 - cosT, 5.0);
+          // what is under the water: shallow shows the mud through a tint, deep goes olive-black
+          vec3 shallow = vec3(0.22, 0.20, 0.13) * lum;
+          vec3 deep = vec3(0.05, 0.06, 0.045) * lum;
+          float dk = smoothstep(0.0, 1.4, depth);
+          vec3 under = mix(shallow, deep, dk);
+          // scum and duckweed drift slowly with the wind
+          float scum = smoothstep(0.55, 0.75, fbm3(p * 0.12 + uTime * 0.01 * wdir + 40.0)) * (1.0 - dk * 0.6);
+          under = mix(under, vec3(0.25, 0.27, 0.12) * lum, scum * 0.75);
+          // reflection with a sun/moon glint
+          vec3 refl = skyFor(r);
+          float glint = pow(max(dot(r, uSunDir), 0.0), 400.0) * uSunI * 2.5;
+          refl += uSunColor * glint;
+          vec3 col = mix(under, refl, fres);
+          // shore: a thin pale wet line and foam flecks where the water meets the mud
+          float shore = 1.0 - smoothstep(0.0, 0.12, depth);
+          float foam = shore * smoothstep(0.55, 0.8, vnoise(p * 6.0 + uTime * 0.4)) * 0.5;
+          col = mix(col, vec3(0.55, 0.55, 0.5) * lum, foam);
+          // shallow water is see-through; deep water is not
+          float alpha = mix(0.35, 0.95, smoothstep(0.0, 0.6, depth)) + fres * 0.05;
           gl_FragColor = vec4(col, alpha);
           #include <fog_fragment>
         }`,
@@ -316,7 +365,7 @@ export function createTerrain(ctx) {
       if (!baked) { bakeAlbedo(); if (!mesh.parent) scene.add(mesh); }
       if (mat.userData.shader) mat.userData.shader.uniforms.uTime.value = t;
       waterUniforms.uTime.value = t;
-      if (ctx.lighting) { waterUniforms.uHorizon.value.copy(ctx.lighting.horizon); waterUniforms.uNight.value = ctx.time.night; water.material.uniforms.fogColor.value.copy(ctx.scene.fog.color); water.material.uniforms.fogDensity.value = ctx.scene.fog.density; }
+      if (ctx.lighting) { const L = ctx.lighting; waterUniforms.uHorizon.value.copy(L.horizon); waterUniforms.uZenith.value.copy(L.zenith); waterUniforms.uSunColor.value.copy(L.sunColor); waterUniforms.uSunDir.value.copy(L.sunDir); waterUniforms.uSunI.value = L.sun ? Math.min(1, L.sun.intensity) : 1; waterUniforms.uNight.value = ctx.time.night; waterUniforms.uStorm.value = L.storm || 0; water.material.uniforms.fogColor.value.copy(ctx.scene.fog.color); water.material.uniforms.fogDensity.value = ctx.scene.fog.density; }
     },
   };
   return api;

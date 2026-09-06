@@ -18,6 +18,7 @@ export function createPlayer(ctx) {
   let yaw = Math.PI, pitch = 0;
   let crouched = false, sprinting = false, grounded = true, eyeH = EYE, bobT = 0, bobAmt = 0, stepAcc = 0, speedNow = 0;
   let lean = 0, rollKick = 0, kickPitch = 0, kickYaw = 0, recoilPitch = 0, recoilYaw = 0;
+  let landDip = 0, landVel = 0, strafeRoll = 0;   // camera feel: a dip on landing, a lean into strafes
   let bleedT = 0, hurtT = 0, breathe = 0, moveLock = 0, dead = false, lastSurface = 'grass', wading = 0;
   let noiseLevel = 0;         // how loud the player is right now (0..1), read by enemies
   let heartLoop = null, breathLoop = null;   // body sounds: heartbeat under 30 HP, breath under 20 stamina
@@ -120,7 +121,7 @@ export function createPlayer(ctx) {
       world.resolveCapsule(position, RADIUS, crouched ? 1.3 : 1.85);
       const g = world.groundHeight(position.x, position.z, position.y + 0.3);
       if (position.y <= g.y + 0.001) {
-        if (!grounded && velocity.y < -9) { const fall = -velocity.y; api.damage(Math.floor((fall - 9) * 4), { kind: 'fall', bleed: false }); ctx.audio.play('land', { gain: 0.8 }); }
+        if (!grounded) { const fall = -velocity.y; landVel = Math.min(1.2, Math.max(0.15, fall * 0.12)); if (fall > 9) { api.damage(Math.floor((fall - 9) * 4), { kind: 'fall', bleed: false }); ctx.audio.play('land', { gain: 0.8 }); } else if (fall > 2.5) ctx.audio.play('land', { gain: 0.35 }); }
         position.y = g.y; velocity.y = Math.max(0, velocity.y); grounded = true;
       } else grounded = position.y - g.y < 0.05;
       const surface = g.surface || world.getSurface(position.x, position.z);
@@ -141,9 +142,13 @@ export function createPlayer(ctx) {
       const bobX = Math.sin(bobT) * 0.02 * bobAmt * motion;
       const targetLean = 0;
       lean = damp(lean, targetLean, 8, dt);
+      // landing: a spring dip that recovers; strafing: a small roll into the movement
+      landDip += (landVel * 0.09 - landDip) * Math.min(1, dt * 18); landVel = damp(landVel, 0, 9, dt);
+      const lateral = velocity.x * right.x + velocity.z * right.z;
+      strafeRoll = damp(strafeRoll, -lateral / SPRINT * 0.022 * motion, 8, dt);
       ctx.post.shakeOffset(shake);
-      head.position.set(bobX + shake.x, eyeH + bobY + shake.y - wading * 0.35, 0);
-      head.rotation.set(pitch + recoilPitch, recoilYaw, Math.sin(bobT) * 0.004 * bobAmt * motion + lean * 0.2 + shake.x * 0.5);
+      head.position.set(bobX + shake.x, eyeH + bobY + shake.y - wading * 0.35 - landDip * motion, 0);
+      head.rotation.set(pitch + recoilPitch + landDip * 0.35 * motion, recoilYaw, Math.sin(bobT) * 0.004 * bobAmt * motion + lean * 0.2 + shake.x * 0.5 + strafeRoll);
       rig.position.copy(position);
       camera.getWorldPosition(api.eye);
 
