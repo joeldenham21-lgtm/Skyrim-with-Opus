@@ -7,21 +7,21 @@ import { makeWeapon, makeMag, makeGear, weaponWeight, magWeight } from '../playe
 import { money, esc, kg, act, tabsHtml, panelKit, ensureStyle, rankTitle } from './menus.js';
 
 const CSS = `
-#panels .p-supply { min-width: 720px; max-width: 860px; }
+#panels .p-supply { width: 100%; }
 #panels .p-supply .strip { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 18px; font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-dim); margin: -2px 0 6px; }
 #panels .p-supply .strip b { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
 #panels .p-supply .strip b.red { color: var(--red-ink); }
-#panels .p-supply .ledger { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 0 18px; }
-#panels .p-supply .index { border-right: 1px solid var(--ink-hair); padding-right: 6px; }
+#panels .p-supply .ledger { display: grid; grid-template-columns: 176px minmax(0, 1fr); gap: 0 18px; align-items: start; }
+#panels .p-supply .index { border-right: 1px solid var(--ink-hair); padding-right: 6px; position: sticky; top: 0; }
 #panels .p-supply .cat { display: flex; justify-content: space-between; width: 100%; background: transparent; border: 0; border-bottom: 1px dotted var(--ink-hair); color: var(--ink-dim); font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; text-align: left; padding: 6px 4px; cursor: pointer; }
 #panels .p-supply .cat:hover { color: var(--ink); background: var(--amber-wash); }
 #panels .p-supply .cat.on { color: var(--ink); box-shadow: inset 2px 0 0 var(--amber-ink); background: var(--amber-wash); }
 #panels .p-supply .cat.none { color: var(--ink-faint); }
 #panels .p-supply .cat .n { color: var(--amber-ink); letter-spacing: 0; font-variant-numeric: tabular-nums; }
 #panels .p-supply .cat.none .n { color: var(--ink-faint); }
-#panels .p-supply .scroll { max-height: calc(88vh - 236px); min-height: 220px; overflow-y: auto; overflow-x: hidden; padding-right: 6px; scrollbar-width: thin; scrollbar-color: var(--ink-dot) transparent; }
-#panels .p-supply .scroll::-webkit-scrollbar { width: 5px; } #panels .p-supply .scroll::-webkit-scrollbar-thumb { background: var(--ink-dot); }
-#panels .p-supply .row.shop { grid-template-columns: minmax(0, 1fr) 60px 90px auto; }
+#panels .p-supply .scroll { min-height: 200px; }
+#panels .p-supply .row.shop { grid-template-columns: minmax(0, 1fr) 64px 96px 150px; }
+#panels .p-supply .row.shop .acts { text-align: right; }
 #panels .p-supply .row.shop .k .sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #panels .p-supply .row.shop .k .tag { margin-left: 8px; }
 #panels .p-supply .row.shop .lock { font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-faint); white-space: nowrap; }
@@ -29,8 +29,7 @@ const CSS = `
 #panels .p-supply .cat-t { font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--amber-ink); margin: 2px 0 4px; display: flex; gap: 10px; align-items: center; white-space: nowrap; }
 #panels .p-supply .cat-t::after { content: ''; flex: 1; height: 1px; background: var(--ink-hair); }
 #panels .p-supply .cat-t .n { color: var(--ink-dim); letter-spacing: 0.1em; }
-#panels .p-supply .keys { margin-top: 8px; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint); }
-@media (max-width: 900px) { #panels .p-supply { min-width: 0; } #panels .p-supply .ledger { grid-template-columns: 1fr; } #panels .p-supply .index { border-right: 0; display: flex; flex-wrap: wrap; gap: 2px 4px; margin-bottom: 6px; } #panels .p-supply .cat { width: auto; } }
+@media (max-width: 900px) { #panels .p-supply { width: auto; } #panels .p-supply .ledger { grid-template-columns: 1fr; } #panels .p-supply .index { border-right: 0; display: flex; flex-wrap: wrap; gap: 2px 4px; margin-bottom: 6px; } #panels .p-supply .cat { width: auto; } }
 `;
 
 const CATS = [
@@ -85,13 +84,14 @@ export function lineOf(d) {
 const S = { mode: 'buy', cat: 'weapons', notice: '', red: false, rerender: null };
 
 export default {
-  id: 'supply', title: 'Supply crate',
+  id: 'supply', title: 'Vanno · Supply crate', form: '61-Q', keys: 'Esc close · ↑↓ select · ←→ category · Enter confirm · 1–2 tabs',
   render(ctx, api, data = {}) {
     ensureStyle('ui-b-supply', CSS);
     if (data.tab === 'sell' || data.tab === 'buy') S.mode = data.tab;
     if (data.cat && CATS.some(([k]) => k === data.cat)) S.cat = data.cat;
     const root = document.createElement('div'); root.className = 'p-supply';
     const D = () => ctx.state.data, inv = ctx.inventory;
+    const changed = () => { if (api?.weaponsChanged) api.weaponsChanged(); else ctx.weapons?.onInventoryChanged?.(); };
 
     // ---- catalogue by category (locked rows stay visible, greyed) ----
     function catalogue() {
@@ -151,10 +151,10 @@ export default {
       const note = buy
         ? '<div class="note">Requisitions are deducted from contract funds. Weapons are issued loaded; magazines empty; ammunition in lots of ten. Greyed lines await clearance.</div>'
         : '<div class="note">Buy-back at 40 % of list. Weapons go with their attachments and inserted magazine; loaded rounds are returned to the kit first. Artifacts are submitted at the terminal, not here.</div>';
-      return `<div class="strip"><span>Funds <b>${money(d.money)}</b></span><span>Load <b class="${over > 0 ? 'red' : ''}">${inv.weight().toFixed(1)} / ${inv.capacity()} kg</b>${over > 0 ? ` <b class="red">· over by ${over.toFixed(1)} kg</b>` : ''}</span><span>Clearance <b>${lvl}</b> · ${esc(rankTitle(lvl))}</span></div>` +
+      return `<div class="strip"><span>Clearance <b>${lvl}</b> · ${esc(rankTitle(lvl))}</span><span>${buy ? 'Requisition at list' : 'Return at 40 % of list'}</span><span>Load <b class="${over > 0 ? 'red' : ''}">${inv.weight().toFixed(1)} / ${inv.capacity()} kg</b>${over > 0 ? ` <b class="red">· over by ${over.toFixed(1)} kg</b>` : ''}</span></div>` +
         tabsHtml([['buy', 'Requisition'], ['sell', 'Return']], S.mode) +
         `<div class="ledger"><div class="index">${index}</div><div class="main"><div class="cat-t">${esc(catLabel(S.cat))}<span class="n">${list.length}</span></div><div class="scroll">${rows || empty}</div></div></div>` +
-        note + `<div class="keys">←→ category · ↑↓ select · Enter confirm · 1–9 pick</div>`;
+        note;
     }
 
     const handlers = {
@@ -172,7 +172,7 @@ export default {
         else if (c === 'mag') { inv.addMag(makeMag(id)); what = `${d.name} issued, empty.`; }
         else if (isInstance(d)) { inv.addGear(makeGear(id)); what = `${d.name} issued.`; }
         else { inv.add(id, 1); what = `${d.name} issued.`; }
-        ctx.weapons?.onInventoryChanged?.();
+        changed();
         const over = inv.overweight();
         say(`${what} ${money(price)} deducted.${over > 0 ? ` Load exceeds capacity by ${over.toFixed(1)} kg.` : ''}`, over > 0);
         redo(); return 'ui_buy';
@@ -195,7 +195,7 @@ export default {
           const d = def(id); const n = inv.count(id); if (!d || n <= 0) return false;
           const q = categoryOf(id) === 'ammo' ? Math.min(10, n) : 1; inv.remove(id, q); price = Math.round(d.price * q * BUYBACK); name = q > 1 ? `${q} rounds of ${d.name}` : d.name;
         }
-        inv.earn(price); ctx.weapons?.onInventoryChanged?.();
+        inv.earn(price); changed();
         say(`${name} returned. ${money(price)} credited.`); redo(); return 'ui_buy';
       },
     };

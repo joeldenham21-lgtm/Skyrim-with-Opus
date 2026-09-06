@@ -170,7 +170,7 @@ const RadiusShader = {
 
 // ---- sun shafts: occlusion mask (sky and bright sources vs depth) radially blurred toward the sun ----
 const RaysMaskShader = {
-  uniforms: { tColor: { value: null }, tDepth: { value: null }, uSun: { value: new THREE.Vector2(0.5, 0.5) }, uAspect: { value: 1.78 }, uFalloff: { value: 3.0 } },
+  uniforms: { tColor: { value: null }, tDepth: { value: null }, uSun: { value: new THREE.Vector2(0.5, 0.5) }, uAspect: { value: 1.78 }, uFalloff: { value: 1.6 } },
   vertexShader: /* glsl */`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: /* glsl */`
     ${GLSL_ACES}
@@ -303,6 +303,9 @@ export function createPost(ctx) {
     const samples = window.__radiusFast ? 0 : T.samples;
     target = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples, depthTexture: new THREE.DepthTexture(size.x, size.y), stencilBuffer: false });
     composer = new EffectComposer(renderer, target);
+    // the composer clones the target, and a cloned DepthTexture shares its Source (so its GL texture) with the original:
+    // both buffers would attach one depth texture and any pass sampling it would form a feedback loop. Give it its own.
+    composer.renderTarget2.depthTexture = new THREE.DepthTexture(size.x, size.y);
     scenePass = new ScenePass(scene, camera, st);
     aoPass = new AoBeamsPass(ctx, st);
     st.aoScale = T.aoScale; st.aoOn = T.aoScale > 0;
@@ -388,8 +391,9 @@ export function createPost(ctx) {
         _p.addScaledVector(_sun, 600).project(camera);
         if (_p.z < 1 && Number.isFinite(_p.x) && Number.isFinite(_p.y)) {
           const ux = _p.x * 0.5 + 0.5, uy = _p.y * 0.5 + 0.5;
+          // shafts still stream in from a sun just outside the frame (above it at noon)
           const outside = Math.max(0, -ux, ux - 1, -uy, uy - 1);
-          const fade = 1 - smoothstep(0, 0.5, outside);
+          const fade = 1 - smoothstep(0.15, 1.1, outside);
           if (fade > 0.001) {
             st.sunUv.set(ux, uy);
             const lowSun = 1 - smoothstep(0.03, 0.35, _sun.y);

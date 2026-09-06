@@ -5,6 +5,7 @@
 import { esc, ensureStyle } from './menus.js';
 
 const CSS = `
+#panels .sheet.pnl.map-card { width: auto; height: auto; max-height: 92vh; }
 #panels .p-map canvas { display: block; }
 #panels .p-map .legend { display: flex; flex-wrap: wrap; gap: 2px 16px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-dim); margin-top: 8px; }
 #panels .p-map .legend span { white-space: nowrap; }
@@ -153,12 +154,12 @@ function drawMap(ctx, cv, feeds) {
 }
 
 export default {
-  id: 'map', title: 'Sheet 61 · Vanno sector',
+  id: 'map', title: 'Pechorsk Restricted Zone · Sheet 61 · Vanno sector', form: '61-M', keys: 'Esc close · M close',
   render(ctx) {
     ensureStyle('ui-b-map', CSS);
     const root = document.createElement('div'); root.className = 'p-map';
     const d = ctx.state.data;
-    const size = Math.round(Math.max(220, Math.min(window.innerHeight * 0.88 - 176, window.innerWidth * 0.62, 760)));   // 176: chrome, legend, contract lines
+    const size = Math.round(Math.max(220, Math.min(window.innerHeight * 0.92 - 150, window.innerWidth * 0.62, 760)));   // 176: chrome, legend, contract lines
     const a = ctx.missions?.active; const active = Array.isArray(a) ? a : a ? [a] : [];
     const targets = active.flatMap((m) => missionTargets(ctx, m));
     let markers = [], sightings = [];

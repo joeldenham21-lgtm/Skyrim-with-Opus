@@ -4,35 +4,35 @@
 // Panel module for ui/panels.js: { id, title, render(ctx, api, data) -> HTMLElement, onKey(e), onClose() }.
 import { WEAPONS, AMMO, MAGAZINES, def, categoryOf, weightOf, defaultAmmo } from '../data/index.js';
 import { weaponWeight, magWeight } from '../player/inventory.js';
-import { money, esc, kg, sec, act, panelKit, ensureStyle } from './menus.js';
+import { esc, kg, sec, act, panelKit, ensureStyle } from './menus.js';
 
 const CSS = `
-#panels .p-storage { min-width: 880px; max-width: 1000px; }
+#panels .p-storage { width: 100%; }
 #panels .p-storage .strip { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 18px; font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-dim); margin: -2px 0 8px; }
 #panels .p-storage .strip b { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
 #panels .p-storage .strip b.red { color: var(--red-ink); }
-#panels .p-storage .scroll { max-height: calc(88vh - 220px); min-height: 220px; overflow-y: auto; overflow-x: hidden; padding-right: 6px; scrollbar-width: thin; scrollbar-color: var(--ink-dot) transparent; }
-#panels .p-storage .scroll::-webkit-scrollbar { width: 5px; } #panels .p-storage .scroll::-webkit-scrollbar-thumb { background: var(--ink-dot); }
+#panels .p-storage .scroll { min-height: 200px; }
 #panels .p-storage .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 26px; }
 #panels .p-storage .cols > div + div { border-left: 1px solid var(--ink-hair); padding-left: 26px; }
 #panels .p-storage .col-t { display: flex; justify-content: space-between; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink); border-bottom: 1px solid var(--ink); padding-bottom: 5px; margin-bottom: 2px; }
 #panels .p-storage .col-t span { color: var(--ink-dim); font-variant-numeric: tabular-nums; letter-spacing: 0.08em; }
 #panels .p-storage .row.st { grid-template-columns: minmax(0, 1fr) auto auto; }
+#panels .p-storage .row.st .acts { min-width: 150px; text-align: right; }
 #panels .p-storage .row.st .num { min-width: 52px; }
 #panels .p-storage .row.st .k .sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #panels .p-storage .row.st .acts .act { margin-left: 4px; padding: 3px 7px; }
 #panels .p-storage .sec { margin: 10px 0 4px; }
-#panels .p-storage .keys { margin-top: 8px; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint); }
-@media (max-width: 1000px) { #panels .p-storage { min-width: 0; } #panels .p-storage .cols { grid-template-columns: 1fr; } #panels .p-storage .cols > div + div { border-left: 0; padding-left: 0; border-top: 1px solid var(--ink-hair); margin-top: 10px; padding-top: 6px; } }
+@media (max-width: 1000px) { #panels .p-storage { width: auto; } #panels .p-storage .cols { grid-template-columns: 1fr; } #panels .p-storage .cols > div + div { border-left: 0; padding-left: 0; border-top: 1px solid var(--ink-hair); margin-top: 10px; padding-top: 6px; } }
 `;
 const S = { notice: '', red: false, rerender: null };
 
 export default {
-  id: 'storage', title: 'Locker 61',
+  id: 'storage', title: 'Vanno · Locker 61', form: '61-L', keys: 'Esc close · ↑↓ select · Enter confirm · 1–9 pick',
   render(ctx, api) {
     ensureStyle('ui-b-storage', CSS);
     const root = document.createElement('div'); root.className = 'p-storage';
     const D = () => ctx.state.data, inv = ctx.inventory;
+    const changed = () => { if (api?.weaponsChanged) api.weaponsChanged(); else ctx.weapons?.onInventoryChanged?.(); };
     // the locker, with the old save shape folded in (v1 kept ammo by calibre)
     const locker = () => {
       const d = D(); if (!d.storage) d.storage = { weapons: [], mags: [], gear: [], items: {} };
@@ -79,10 +79,10 @@ export default {
     }
     function fill() {
       const st = locker(), over = inv.overweight(), lw = lockerWeight(st);
-      return `<div class="strip"><span>Carried <b class="${over > 0 ? 'red' : ''}">${inv.weight().toFixed(1)} / ${inv.capacity()} kg</b>${over > 0 ? ` <b class="red">· over by ${over.toFixed(1)} kg</b>` : ''}</span><span>Locker <b>${lw.toFixed(1)} kg</b> · no limit</span><span>Funds <b>${money(D().money)}</b></span></div>` +
+      return `<div class="strip"><span>Carried <b class="${over > 0 ? 'red' : ''}">${inv.weight().toFixed(1)} / ${inv.capacity()} kg</b>${over > 0 ? ` <b class="red">· over by ${over.toFixed(1)} kg</b>` : ''}</span><span>Locker <b>${lw.toFixed(1)} kg</b> · no limit</span></div>` +
         `<div class="scroll"><div class="cols">${column('Carried', `${inv.weight().toFixed(1)} kg`, inv.data, 'in')}${column('Locker', `${lw.toFixed(1)} kg`, st, 'out')}</div></div>` +
         '<div class="note">Locker contents are not subject to the Tide and are not carried into the Radius. Everything on the Explorer\'s person is forfeit on incident. Worn armour and rig magazines can be stowed; the slot empties.</div>' +
-        '<div class="keys">↑↓ select · Enter confirm · 1–9 pick</div>';
+        '';
     }
     // ---- moves: the instance itself changes lists ----
     function move(dir, kind, id, qty) {
@@ -90,20 +90,20 @@ export default {
       if (kind === 'w') {
         if (dir === 'in') { const w = inv.removeWeapon(+id); if (!w) return false; st.weapons.push(w); say(`${WEAPONS[w.id]?.full || w.id} stowed.`); }
         else { const i = st.weapons.findIndex((w) => w.uid === +id); if (i < 0) return false; const [w] = st.weapons.splice(i, 1); inv.addWeapon(w); say(`${WEAPONS[w.id]?.full || w.id} taken.`); }
-        ctx.weapons?.onInventoryChanged?.();
+        changed();
       } else if (kind === 'm') {
         if (dir === 'in') { const m = inv.removeMag(+id); if (!m) return false; st.mags.push(m); say(`${MAGAZINES[m.id]?.name || m.id} stowed.`); }
         else { const i = st.mags.findIndex((m) => m.uid === +id); if (i < 0) return false; const [m] = st.mags.splice(i, 1); inv.addMag(m); say(`${MAGAZINES[m.id]?.name || m.id} taken.`); }
-        ctx.weapons?.onInventoryChanged?.();
+        changed();
       } else if (kind === 'g') {
         if (dir === 'in') { const g = inv.removeGear(+id); if (!g) return false; st.gear.push(g); say(`${def(g.id)?.name || g.id} stowed.`); }
         else { const i = st.gear.findIndex((g) => g.uid === +id); if (i < 0) return false; const [g] = st.gear.splice(i, 1); inv.addGear(g); say(`${def(g.id)?.name || g.id} taken.`); }
-        ctx.gear?.onInventoryChanged?.(); ctx.weapons?.onInventoryChanged?.();
+        ctx.gear?.onInventoryChanged?.(); changed();
       } else {
         const name = def(id)?.name || id;
         if (dir === 'in') { const n = Math.min(qty, inv.count(id)); if (n <= 0 || !inv.remove(id, n)) return false; st.items[id] = (st.items[id] || 0) + n; say(`${n > 1 ? n + ' × ' : ''}${name} stowed.`); }
         else { const n = Math.min(qty, st.items[id] || 0); if (n <= 0) return false; st.items[id] -= n; if (st.items[id] <= 0) delete st.items[id]; inv.add(id, n); say(`${n > 1 ? n + ' × ' : ''}${name} taken.`); }
-        if (categoryOf(id) === 'ammo') ctx.weapons?.onInventoryChanged?.();
+        if (categoryOf(id) === 'ammo') changed();
       }
       const over = inv.overweight(); if (dir === 'out' && over > 0) say(`${S.notice} Load exceeds capacity by ${over.toFixed(1)} kg.`, true);
       redo(); return 'ui_click';

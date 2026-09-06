@@ -6,11 +6,10 @@ import { ITEMS, RANKS, rankFor, def } from '../data/index.js';
 import { THIN, money, esc, sec, row, row3, act, tabsHtml, panelKit, ensureStyle, rankTitle, rankOf } from './menus.js';
 
 const CSS = `
-#panels .p-term { min-width: 700px; max-width: 800px; position: relative; }
+#panels .p-term { width: 100%; position: relative; }
 #panels .p-term .greet { font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink); border-bottom: 1px solid var(--ink-hair); padding: 0 0 7px; margin-bottom: 6px; display: flex; flex-wrap: wrap; gap: 2px 12px; }
 #panels .p-term .greet .rt { color: var(--ink-dim); letter-spacing: 0.14em; margin-left: auto; }
-#panels .p-term .scroll { max-height: calc(88vh - 250px); min-height: 200px; overflow-y: auto; overflow-x: hidden; padding-right: 6px; scrollbar-width: thin; scrollbar-color: var(--ink-dot) transparent; }
-#panels .p-term .scroll::-webkit-scrollbar { width: 5px; } #panels .p-term .scroll::-webkit-scrollbar-thumb { background: var(--ink-dot); }
+#panels .p-term .scroll { min-height: 200px; }
 #panels .p-term .mission { padding: 8px 2px 10px; border-bottom: 1px solid var(--ink-hair); }
 #panels .p-term .mission .code { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink); font-weight: 500; }
 #panels .p-term .mission .code .st { color: var(--amber-ink); margin-left: 10px; letter-spacing: 0.18em; font-size: 10px; }
@@ -25,17 +24,16 @@ const CSS = `
 #panels .p-term .level b { font-family: var(--display); font-weight: 300; font-size: 40px; line-height: 1; letter-spacing: 0.08em; }
 #panels .p-term .level span { color: var(--ink-dim); font-size: 11px; }
 #panels .p-term .level span i { font-style: normal; color: var(--ink); }
-#panels .p-term .stamp-corner { position: absolute; right: 8px; top: -6px; z-index: 3; pointer-events: none; }
-#panels .p-term .keys { margin-top: 8px; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint); }
+#panels .p-term .stamp-corner { position: absolute; right: 12px; top: 36px; z-index: 3; pointer-events: none; }
 #panels .p-term .row.art { grid-template-columns: minmax(0, 1fr) 90px auto; }
-@media (max-width: 860px) { #panels .p-term { min-width: 0; } }
+@media (max-width: 860px) { #panels .p-term { width: auto; } }
 `;
 const TABS = [['missions', 'Contracts'], ['artifacts', 'Artifacts'], ['status', 'Status']];
 const ABANDON_RATE = 0.1;     // share of the contract value charged for abandonment
 const S = { tab: 'missions', notice: '', red: false, stamp: 0, confirm: null, rerender: null };
 
 export default {
-  id: 'terminal', title: 'UNPSC Terminal 3',
+  id: 'terminal', title: 'Vanno · UNPSC Terminal 3', form: '61-T', keys: 'Esc close · ↑↓ select · ←→ 1–3 tabs · Enter confirm',
   render(ctx, api, data = {}) {
     ensureStyle('ui-b-terminal', CSS);
     if (data.tab && TABS.some(([k]) => k === data.tab)) S.tab = data.tab;
@@ -112,7 +110,7 @@ export default {
       const body = S.tab === 'missions' ? contractsHtml() : S.tab === 'artifacts' ? artifactsHtml() : statusHtml();
       return stamp + `<div class="greet"><span>Vanno Outpost · UNPSC Terminal 3 · Explorer ${d.explorer} · Security level ${lvl}</span><span class="rt">${esc(rankTitle(lvl))}</span></div>` +
         tabsHtml(TABS, S.tab, { missions: active.length + avail || '', artifacts: (inv.artifacts ? inv.artifacts().length : 0) || '' }) +
-        `<div class="scroll">${body}</div><div class="keys">←→ tabs · ↑↓ select · Enter confirm · 1–9 pick</div>`;
+        `<div class="scroll">${body}</div>`;
     }
 
     // abandon: the missions module's own method when it has one; otherwise the record is withdrawn here and the module told

@@ -6,19 +6,17 @@ import { CALIBERS, AMMO, WEAPONS, MAGAZINES, ITEMS, def } from '../data/index.js
 import { esc, clockOf, spanText, sec, row, panelKit, ensureStyle } from './menus.js';
 
 const CSS = `
-#panels .p-bed { width: 500px; max-width: 100%; }
+#panels .sheet.pnl.bed-card { width: 560px; height: auto; max-height: 88vh; }
+#panels .p-bed { width: 100%; }
 #panels .p-bed h1 { font-family: var(--display); font-weight: 300; font-size: 26px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink); margin: 0 0 8px; line-height: 1.05; }
-#panels .p-bed .scroll { max-height: calc(88vh - 250px); overflow-y: auto; overflow-x: hidden; padding-right: 6px; scrollbar-width: thin; scrollbar-color: var(--ink-dot) transparent; }
-#panels .p-bed .scroll::-webkit-scrollbar { width: 5px; } #panels .p-bed .scroll::-webkit-scrollbar-thumb { background: var(--ink-dot); }
 #panels .p-bed .row .num .u { margin-left: 4px; }
 #panels .p-bed .row.dim .k { color: var(--ink-faint); }
 #panels .p-bed .btns { margin-top: 10px; }
-#panels .p-bed .keys { margin-top: 8px; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint); }
 `;
 const S = { notice: '', red: false, sleeping: false, rerender: null };
 
 export default {
-  id: 'bed', title: 'Bunk',
+  id: 'bed', title: 'Vanno · Bunk', form: '61-B', keys: 'Esc stay up · ↑↓ select · Enter confirm',
   render(ctx, api) {
     ensureStyle('ui-b-bed', CSS);
     const root = document.createElement('div'); root.className = 'p-bed';
@@ -64,19 +62,19 @@ export default {
         : '<div class="note">Sleeping records the contract log. Anything left in the Radius stays there. The Tide is expected at 05:00 on day ' + d.tideDay + '.</div>';
       return `<h1>Sleep until 07:00</h1>` + head + tide + `<div class="scroll">${kitHtml()}</div>` +
         `<div class="btns"><button class="btn primary" data-x="sleep" ${S.sleeping ? 'disabled' : ''}>Confirm · sleep until 07:00</button><button class="btn" data-x="cancel" ${S.sleeping ? 'disabled' : ''}>Stay up</button></div>` +
-        '<div class="keys">↑↓ select · Enter confirm · Esc stay up</div>';
+        '';
     }
     const handlers = {
       cancel() { if (S.sleeping) return false; api.close?.(); return 'ui_close'; },
       sleep() {
         if (S.sleeping) return false;
         // the sheet dims itself while the room goes dark, then the clock jumps, the log is written and the sheet is put away
-        S.sleeping = true;
+        S.sleeping = true; api.lock?.(true);
         const panels = document.getElementById('panels'); panels?.classList.add('sleeping');
         ctx.hud.fadeOut(); snd('sleep', 0.8);
         const gen = D();
         setTimeout(() => {
-          S.sleeping = false; panels?.classList.remove('sleeping');
+          S.sleeping = false; panels?.classList.remove('sleeping'); api.lock?.(false);
           if (D() !== gen) return;   // a new game replaced the state mid-fade; abandon quietly
           ctx.time.sleepToMorning(); ctx.player.heal(10); ctx.director?.rest?.(); ctx.state.save(); ctx.events.emit('sleep');
           api.close?.();

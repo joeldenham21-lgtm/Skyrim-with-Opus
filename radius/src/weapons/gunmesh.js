@@ -123,6 +123,7 @@ const PALETTE = {
   bore:       { lib: null, color: 0x08090a, roughness: 0.9, metalness: 0.3, wear: [0, 0.2, 0, 0], bare: 0x111111, seed: 0.3 },
   wood:       { lib: 'wood', color: 0x7a4a22, roughness: 0.62, metalness: 0, wear: [0.55, 0.55, 0.15, 1.0], bare: 0xa8804e, seed: 2.9 },
   woodDark:   { lib: 'wood', color: 0x553417, roughness: 0.6, metalness: 0, wear: [0.5, 0.6, 0.1, 1.0], bare: 0x86633c, seed: 6.4 },
+  woodChecker:{ lib: 'wood', color: 0x5e3a1c, roughness: 0.6, metalness: 0, wear: [0.5, 0.5, 0.1, 0.8], bare: 0x8c6a44, seed: 6.9, pattern: 2, patternK: 0.6 },
   woodPale:   { lib: 'wood', color: 0x8c6236, roughness: 0.66, metalness: 0, wear: [0.5, 0.5, 0.12, 1.0], bare: 0xb08a5a, seed: 7.3 },
   laminate:   { lib: 'wood', color: 0x6a3f1c, roughness: 0.5, metalness: 0, wear: [0.5, 0.45, 0.15, 1.0], bare: 0x9a6a3c, seed: 8.1 },
   bakelite:   { lib: 'bakelite', color: 0x7a4426, roughness: 0.42, metalness: 0.04, wear: [0.55, 0.45, 0.25, 0.3], bare: 0xb07046, seed: 9.1, pattern: 1 },
@@ -300,15 +301,15 @@ export function mirrorX(g) {
 // 10 mm (slot 5.3 mm) with the 45 degree flanks that the clamps grab. lo: one bar.
 export function railZ(len, h = 0.0085, w = 0.0212, teeth = true) {
   const geos = [box(w * 0.86, h - 0.0038, len)]; geos[0].translate(0, (h - 0.0038) / 2, 0);
-  if (!hi() || !teeth) { const t = box(w, 0.0038, len); t.translate(0, h - 0.0019, 0); geos.push(t); return mergeGeometries(geos.map((g) => g.toNonIndexed()), false); }
+  if (!hi() || !teeth) { const t = box(w, 0.0038, len); t.translate(0, h - 0.0019, 0); geos.push(t); return mergeGeometries(geos.map((g) => (g.index ? g.toNonIndexed() : g)), false); }
   const n = Math.floor(len / 0.01), half = w / 2, base = h - 0.0038;
   const tooth = shapeFrom([[-half, 0], [half, 0], [half, 0.0016], [half - 0.0024, 0.0038], [-(half - 0.0024), 0.0038], [-half, 0.0016]]);
   for (let i = 0; i < n; i++) {
     const g = new THREE.ExtrudeGeometry(tooth, { depth: 0.0047, bevelEnabled: false, steps: 1 });
-    g.translate(0, base, -len / 2 + i * 0.01 + 0.00265 - 0.0047 / 2 + 0.0047 / 2);
+    g.translate(0, base, -len / 2 + i * 0.01 + 0.00265);
     geos.push(g);
   }
-  return mergeGeometries(geos.map((g) => g.toNonIndexed()), false);
+  return mergeGeometries(geos.map((g) => (g.index ? g.toNonIndexed() : g)), false);
 }
 // n thin transverse cuts (slide serrations, cover ribs): boxes w wide (x), hh tall, d thick, starting at z0 stepping pitch toward -z
 export function serrations(geos, n, x, y, z0, pitch, w, hh, d) { for (let i = 0; i < n; i++) geos.push(at(box(w, hh, d), x, y, z0 - i * pitch)); return geos; }
@@ -517,7 +518,6 @@ function akStock(M, kind, g) {
   } else if (kind === 'telescope') {
     // AK-12: hinge, a square tube with locking notches, a sliding butt with an adjustable cheek riser
     P.add(M.painted, at(box(0.026, 0.038, 0.24), 0, 0.014, 0.135));
-    if (hi()) slotRow(P.map.get(M.painted) ? P.map.get(M.painted) : [], 0, 0, 0, 0, 0, 0, 0, 0);
     if (hi()) for (let i = 0; i < 4; i++) P.add(M.bore, at(box(0.002, 0.006, 0.006), 0.0135, -0.002, 0.16 + i * 0.022));
     P.add(M.polymer, side([[-0.24, 0.046], [-0.33, 0.04], ['q', -0.345, 0.04, -0.345, 0.024], [-0.345, -0.07], ['q', -0.345, -0.086, -0.33, -0.086], [-0.24, -0.02], [-0.22, 0.0]], 0.036, 0.002));   // butt
     P.add(M.polymer, at(box(0.03, 0.012, 0.09), 0, 0.05, 0.29));                              // cheek riser
@@ -1055,7 +1055,6 @@ function build1911(M, id) {
   P.add(M.frame, side([[-0.004, -0.002], [0.134, -0.002], [0.134, -0.014], [0.074, -0.016], [0.05, -0.018], [0.042, -0.028], [0.022, -0.104], [-0.022, -0.11], ['q', -0.036, -0.06, -0.026, -0.028], [-0.03, -0.012], [-0.012, -0.004]], 0.024, 0.0015));
   P.add(M.frame, rect(0.052, 0.134, -0.014, 0.0, 0.026, 0.001));
   P.add(M.frame, side([[0.042, -0.02], [0.084, -0.02], ['q', 0.098, -0.02, 0.098, -0.034], ['q', 0.098, -0.048, 0.084, -0.048], [0.05, -0.048], [0.042, -0.04]], 0.008, 0.0008));
-  P.add(M.frame, side([[0.042, -0.02], [0.084, -0.02], ['q', 0.094, -0.02, 0.094, -0.034], ['q', 0.094, -0.044, 0.084, -0.044], [0.05, -0.044], [0.046, -0.04]], 0.0, 0.0));   // guard inner edge (thin)
   // beavertail grip safety, arched checkered mainspring housing, thumb safety, slide stop
   P.add(M.gunmetal, side([[-0.012, -0.004], [-0.03, -0.012], ['q', -0.04, -0.03, -0.034, -0.05], [-0.024, -0.03]], 0.014, 0.001));
   P.add(M.polymerGrip, side([[-0.018, -0.05], ['q', -0.032, -0.08, -0.024, -0.108], [-0.014, -0.108], [-0.006, -0.05]], 0.02, 0.001));
@@ -1600,7 +1599,7 @@ function buildSV98(M, id) {
   P.add(M.frame, side([[0.1, -0.02], [0.19, -0.02], [0.19, 0.01], [0.1, 0.01]], 0.03, 0.0012));
   // heavy fluted barrel with the muzzle brake; back-up irons on the rail
   P.add(M.barrel, at(latheZ([[0.017, 0], [0.017, 0.03], [0.014, 0.05], [0.013, 0.64], [0.0125, 0.65]]), 0, 0.045, -0.21));
-  if (hi()) for (let i = 0; i < 6; i++) P.add(M.bore, at(box(0.0025, 0.003, 0.45], Math.cos(i * 1.047) * 0.0135, 0.045 + Math.sin(i * 1.047) * 0.0135, -0.55, 0, 0, i * 1.047));
+  if (hi()) for (let i = 0; i < 6; i++) P.add(M.bore, at(box(0.0025, 0.003, 0.45), Math.cos(i * 1.047) * 0.0135, 0.045 + Math.sin(i * 1.047) * 0.0135, -0.55, 0, 0, i * 1.047));
   P.add(M.gunmetal, at(latheZ([[0.0125, 0], [0.016, 0.004], [0.016, 0.08], [0.013, 0.09], [0.006, 0.09], [0.006, 0.087]]), 0, 0.045, -0.86));
   if (hi()) for (let i = 0; i < 3; i++) { P.add(M.bore, at(box(0.04, 0.008, 0.012), 0, 0.045, -0.88 - i * 0.02)); }
   P.add(M.bore, at(cylZ(0.0038, 0.0038, 0.002, 10), 0, 0.045, -0.9491));
@@ -1687,4 +1686,241 @@ function buildPKM(M, id) {
     lowerRot: [0.45, 0.35, 0.25], magTravel: [0, -0.18, 0.0], cycle: 'bolt', slideTravel: 0.12, ejectDir: [1, 0.3, 0.35], mounts: WEAPONS[id].mounts, defaultMag: 'mag_pkm100', padSpec: { v: [-0.096, 0.04], w: 0.036 },
   };
   return g;
+}
+
+// ---------------------------------------------------------------- assembly
+const BUILDERS = {
+  pm: (M, id) => buildPM(M, id, false), pb: (M, id) => buildPM(M, id, true), aps: buildAPS, tt: buildTT, glock: buildGlock, m9: buildM9, m1911: build1911,
+  kedr: buildKedr, mp5: buildMP5, ppsh: buildPPSh, sks: buildSKS,
+  vss: (M, id) => buildVSS(M, id, 'vss'), val: (M, id) => buildVSS(M, id, 'val'), sr3m: (M, id) => buildVSS(M, id, 'sr3m'),
+  m4: (M, id) => buildAR(M, { kind: 'm4' }, id), hk416: (M, id) => buildAR(M, { kind: 'hk416' }, id), scar: (M, id) => buildAR(M, { kind: 'scar' }, id),
+  toz: buildTOZ, mp153: buildMP153, rem870: buildRem870,
+  mosin: (M, id) => buildMosin(M, id, false), obrez: (M, id) => buildMosin(M, id, true), svd: buildSVD, sv98: buildSV98, pkm: buildPKM,
+};
+for (const k of Object.keys(AK_SPECS)) BUILDERS[k] = (M, id) => buildAK(M, AK_SPECS[k], id);
+export const BUILD_IDS = Object.keys(BUILDERS);
+
+const _v = new THREE.Vector3();
+// local position of a descendant in the group's frame (attachment groups are only ever translated, never rotated)
+function localPos(o, root, out) { out.set(0, 0, 0); let p = o; while (p && p !== root) { out.add(p.position); p = p.parent; } return out; }
+function disposeGroup(g) { g.traverse((o) => { if (o.isMesh && o.geometry) o.geometry.dispose(); }); }
+
+// Swap the magazine child. magId null empties the well. Fixed magazines (SKS, tube guns, Mosin floorplate) are left alone.
+export function setMagazine(group, magId) {
+  const mag = group.getObjectByName('mag'); if (!mag || mag.userData.fixed) return null;
+  for (const c of [...mag.children]) { mag.remove(c); disposeGroup(c); }
+  mag.userData.magId = magId || null;
+  if (!magId || !MAGAZINES[magId]) return null;
+  const m = buildMag(magId, { world: group.userData.lod !== 'hi', wear: group.userData.wear || 0 });
+  mag.add(m);
+  return m;
+}
+const OPTIC_ANCHOR = (def) => (def.fits.includes('dovetail') ? 'mount_dovetail' : def.fits.includes('pu') ? 'mount_pu' : 'mount_top');
+// Install attachment meshes for inst.rails and inst.attachments, hiding the furniture they replace. Returns the eye point
+// for the ADS pose when an optic is mounted (gun space) and records ud.adsOptic for weapons.js.
+export function applyAttachments(group, inst) {
+  const ud = group.userData; const world = ud.lod !== 'hi';
+  for (const c of [...group.children]) if (c.userData.attachment) { group.remove(c); disposeGroup(c); }
+  group.traverse((o) => { if (o.userData.removable) o.visible = true; });
+  const md = group.getObjectByName('muzzle_device'); if (md) md.visible = true;
+  const muzzle = group.getObjectByName('muzzle');
+  if (muzzle) { if (!ud.muzzleBase) ud.muzzleBase = muzzle.position.toArray(); muzzle.position.fromArray(ud.muzzleBase); }
+  ud.installed = [];
+  const anchors = {};
+  for (const c of group.children) if (c.name.startsWith('mount_')) anchors[c.name] = c;
+  const ids = [...(inst && inst.rails ? inst.rails : []), ...Object.values(inst && inst.attachments ? inst.attachments : {})];
+  let opticEye = null, lightOn = null;
+  for (const id of ids) {
+    const def = ATTACHMENTS[id]; if (!def) continue;
+    const att = buildAttachment(id, { world, wear: ud.wear || 0, gun: ud });
+    if (!att) continue;
+    const au = att.userData; att.userData.attachment = id;
+    const anchorName = au.anchor || (def.slot === 'top' ? OPTIC_ANCHOR(def) : def.slot === 'muzzle' ? 'mount_muzzle' : def.slot === 'under' ? 'mount_under' : def.slot === 'side' ? 'mount_side' : def.slot === 'stock' ? (au.pad ? 'mount_pad' : 'mount_stock') : 'mount_dovetail');
+    const anchor = anchors[anchorName] || (anchorName === 'mount_side' ? anchors.mount_under : null);
+    if (!anchor) continue;
+    localPos(anchor, group, _v); att.position.copy(_v);
+    if (au.replaces) group.traverse((o) => { if (o.userData.removable === au.replaces) o.visible = false; });
+    if (def.slot === 'muzzle') { if (md) md.visible = false; if (muzzle) muzzle.position.set(_v.x, _v.y, _v.z - (au.length || 0.05) - 0.003); }
+    if (def.slot === 'top' && au.eye) opticEye = new THREE.Vector3(_v.x + au.eye[0], _v.y + au.eye[1], _v.z + au.eye[2]);
+    if (def.effects && def.effects.light) lightOn = att;
+    group.add(att);
+    ud.installed.push(id);
+    if (def.slot === 'rail') att.traverse((o) => { if (o.name.startsWith('mount_')) anchors[o.name] = o; });
+  }
+  ud.opticEye = opticEye ? opticEye.toArray() : null;
+  if (opticEye) {
+    const relief = ATTACHMENTS[ids.find((i) => ATTACHMENTS[i] && ATTACHMENTS[i].slot === 'top')]?.effects?.zoom > 1.2 ? 0.075 : 0;
+    const z = relief ? Math.min(ud.ads.p[2] + 0.06, Math.max(ud.ads.p[2] - 0.08, -relief - opticEye.z)) : ud.ads.p[2];
+    ud.adsOptic = { p: [-opticEye.x, -opticEye.y - 0.002, z], r: ud.ads.r.slice() };
+  } else ud.adsOptic = null;
+  ud.lightMesh = lightOn || null;
+  return { opticEye };
+}
+// Build a complete weapon: buildGun(id) alone gives the stock gun with its default magazine; pass the inventory instance
+// for its condition, attachments and magazine. lod 'lo' is the enemy-held model (~600-1200 triangles, casts shadows).
+export function buildGun(id, opts = {}) {
+  const def = WEAPONS[id]; const buildId = def ? def.build : id;
+  const lod = opts.lod === 'lo' ? 'lo' : 'hi';
+  const inst = opts.inst || null;
+  const prev = LOD; LOD = lod;
+  const M = matKit({ world: lod !== 'hi', parts: inst && inst.parts ? inst.parts : null, wear: opts.wear || 0 });
+  let g;
+  try { g = (BUILDERS[buildId] || BUILDERS.pm)(M, id); } finally { LOD = prev; }
+  g.userData.lod = lod; g.userData.buildId = buildId; g.userData.wear = inst && inst.parts ? 1 - (inst.parts.barrel + inst.parts.bolt + inst.parts.frame) / 300 : (opts.wear || 0);
+  if (!g.userData.grips) g.userData.grips = {};
+  const magId = inst ? (inst.mag ? inst.mag.id : null) : (g.userData.defaultMag || (def && def.defaultMag) || null);
+  LOD = lod; try { setMagazine(g, magId); applyAttachments(g, inst); } finally { LOD = prev; }
+  g.traverse((o) => { if (o.isMesh) { o.castShadow = lod !== 'hi'; o.receiveShadow = true; o.frustumCulled = lod !== 'hi'; } });
+  if (lod === 'hi') hookGlovePose(g);
+  return g;
+}
+// Gloves parented under the weapon group (hands.js does that) get posed for its grips the first time they render there.
+function hookGlovePose(g) {
+  const body = g.children.find((o) => o.isMesh && o.name === 'body') || g.children.find((o) => o.isMesh);
+  if (!body) return;
+  body.onBeforeRender = () => {
+    const ch = g.children;
+    for (let i = 0; i < ch.length; i++) { const c = ch[i]; if (c.userData.isGlove && c.userData.poseFor !== g) { c.userData.poseFor = g; const spec = g.userData.grips ? g.userData.grips[c.userData.side] : null; poseHand(c, spec ? spec.pose || (c.userData.side === 'left' ? 'foreend' : 'rifle') : 'rifle'); } }
+  };
+}
+
+// ---------------------------------------------------------------- hands
+// Right hand in its gripping frame: wrist at the origin, palm slab in the YZ plane facing -x, knuckles toward -z,
+// fingers curling toward -x around a vertical bar. The left hand is the mirror (scale.x = -1). Each hand is a skinned
+// mesh: a wrist bone, three bones per finger, three for the thumb; poseHand() closes the fingers on a grip size.
+export const HAND_GRIP = new THREE.Vector3(-0.031, 0, -0.092);   // local point that sits on the grip axis
+const FINGER_ROWS = [[0.03, 1.0], [0.01, 1.08], [-0.01, 1.0], [-0.03, 0.82]];   // y of the knuckle, length scale
+function skinGeo(g, a, b = a, wa = 1) {
+  const n = g.attributes.position.count;
+  const si = new Float32Array(n * 4), sw = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) { si[i * 4] = a; si[i * 4 + 1] = b; sw[i * 4] = wa; sw[i * 4 + 1] = 1 - wa; }
+  g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(new Uint16Array(si), 4));
+  g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4));
+  return g;
+}
+// capsule from a to b (hand space), radius r, with a seam strip along its back (+x side, away from the palm)
+function phalanx(list, seamList, a, b, r0, r1, bone, seam = true) {
+  const d = new THREE.Vector3().subVectors(b, a); const len = d.length(); d.normalize();
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d);
+  const seg = cylY(r0, r1, len, hi() ? 10 : 7); seg.applyQuaternion(q); seg.translate((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
+  list.push(skinGeo(seg, bone));
+  if (seam && hi()) {
+    const s = box(0.0012, 0.0022, len * 0.9); s.rotateX(Math.PI / 2); s.applyQuaternion(q); s.translate((a.x + b.x) / 2 + (r0 + r1) / 2 * 0.98, (a.y + b.y) / 2, (a.z + b.z) / 2);
+    seamList.push(skinGeo(s, bone));
+    for (let i = 0; i < 3; i++) { const st = box(0.002, 0.0008, 0.0016); st.applyQuaternion(q); const t = (i + 0.5) / 3 - 0.5; st.translate((a.x + b.x) / 2 + (r0 + r1) / 2 * 1.02, (a.y + b.y) / 2 + d.y * t * len, (a.z + b.z) / 2 + d.z * t * len); seamList.push(skinGeo(st, bone)); }
+  }
+}
+function buildHand(M, mirror) {
+  const g = new THREE.Group(); g.name = mirror ? 'handL' : 'handR';
+  const glove = [], cuff = [], seam = [];
+  const bones = []; const root = new THREE.Bone(); root.name = 'wrist'; bones.push(root);
+  // palm: a rounded slab, wider at the knuckles, thicker at the heel; the knuckle ridge; a seam around the edge
+  glove.push(skinGeo(side([[0.0, -0.038], [0.082, -0.032], ['q', 0.09, -0.03, 0.09, -0.02], [0.09, 0.03], ['q', 0.09, 0.04, 0.08, 0.04], [0.0, 0.044], ['q', -0.012, 0.043, -0.012, 0.03], [-0.012, -0.03], ['q', -0.012, -0.038, 0.0, -0.038]], 0.026, 0.004), 0));
+  glove.push(skinGeo(at(cylY(0.011, 0.011, 0.078, hi() ? 12 : 8), -0.004, 0, -0.088), 0));
+  if (hi()) { seam.push(skinGeo(at(box(0.0014, 0.078, 0.0022), 0.0128, 0.0, -0.05), 0)); seam.push(skinGeo(at(box(0.0014, 0.0022, 0.08), 0.0128, 0.043, -0.045), 0)); seam.push(skinGeo(at(box(0.0014, 0.0022, 0.08), 0.0128, -0.037, -0.045), 0)); }
+  // fingers: straight at rest along -z, three bones each
+  const fingers = [];
+  FINGER_ROWS.forEach(([y, scale], fi) => {
+    const lens = [0.036 * scale, 0.028 * scale, 0.022 * scale];
+    const mcp = new THREE.Bone(); mcp.name = 'f' + fi + '_mcp'; mcp.position.set(-0.006, y, -0.088); root.add(mcp);
+    const pip = new THREE.Bone(); pip.name = 'f' + fi + '_pip'; pip.position.set(0, 0, -lens[0]); mcp.add(pip);
+    const dip = new THREE.Bone(); dip.name = 'f' + fi + '_dip'; dip.position.set(0, 0, -lens[1]); pip.add(dip);
+    const ib = bones.length; bones.push(mcp, pip, dip);
+    fingers.push({ mcp, pip, dip });
+    let r = 0.0085; const p0 = new THREE.Vector3(-0.006, y, -0.088);
+    glove.push(skinGeo(at(sphere(r * 1.15), p0.x, p0.y, p0.z), ib));                     // knuckle
+    for (let i = 0; i < 3; i++) {
+      const p1 = p0.clone(); p1.z -= lens[i];
+      phalanx(glove, seam, p0, p1, r, r * 0.92, ib + i);
+      glove.push(i < 2 ? skinGeo(at(sphere(r * 0.98), p1.x, p1.y, p1.z), ib + i, ib + i + 1, 0.5) : skinGeo(at(sphere(r * 0.92), p1.x, p1.y, p1.z), ib + i));
+      p0.copy(p1); r *= 0.92;
+    }
+  });
+  // thumb: from the index side near the wrist, over the top of the grip; bones oriented along the segments
+  const thumb = {};
+  {
+    const base = new THREE.Vector3(-0.006, 0.042, -0.03);
+    const d1 = new THREE.Vector3(-0.55, 0.15, -0.8).normalize(), d2 = new THREE.Vector3(-0.9, -0.1, -0.35).normalize();
+    const l1 = 0.04, l2 = 0.03;
+    const cmc = new THREE.Bone(); cmc.name = 't_cmc'; cmc.position.copy(base); cmc.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), d1); root.add(cmc);
+    const mp = new THREE.Bone(); mp.name = 't_mp'; mp.position.set(0, 0, -l1); mp.quaternion.copy(cmc.quaternion).invert().multiply(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), d2)); cmc.add(mp);
+    const ip = new THREE.Bone(); ip.name = 't_ip'; ip.position.set(0, 0, -l2); mp.add(ip);
+    const ib = bones.length; bones.push(cmc, mp, ip);
+    Object.assign(thumb, { cmc, mp, ip });
+    const p1 = base.clone().addScaledVector(d1, l1), p2 = p1.clone().addScaledVector(d2, l2);
+    glove.push(skinGeo(at(sphere(0.0105), base.x, base.y, base.z), 0, ib, 0.5));
+    phalanx(glove, seam, base, p1, 0.01, 0.0092, ib, false);
+    glove.push(skinGeo(at(sphere(0.0095), p1.x, p1.y, p1.z), ib, ib + 1, 0.5));
+    phalanx(glove, seam, p1, p2, 0.0092, 0.0082, ib + 1, false);
+    glove.push(skinGeo(at(sphere(0.0085), p2.x, p2.y, p2.z), ib + 1));
+    // webbing between the thumb base and the index knuckle
+    const web = side([[0.02, 0.03], [0.05, 0.03], [0.06, 0.036], [0.04, 0.044], [0.026, 0.044]], 0.006, 0.001); web.translate(-0.006, 0, 0.0);
+    glove.push(skinGeo(web, 0, ib, 0.5));
+  }
+  // wrist and jacket cuff with its seam and a strap
+  glove.push(skinGeo(at(cylZ(0.024, 0.021, 0.04, hi() ? 14 : 8), 0.0, 0.0, 0.016), 0));
+  cuff.push(skinGeo(at(cylZ(0.036, 0.03, 0.07, hi() ? 14 : 8), 0.0, 0.004, 0.065), 0));
+  cuff.push(skinGeo(at(cylZ(0.037, 0.037, 0.008, hi() ? 14 : 8), 0.0, 0.004, 0.036), 0));
+  if (hi()) { cuff.push(skinGeo(at(box(0.004, 0.012, 0.016), 0.034, 0.004, 0.05), 0)); seam.push(skinGeo(at(ringZ(0.0365, 0.0009, 0, Math.PI * 2, 14, 4), 0, 0.004, 0.05), 0)); }
+  const skeleton = new THREE.Skeleton(bones);
+  const make = (geos, mat, name) => {
+    const m = new THREE.SkinnedMesh(finalize(geos), mat); m.name = name; m.castShadow = false; m.receiveShadow = true; m.frustumCulled = false;
+    return m;
+  };
+  const gm = make(glove, M.glove, 'glove'); gm.add(root); gm.bind(skeleton);
+  g.add(gm);
+  const cm = make(cuff, M.cuff, 'cuff'); cm.bind(skeleton, gm.bindMatrix); g.add(cm);
+  if (seam.length) { const sm = make(seam, M.cuff, 'seams'); sm.bind(skeleton, gm.bindMatrix); g.add(sm); }
+  if (mirror) g.scale.x = -1;
+  g.userData.isGlove = true; g.userData.side = mirror ? 'left' : 'right'; g.userData.fingers = fingers; g.userData.thumb = thumb; g.userData.pose = null;
+  return g;
+}
+// grip kinds -> curl per joint (radians) [mcp, pip, dip] for the four fingers and the thumb [cmc, mp]
+const POSES = {
+  rifle:   { f: [[1.05, 1.2, 0.55], [1.15, 1.25, 0.6], [1.15, 1.25, 0.6], [1.1, 1.2, 0.6]], t: [0.2, 0.5], index: [0.35, 0.3, 0.15] },   // pistol grip, trigger finger along the frame
+  pistol:  { f: [[1.15, 1.3, 0.6], [1.25, 1.35, 0.65], [1.25, 1.35, 0.65], [1.2, 1.3, 0.65]], t: [0.25, 0.55], index: [0.35, 0.3, 0.15] },
+  foreend: { f: [[0.55, 0.7, 0.35], [0.6, 0.75, 0.4], [0.6, 0.75, 0.4], [0.55, 0.7, 0.4]], t: [0.1, 0.25], index: null },                 // open C around a handguard
+  vertical:{ f: [[1.0, 1.2, 0.55], [1.1, 1.25, 0.6], [1.1, 1.25, 0.6], [1.05, 1.2, 0.6]], t: [0.2, 0.5], index: null },
+  support: { f: [[0.9, 1.1, 0.5], [1.0, 1.15, 0.55], [1.0, 1.15, 0.55], [0.95, 1.1, 0.55]], t: [0.3, 0.6], index: null },                 // wrapped over the shooting hand
+  wrist:   { f: [[0.8, 1.0, 0.45], [0.9, 1.05, 0.5], [0.9, 1.05, 0.5], [0.85, 1.0, 0.5]], t: [0.2, 0.45], index: [0.3, 0.3, 0.15] },     // a rifle wrist without a pistol grip
+  bipod:   { f: [[0.2, 0.25, 0.1], [0.25, 0.3, 0.15], [0.25, 0.3, 0.15], [0.2, 0.25, 0.15]], t: [0.0, 0.1], index: null },               // flat on the stock
+  fist:    { f: [[1.3, 1.45, 0.7], [1.35, 1.5, 0.75], [1.35, 1.5, 0.75], [1.3, 1.45, 0.75]], t: [0.35, 0.7], index: null },
+  open:    { f: [[0.1, 0.12, 0.05], [0.1, 0.12, 0.05], [0.1, 0.12, 0.05], [0.1, 0.12, 0.05]], t: [0.0, 0.05], index: null },
+  point:   { f: [[0.05, 0.05, 0.02], [1.2, 1.3, 0.6], [1.25, 1.35, 0.65], [1.2, 1.3, 0.65]], t: [0.3, 0.6], index: null },
+};
+// Close a hand on a grip: spec is a pose name or { pose, radius }. Radius (m) scales the curl: thin grips close tighter.
+export function poseHand(hand, spec) {
+  const ud = hand.userData; if (!ud || !ud.fingers) return;
+  const name = typeof spec === 'string' ? spec : (spec && spec.pose) || 'rifle';
+  const P = POSES[name] || POSES.rifle;
+  const radius = typeof spec === 'object' && spec && spec.radius != null ? spec.radius : null;
+  const k = radius == null ? 1 : Math.min(1.3, Math.max(0.5, 0.018 / Math.max(0.008, radius)));
+  ud.fingers.forEach((f, i) => {
+    const c = (i === 0 && P.index) ? P.index : P.f[i];
+    f.mcp.rotation.set(0, c[0] * k, 0); f.pip.rotation.set(0, c[1] * k, 0); f.dip.rotation.set(0, c[2] * k, 0);
+  });
+  ud.thumb.cmc.rotation.set(0, P.t[0] * k, 0); ud.thumb.mp.rotation.set(0, P.t[1] * k, 0);
+  ud.pose = name;
+}
+export function poseHands(hands, grips) {
+  if (!hands) return;
+  const r = grips && grips.right ? grips.right : null, l = grips && grips.left ? grips.left : null;
+  if (hands.right) poseHand(hands.right, r ? (r.pose ? { pose: r.pose, radius: r.radius } : 'rifle') : 'rifle');
+  if (hands.left) poseHand(hands.left, l ? (l.pose ? { pose: l.pose, radius: l.radius } : 'foreend') : 'foreend');
+}
+export function buildHands() {
+  const prev = LOD; LOD = 'hi';
+  const M = matKit({ wear: 0.4 });
+  let right, left;
+  try { right = buildHand(M, false); left = buildHand(M, true); } finally { LOD = prev; }
+  poseHand(right, 'rifle'); poseHand(left, 'foreend');
+  return { right, left, pose(grips) { poseHands({ right, left }, grips); } };
+}
+
+// spent case: a rimmed cylinder of unit diameter and length along z, scaled per calibre by the caller
+export function casingGeometry() {
+  const g = mergeGeometries([cylZ(0.5, 0.42, 1.0, 8).toNonIndexed(), at(cylZ(0.56, 0.56, 0.08, 8).toNonIndexed(), 0, 0, 0.46), at(cylZ(0.44, 0.44, 0.06, 8).toNonIndexed(), 0, 0, 0.40)], false);
+  g.deleteAttribute('uv');
+  const c = toCreasedNormals(g, 50 * DEG); c.computeBoundingSphere();
+  return c;
 }
