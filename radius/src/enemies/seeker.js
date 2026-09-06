@@ -6,11 +6,28 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Enemy } from './common.js';
 import { GLSL_NOISE } from '../render/glsl.js';
 import { Rig, makeBodyMaterial, buildParts, skinify, boneIndex, enemyShoot, BODY_PARTS, offsetParts, GUN_REST } from './mimic.js';
+import { playAny } from './squad.js';
+import { roundsInGun, consumeRound } from './loadout.js';
+import { SEEKER, AMMO, WEAPONS, MAGAZINES, ITEMS, defaultAmmo, resolveHit, zoneFromHit } from '../data/index.js';
+import { makeWeapon, makeMag, makeGear } from '../player/inventory.js';
 import { clamp, clamp01, damp, angleDelta, lerp, TAU, DEG } from '../core/math.js';
 
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _dir = new THREE.Vector3(), _axis = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 const SCALE = 1.65;
+// the suit: one class-6 piece over every zone, its own durability; the lens is the hole in it
+const SUIT_DEF = { id: 'seeker_suit', name: 'Seeker suit', kind: 'vest', cls: SEEKER.cls || 6, zones: ['head', 'torso', 'stomach', 'arms', 'legs'], durability: 400 };
+// the heavy gun and its belt: what it fires is what it drops
+function seekerLoadout() {
+  const weaponId = (SEEKER.weapons && SEEKER.weapons.find((id) => WEAPONS[id])) || 'pkm';
+  const wdef = WEAPONS[weaponId];
+  const ammoId = defaultAmmo(wdef.cal);
+  const weapon = makeWeapon(weaponId, { condition: 55 + Math.random() * 30, ammo: ammoId });
+  if (weapon.mag) weapon.mag.rounds = MAGAZINES[weapon.mag.id].cap;
+  const boxes = [];
+  if (wdef.defaultMag) for (let i = 0; i < 2; i++) boxes.push(makeMag(wdef.defaultMag, ammoId, MAGAZINES[wdef.defaultMag].cap));
+  return { weapon, wdef, ammoId, ammo: AMMO[ammoId], boxes, suit: { durability: SUIT_DEF.durability } };
+}
 
 // ---- heavy MG silhouette (gun-local, muzzle -z) ----
 const MG_PARTS = [
@@ -101,8 +118,13 @@ function makeCone(length, angle) {
 let rng = null;
 class Seeker extends Enemy {
   constructor(ctx, position, opts = {}) {
-    super(ctx, 'seeker', position, Object.assign({ hp: 600 }, opts));
+    super(ctx, 'seeker', position, Object.assign({ hp: SEEKER.hp || 700 }, opts));
     this.radius = 0.55; this.height = 3.0; this.speed = 1.2;
+    this.loadout = seekerLoadout();
+    this.weapon = this.loadout.weapon; this.wdef = this.loadout.wdef; this.ammo = this.loadout.ammo; this.ammoId = this.loadout.ammoId;
+    this.pieces = [{ def: SUIT_DEF, inst: this.loadout.suit, slot: 'vest' }];
+    this.reloadT = 0; this.reloading = false; this.dry = false; this.calledSquad = false; this.piled = false; this.burstN = 0; this.stunned = 0;
+    this.shotNames = [`shot_${this.weapon.id}`, 'seeker_shot', 'shot_akm'];
     buildSeekerGeometry();
     this.bodyMat = makeBodyMaterial({ albedo: 0.02, shiver: 1 });
     this.plateMat = makeBodyMaterial({ color: [0.075, 0.085, 0.062], roughness: 0.9, shiver: 0.22, grime: 1 });
@@ -146,25 +168,50 @@ class Seeker extends Enemy {
     if (shots > 0.05) { if (!this.lastSeenPlayer) this.lastSeenPlayer = new THREE.Vector3(); this.lastSeenPlayer.copy(this.player.position); this.lastSeenT = this.time; if (this.aware < 0.5) this.aware = 0.5; }
     return clamp01(steps + shots * 1.5);
   }
-  // armour: half damage everywhere except the lens (top 12 % of the capsule, from the front): x3
+  // armour: a class-6 suit over everything, resolved like any armour (AP gets through, ball does not), except the
+  // lens (top 12 % of the capsule, from the front): x3 and straight through
   damage(amount, info = {}) {
-    let mult = 0.5;
+    if (!this.alive) return false;
     const pt = info.point;
-    if (pt && pt.y > this.position.y + this.height * 0.88) {
+    if (pt && info.kind !== 'blast' && pt.y > this.position.y + this.height * 0.88) {
       _v.set(pt.x - this.position.x, 0, pt.z - this.position.z).normalize();
       const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw);
-      if (_v.x * fx + _v.z * fz > 0.25) { mult = 3; this.lensHit = 1; }
+      if (_v.x * fx + _v.z * fz > 0.25) { this.lensHit = 1; return super.damage(amount * 3, info); }
     }
-    return super.damage(amount * mult, info);
+    if (info.kind === 'blast') return super.damage(amount * 0.5, info);
+    if (info.kind === 'melee' || info.kind === 'slash') return super.damage(amount * 0.2, info);
+    // zone from the capsule; the shot's own ammunition when ballistics passes it, a rifle-class guess otherwise
+    const h01 = pt ? clamp01((pt.y - this.position.y) / this.height) : 0.6;
+    const zone = zoneFromHit(h01, 0.3);
+    const given = info.ammo ? (typeof info.ammo === 'string' ? AMMO[info.ammo] : info.ammo) : null;
+    const headMult = info.headshot ? 1.8 : 1;
+    let a, mult = 1;
+    if (given) { a = given; mult = amount > 0 && given.damage > 0 ? amount / (given.damage * headMult) : 1; }
+    else a = { damage: amount / headMult, pen: info.pen ?? 3, kind: 'fmj' };
+    const r = resolveHit(a, zone, this.pieces, { mult });
+    if (r.armorHit && r.armorHit.inst) r.armorHit.inst.durability = Math.max(0, (r.armorHit.inst.durability ?? SUIT_DEF.durability) - r.armorDamage);
+    this.stoppedHit = !r.penetrated;
+    if (!r.penetrated) { this.sound('armor_hit', { gain: 0.9, max: 80, rate: 0.8 }); if (pt) { _v2.copy(info.dir || _dir.set(0, 0, 1)).negate(); this.ctx.vfx.spark?.(pt, _v2, 8, [1.0, 0.8, 0.5]); } }
+    return super.damage(r.damage, info);
   }
   onSpotted() {
     this.sound('seeker_spot', { gain: 1.0, max: 120, ref: 6 });
     this.humLoop?.set?.('intensity', 1); this.humT = 1.5;
     if (this.inBeam && !this.flashed) { this.flashed = true; this.ctx.post.flash(0.25); }
     this.cooldown = 2.2; this.setState('engage'); this.alertPack();   // the tell: light, hiss, hum, then the gun
+    this.callSquad();
+  }
+  // it does not fight alone: the nearest squad within 150 m is told where you are
+  callSquad() {
+    const sq = this.ctx.squads; if (!sq) return;
+    const s = sq.nearest(this.position, 150, (s) => s.alive > 0);
+    if (!s) return;
+    s.know(this.player.position, this.time); if (!s.inCombat) s.enterCombat(); s.converge(); s.radioT = 0.3;
+    this.calledSquad = true; this.sound('mimic_radio', { gain: 0.8, max: 100, rate: 0.7 });
   }
   onHit(amount) {
-    this.sound(amount > 60 ? 'seeker_hiss' : 'mimic_hit', { gain: 0.7 });
+    if (!this.stoppedHit) this.sound(amount > 60 ? 'seeker_hiss' : 'mimic_hit', { gain: 0.7 });
+    this.stoppedHit = false;
     this.rig.flinch = 0.6; this.staggerT = 0.12;
     if (this.lensHit) { this.lensHit = 0; this.flicker = 0.1; this.rig.startGlitch(1.2); this.glitchLeft = 0.1; }
   }
@@ -195,6 +242,20 @@ class Seeker extends Enemy {
       const dv = clamp01((t - 1.6) / 1.6);
       this.bodyMat.userData.u.uDissolve.value = dv; this.plateMat.userData.u.uDissolve.value = dv;
       this.bodyMat.userData.u.uShiver.value = 1 + dv * 2;
+    }
+    // what the suit leaves behind: the belt box, a barrel, an armour kit, sometimes the Crown
+    if (t >= 3.1 && !this.piled) {
+      this.piled = true;
+      const drops = [];
+      const box = this.weapon.mag && this.weapon.mag.rounds > 0 ? this.weapon.mag : (this.loadout.boxes[0] || null);
+      if (box) drops.push({ kind: 'mag', inst: box, id: box.id, count: 1 });
+      for (const id of SEEKER.drops || []) {
+        if (id === box?.id) continue;
+        if (id === 'art_crown') { if (Math.random() < 0.2) drops.push({ kind: 'item', id, count: 1 }); continue; }
+        if (ITEMS[id]) drops.push({ kind: 'item', id, count: 1 });
+      }
+      this.drops = drops;
+      if (this.ctx.loot?.spawnPile) { try { this.ctx.loot.spawnPile(_v.set(this.position.x, this.groundY, this.position.z).clone(), drops); } catch (e) { console.warn('loot.spawnPile failed', e); } }
     }
   }
   onDispose() { this.rig.dispose(); this.lensMat.dispose(); this.cone.material.dispose(); this.lens.geometry.dispose(); }
@@ -228,15 +289,42 @@ class Seeker extends Enemy {
     return this.ctx.world.lineOfSight(_v, _v2);
   }
   fireOne(muzzle, dist) {
-    const p = this.player;
+    const p = this.player, ctx = this.ctx;
     _v3.set(p.position.x, p.position.y + p.eyeHeight * 0.6, p.position.z);
     _dir.subVectors(_v3, muzzle).normalize();
-    // a heavy gun walked onto you: roughly a third of a burst lands at 15 m, less further out or on the move
-    enemyShoot(this.ctx, this, muzzle, _dir, 12, 6 + dist * 0.12 + (this.moveSpeed > 0.4 ? 2 : 0));
-    this.ctx.vfx.muzzleFlash(muzzle, _dir);
-    this.sound('seeker_shot', { pos: muzzle, gain: 1.0, max: 300, ref: 6 });
+    // a heavy gun walked onto you: full-power rifle rounds, but a wide, climbing cone; few of a burst land
+    const spread = 9 + this.burstN * 0.25 + (this.moveSpeed > 0.4 ? 3 : 0) + (p.moving ? 1.5 : 0);
+    const ammo = this.ammo;
+    if (ctx.ballistics && !ctx.ballistics.isStub) ctx.ballistics.shoot(muzzle, _dir, { source: 'enemy', damage: ammo.damage, ammo, ammoId: this.ammoId, shooter: this, spreadDeg: spread, pellets: 1, range: 90, tracer: true, kind: 'bullet', weapon: this.weapon });
+    else enemyShoot(ctx, this, muzzle, _dir, ammo.damage, spread);
+    consumeRound(this.weapon);
+    this.burstN++;
+    ctx.vfx.muzzleFlash(muzzle, _dir);
+    playAny(ctx, this.shotNames, { pos: muzzle, gain: 1.0, max: 300, ref: 6 });
     this.rig.kick = 1;
-    if (dist < 25) this.ctx.post.shake(0.06);
+    if (dist < 25) ctx.post.shake(0.06);
+  }
+  // the box is empty: a long, loud change (5 s) in which the gun is down and the light droops
+  beginReload() {
+    const spare = this.loadout.boxes.find((b) => b.rounds > 0);
+    if (!spare) { this.dry = true; return false; }
+    this.reloading = true; this.reloadT = 0; this.burstLeft = 0; this.reloadBox = spare;
+    return true;
+  }
+  reloadTick(dt) {
+    const t0 = this.reloadT; this.reloadT += dt; const t = this.reloadT;
+    const at = (x) => t0 < x && t >= x;
+    if (at(0.1)) { this.sound('reload_magout', { gain: 0.9, max: 70, rate: 0.6 }); this.sound('seeker_hiss', { gain: 0.5 }); }
+    if (at(1.4) || at(2.2) || at(2.9)) this.sound('mag_load_round', { gain: 0.7, max: 60, rate: 0.7 });
+    if (at(3.6)) this.sound('reload_magin', { gain: 0.9, max: 70, rate: 0.6 });
+    if (at(4.4)) this.sound('bolt_open', { gain: 0.8, max: 60, rate: 0.7 });
+    if (at(4.8)) this.sound('bolt_close', { gain: 0.8, max: 60, rate: 0.7 });
+    if (t >= 5.0) {
+      const w = this.weapon, old = w.mag;
+      const i = this.loadout.boxes.indexOf(this.reloadBox); if (i >= 0) this.loadout.boxes.splice(i, 1);
+      if (old) this.loadout.boxes.push(old);
+      w.mag = this.reloadBox; w.chamber = w.mag.ammo; this.reloadBox = null; this.reloading = false; this.cooldown = 1.0; this.burstN = 0;
+    }
   }
   syncRoot() { this.root.position.copy(this.position); this.root.rotation.y = this.yaw; }
 
@@ -245,8 +333,16 @@ class Seeker extends Enemy {
     this.followGround(dt);
     const d = this.distanceToPlayer();
     // perception: the beam is the eye. outside it the seeker is slow to notice you.
-    this.inBeam = this.beamTest();
-    const { vis } = this.perceive(dt, { fov: 110, maxDay: 60, visGain: 0.7, hearGain: 1.0, decay: 0.06 });
+    // flashbang: the lamp swings down, the gun stops, it stands
+    if (this.stunned > 0) {
+      this.stunned -= dt; this.aware = 0; this.engaged = false; this.burstLeft = 0; this.inBeam = false;
+      this.animate(dt, d, { headYaw: Math.sin(t * 5) * 0.6, headPitch: -0.5, speed: 0 });
+      return;
+    }
+    // smoke between the lens and the player hides them from the beam and the eyes
+    const smoked = ctx.world.smokeBlocks && ctx.world.smoke && ctx.world.smoke.length && ctx.world.smokeBlocks(this.eyePos(_v), p.eye);
+    this.inBeam = !smoked && this.beamTest();
+    const { vis } = smoked ? { vis: 0 } : this.perceive(dt, { fov: 110, maxDay: 60, visGain: 0.7, hearGain: 1.0, decay: 0.06 });
     if (this.inBeam) { this.aware = clamp01(this.aware + dt * 2.2); if (!this.lastSeenPlayer) this.lastSeenPlayer = new THREE.Vector3(); this.lastSeenPlayer.copy(p.position); this.lastSeenT = t; this.lastVisT = t; if (this.aware >= 1 && !this.engaged) { this.engaged = true; ctx.director?.notify('spotted', { enemy: this }); this.onSpotted(); } }
     else if (vis > 0.05) this.lastVisT = t;
     if (!this.engaged) this.flashed = false;
@@ -287,17 +383,20 @@ class Seeker extends Enemy {
         headPitch = Math.atan2(p.eye.y - (this.position.y + 1.7 * SCALE), Math.max(1, d));
         aimPitch = Math.atan2(p.eye.y - 0.3 - (this.position.y + 1.5 * SCALE), Math.max(1, d));
         aimYaw = headYaw;
-        if (!p.dead && d < 70 && this.staggerT <= 0) {
+        if (!this.calledSquad && this.stateT > 1) this.callSquad();
+        if (this.reloading) { aim = 0.25; this.reloadTick(dt); }
+        else if (roundsInGun(this.weapon) === 0 && !this.dry) { this.beginReload(); }
+        else if (!p.dead && d < 70 && this.staggerT <= 0 && !this.dry) {
           if (this.burstLeft > 0) {
             this.shotT -= dt;
             if (this.shotT <= 0) {
               this.syncRoot(); this.rig.muzzleWorld(_v3);
               _v2.set(p.position.x, p.position.y + p.eyeHeight * 0.6, p.position.z);
-              if (ctx.world.lineOfSight(_v3, _v2) && Math.abs(headYaw) < 0.6) { this.fireOne(_v3, d); this.burstLeft--; this.shotT = 0.1; }
+              if (ctx.world.lineOfSight(_v3, _v2) && Math.abs(headYaw) < 0.6) { this.fireOne(_v3, d); this.burstLeft--; this.shotT = Math.max(0.075, 60 / (this.wdef.rpm || 650)); if (roundsInGun(this.weapon) === 0) this.burstLeft = 0; }
               else this.burstLeft = 0;
               if (this.burstLeft === 0) this.cooldown = rng.range(2.0, 3.5);
             }
-          } else { this.cooldown -= dt; if (this.cooldown <= 0 && (this.inBeam || vis > 0.05)) { this.burstLeft = rng.int(6, 10); this.shotT = 0; } }
+          } else { this.cooldown -= dt; if (this.cooldown <= 0 && (this.inBeam || vis > 0.05)) { this.burstLeft = rng.int(6, 12); this.burstN = 0; this.shotT = 0; } }
         }
         break;
       }
@@ -339,7 +438,7 @@ class Seeker extends Enemy {
     // light: flicker recovers after a lens hit; the beam breathes very slightly
     this.flicker = damp(this.flicker, 1, 3, dt);
     const breathe = 0.94 + 0.06 * Math.sin(t * 2.1) + (Math.sin(t * 37.0) > 0.97 ? -0.08 : 0);
-    this.setLight(this.flicker * breathe);
+    this.setLight(this.flicker * breathe * (this.reloading ? 0.3 : 1));
     this.cone.material.uniforms.uTime.value = t;
     this.bodyMat.userData.u.uTime.value = t; this.plateMat.userData.u.uTime.value = t;
     this.bodyMat.userData.u.uShiver.value = 1 + rig.flinch * 1.5;

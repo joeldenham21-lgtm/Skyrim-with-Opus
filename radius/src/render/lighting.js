@@ -226,6 +226,7 @@ export function createLighting(ctx) {
     sun: null, moon, hemi, ambient, flashlight, headlamp, weaponLight, sunDir, moonDir, headlampTarget: 0, headlampLevel: 0, weaponLightTarget: 0, weaponLightLevel: 0, weaponLightIntensity: 30,
     horizon: new THREE.Color(), zenith: new THREE.Color(), sunColor: new THREE.Color(),
     flashOn: false, flashTarget: 0, flashLevel: 0, storm: 0,
+    lightning: 0,          // written by sky.js during a strike
     sunIntensity: 0,       // current sun strength (0 at night)
     fogDensity: 0.0034,    // base distance fog density this frame (before the storm term)
     moonLit: false,        // true when the shadow cascades are following the moon
@@ -258,6 +259,9 @@ export function createLighting(ctx) {
         sunI *= 1 - storm * 0.55;
         hemi.intensity = 1 - storm * 0.25;
       } else hemi.intensity = 1;
+      // lightning (sky.js drives it): the whole zone blinks blue-white for a frame or two
+      const bolt = clamp01(api.lightning || 0);
+      if (bolt > 0.001) { hemi.intensity += bolt * 2.2; ambient.intensity += bolt * 0.45; }
       api.sunIntensity = sunI; api.fogDensity = density;
 
       const ang = ctx.time.sunAngle();

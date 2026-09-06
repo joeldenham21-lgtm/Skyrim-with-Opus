@@ -854,3 +854,231 @@ function buildAR(M, s, id) {
   };
   return g;
 }
+
+// ---------------------------------------------------------------- pistols
+// Frame at the origin; bore height per gun; slide is the cycling part; the magazine node sits in the grip, tilted with it.
+function pistolUD(id, sightY, adsZ, gripP, magPivot, travel, extra = {}) {
+  return Object.assign({
+    id, family: 'pistol', sightY, sightLine: extra.sightLine || null,
+    hip: { p: [0.13, -0.14, -0.31], r: [0.0, -0.06, 0.02] },
+    ads: { p: [0, -sightY - 0.002, adsZ], r: [0, 0, 0] },
+    grips: { right: GRIP_R(gripP, 'pistol', [0.15, -0.35, 0.92]), left: GRIP_L_PISTOL([gripP[0] - 0.024, gripP[1] - 0.018, gripP[2] - 0.028]) },
+    lowerRot: [0.35, 0.2, 0.15], magTravel: [0, -0.16, 0.02], cycle: 'slide', slideTravel: travel, ejectDir: [1, 0.6, 0.25],
+    mounts: WEAPONS[id] ? WEAPONS[id].mounts : {},
+  }, extra);
+}
+function buildPM(M, id, pb = false) {
+  const g = new THREE.Group(); g.name = id;
+  const P = new Parts();
+  // frame with the grip frame; dust cover under the slide; rounded trigger guard; safety and slide stop; lanyard loop
+  P.add(M.frame, side([[-0.006, -0.002], [0.122, -0.002], [0.122, -0.012], [0.078, -0.014], [0.048, -0.014], [0.036, -0.022], [0.012, -0.098], [-0.026, -0.104], ['q', -0.036, -0.06, -0.022, -0.02], [-0.012, -0.004]], 0.024, 0.0015));
+  P.add(M.frame, rect(0.046, 0.122, -0.012, 0.0, 0.026, 0.001));
+  P.add(M.frame, at(ringX(0.0165, 0.0021, Math.PI - 0.35, Math.PI + 0.7, 18, 6), 0, -0.017, -0.06));
+  P.add(M.gunmetal, at(box(0.0025, 0.005, 0.02), -0.0135, 0.004, -0.05));                                       // slide stop
+  P.add(M.gunmetal, at(ringX(0.004, 0.001, 0, Math.PI * 2, 10, 5), 0, -0.108, 0.02));                            // lanyard loop
+  P.add(M.gunmetal, at(cylX(0.0065, 0.0065, 0.0014, 12), 0.0175, -0.056, 0.004)); P.add(M.gunmetal, at(cylX(0.0065, 0.0065, 0.0014, 12), -0.0175, -0.056, 0.004));   // grip medallions
+  if (hi()) { P.add(M.steel, pin(0, -0.006, -0.03, 0.0025, 0.026)); P.add(M.steel, pin(0, -0.03, 0.006, 0.0025, 0.026)); P.addAll(M.gunmetal, screw(0, -0.09, 0.012, 0.003, 'z')); }
+  P.add(M.bakelite, side([[0.033, -0.022], [0.010, -0.096], [-0.022, -0.1], ['q', -0.032, -0.06, -0.019, -0.022]], 0.034, 0.0022));   // wrap-around grip
+  P.into(g);
+  // slide: PB keeps a shorter slide with the suppressor sleeve ahead of it
+  const sLen = pb ? 0.098 : 0.13;
+  const slideGeos = [
+    side([[-0.004, 0.0], [sLen - 0.004, 0.0], [sLen, 0.006], [sLen, 0.022], [sLen - 0.006, 0.030], [0.0, 0.030], [-0.004, 0.024]], 0.026, 0.0018),
+    at(cylZ(0.0065, 0.0065, 0.012, 14), 0, 0.014, -(sLen - 0.002)),                             // barrel bushing / muzzle
+  ];
+  pistolSights(slideGeos, 0.008, pb ? 0.085 : 0.115, 0.030, 0.02);
+  if (hi()) serrations(slideGeos, 6, 0, 0.014, -0.012, 0.0045, 0.0272, 0.018, 0.0012);
+  const slide = part('slide', slideGeos, M.bolt, [0, 0, 0]);
+  slide.add(sub(part('port', [at(box(0.001, 0.011, 0.024), 0.0135, 0.02, -0.072)], M.bore, [0, 0, 0])));
+  slide.add(sub(part('safety', [at(box(0.003, 0.006, 0.012), -0.0145, 0.02, 0.0), at(cylX(0.0035, 0.0035, 0.003, 8), -0.0145, 0.023, -0.005)], M.gunmetal, [0, 0, 0])));  // safety lever, left rear
+  if (!pb) slide.add(sub(part('bore', [at(cylZ(0.0045, 0.0045, 0.002, 12), 0, 0.014, -(sLen + 0.0045))], M.bore, [0, 0, 0])));
+  g.add(slide);
+  let muzzleZ = -(sLen + 0.006);
+  if (pb) {
+    // integral expansion sleeve around the barrel and the detachable front can with its knurled collar
+    P.add(M.gunmetal, at(latheZ([[0.009, 0], [0.0145, 0.004], [0.0145, 0.06], [0.0125, 0.064]]), 0, 0.014, -0.096));
+    P.add(M.gunmetal, at(knurlZ(0.0155, 0.012, 16), 0, 0.014, -0.164));
+    P.add(M.gunmetal, at(latheZ([[0.0125, 0], [0.016, 0.003], [0.016, 0.13], [0.013, 0.134], [0.006, 0.134], [0.006, 0.13]]), 0, 0.014, -0.17));
+    if (hi()) for (let i = 0; i < 4; i++) P.add(M.gunmetal, at(ringZ(0.0163, 0.0008), 0, 0.014, -0.2 - i * 0.025));
+    P.add(M.bore, at(cylZ(0.0045, 0.0045, 0.002, 12), 0, 0.014, -0.302));
+    P.into(g);
+    muzzleZ = -0.306;
+  }
+  g.add(part('hammer', [side([[-0.002, -0.001], [-0.004, 0.012], [-0.018, 0.02], [-0.02, 0.016], [-0.01, 0.006], [-0.006, -0.001]], 0.008, 0.0008)], M.gunmetal, [-0.003, 0, 0]));
+  g.add(part('trigger', [side([[0.052, -0.019], [0.059, -0.019], ['q', 0.062, -0.03, 0.058, -0.04], [0.052, -0.038]], 0.006, 0.0008)], M.gunmetal, [0.0, -0.019, -0.055]));
+  const mag = node('mag', 0, -0.018, -0.018); mag.rotation.x = -18 * DEG; mag.userData.base.r.copy(mag.rotation); g.add(mag);
+  g.add(marker('muzzle', 0, 0.014, muzzleZ));
+  g.add(marker('eject', 0.016, 0.026, -0.072));
+  g.add(marker('mount_muzzle', 0, 0.014, muzzleZ + 0.004));
+  g.userData = pistolUD(id, 0.0355, -0.30, [0.0, -0.062, -0.002], null, 0.03, { sightLine: { rear: [0, 0.0355, -0.008], front: [0, 0.0355, pb ? -0.085 : -0.115] }, defaultMag: 'mag_pm8' });
+  return g;
+}
+function buildAPS(M, id) {
+  const g = new THREE.Group(); g.name = id;
+  const P = new Parts();
+  P.add(M.frame, side([[-0.008, -0.002], [0.15, -0.002], [0.15, -0.014], [0.06, -0.016], [0.044, -0.024], [0.02, -0.11], [-0.03, -0.118], ['q', -0.044, -0.07, -0.028, -0.022], [-0.014, -0.004]], 0.03, 0.0015));
+  P.add(M.frame, rect(0.06, 0.15, -0.014, 0.0, 0.032, 0.001));
+  P.add(M.frame, at(ringX(0.018, 0.0022, Math.PI - 0.4, Math.PI + 0.75, 18, 6), 0, -0.02, -0.075));
+  P.add(M.gunmetal, at(box(0.0025, 0.005, 0.024), -0.0165, 0.004, -0.06));
+  P.add(M.gunmetal, at(box(0.012, 0.03, 0.004), 0, -0.1, 0.028));                                           // holster-stock lug on the backstrap
+  P.add(M.gunmetal, at(ringX(0.0045, 0.001, 0, Math.PI * 2, 10, 5), 0, -0.122, 0.018));
+  if (hi()) { P.add(M.steel, pin(0, -0.008, -0.04, 0.0025, 0.032)); P.addAll(M.gunmetal, screw(0.0205, -0.07, 0.004, 0.003, 'x')); P.addAll(M.gunmetal, screw(-0.0205, -0.07, 0.004, 0.003, 'x')); }
+  P.add(M.bakelite, side([[0.04, -0.026], [0.016, -0.108], [-0.026, -0.114], ['q', -0.04, -0.07, -0.024, -0.026]], 0.04, 0.0022));
+  P.into(g);
+  const slideGeos = [
+    side([[-0.006, 0.0], [0.152, 0.0], [0.156, 0.006], [0.156, 0.024], [0.15, 0.031], [0.0, 0.031], [-0.006, 0.024]], 0.03, 0.0018),
+    at(cylZ(0.0075, 0.0075, 0.012, 14), 0, 0.015, -0.154),
+    at(cylX(0.008, 0.008, 0.016, 12), 0, 0.034, -0.018),                                                   // rear sight drum
+    at(box(0.006, 0.004, 0.006), 0, 0.041, -0.014),                                                       // drum notch blade
+    at(box(0.0026, 0.006, 0.005), 0, 0.034, -0.142),                                                      // front blade
+  ];
+  if (hi()) { serrations(slideGeos, 7, 0, 0.015, -0.014, 0.0045, 0.0312, 0.018, 0.0012); slideGeos.push(at(knurlZ(0.0082, 0.006, 14), 0, 0.034, -0.018, 0, Math.PI / 2)); }
+  const slide = part('slide', slideGeos, M.bolt, [0, 0, 0]);
+  slide.add(sub(part('port', [at(box(0.001, 0.012, 0.028), 0.0155, 0.02, -0.085)], M.bore, [0, 0, 0])));
+  slide.add(sub(part('selector', [at(box(0.003, 0.012, 0.014), -0.0165, 0.022, -0.006)], M.gunmetal, [0, 0, 0])));      // safety / auto selector, left rear
+  slide.add(sub(part('bore', [at(cylZ(0.0045, 0.0045, 0.002, 12), 0, 0.015, -0.1605)], M.bore, [0, 0, 0])));
+  g.add(slide);
+  g.add(part('hammer', [side([[-0.004, -0.001], [-0.006, 0.014], [-0.022, 0.022], [-0.024, 0.018], [-0.012, 0.006], [-0.008, -0.001]], 0.008, 0.0008)], M.gunmetal, [-0.005, 0, 0]));
+  g.add(part('trigger', [side([[0.062, -0.021], [0.07, -0.021], ['q', 0.074, -0.034, 0.07, -0.046], [0.062, -0.044]], 0.006, 0.0008)], M.gunmetal, [0.0, -0.021, -0.066]));
+  const mag = node('mag', 0, -0.022, -0.012); mag.rotation.x = -16 * DEG; mag.userData.base.r.copy(mag.rotation); g.add(mag);
+  g.add(marker('muzzle', 0, 0.015, -0.162)); g.add(marker('eject', 0.018, 0.028, -0.085)); g.add(marker('mount_muzzle', 0, 0.015, -0.158));
+  g.userData = pistolUD(id, 0.043, -0.30, [0.0, -0.07, 0.0], null, 0.034, { sightLine: { rear: [0, 0.043, -0.014], front: [0, 0.04, -0.142] }, defaultMag: 'mag_aps20', magTravel: [0, -0.18, 0.02] });
+  return g;
+}
+function buildTT(M, id) {
+  const g = new THREE.Group(); g.name = id;
+  const P = new Parts();
+  P.add(M.frame, side([[-0.004, -0.002], [0.135, -0.002], [0.135, -0.012], [0.07, -0.014], [0.05, -0.016], [0.04, -0.026], [0.016, -0.1], [-0.028, -0.11], ['q', -0.038, -0.06, -0.022, -0.022], [-0.01, -0.004]], 0.022, 0.0015));
+  P.add(M.frame, rect(0.055, 0.135, -0.012, 0.0, 0.024, 0.001));
+  P.add(M.frame, at(ringX(0.0165, 0.002, Math.PI - 0.35, Math.PI + 0.7, 18, 6), 0, -0.02, -0.066));
+  P.add(M.gunmetal, at(box(0.0025, 0.005, 0.022), -0.0125, 0.003, -0.05));
+  P.add(M.gunmetal, at(box(0.02, 0.006, 0.008), 0, -0.108, 0.012));                                   // heel magazine catch
+  P.add(M.gunmetal, at(ringX(0.0045, 0.001, 0, Math.PI * 2, 10, 5), 0, -0.114, 0.022));
+  if (hi()) { P.add(M.steel, pin(0, -0.007, -0.038, 0.0025, 0.024)); }
+  // grip panels with vertical grooves and the star medallion
+  for (const sx of [-1, 1]) {
+    P.add(M.bakelite, at(side([[0.03, -0.026], [0.012, -0.096], [-0.024, -0.104], ['q', -0.034, -0.06, -0.02, -0.026]], 0.004, 0.0015), sx * 0.0125, 0, 0));
+    if (hi()) { P.add(M.gunmetal, at(cylX(0.0075, 0.0075, 0.0012, 12), sx * 0.015, -0.056, 0.004)); P.add(M.gunmetal, at(cylX(0.004, 0.004, 0.0016, 5), sx * 0.0155, -0.056, 0.004)); }
+  }
+  P.into(g);
+  const slideGeos = [
+    side([[-0.004, 0.0], [0.14, 0.0], [0.144, 0.006], [0.144, 0.02], [0.138, 0.027], [0.0, 0.027], [-0.004, 0.022]], 0.022, 0.0018),
+    at(cylZ(0.0075, 0.0075, 0.014, 14), 0, 0.013, -0.14),
+  ];
+  pistolSights(slideGeos, 0.006, 0.128, 0.027, 0.016);
+  if (hi()) serrations(slideGeos, 8, 0, 0.013, -0.01, 0.0032, 0.0232, 0.016, 0.001);
+  const slide = part('slide', slideGeos, M.bolt, [0, 0, 0]);
+  slide.add(sub(part('port', [at(box(0.001, 0.01, 0.024), 0.0115, 0.017, -0.08)], M.bore, [0, 0, 0])));
+  slide.add(sub(part('bore', [at(cylZ(0.0045, 0.0045, 0.002, 12), 0, 0.013, -0.1465)], M.bore, [0, 0, 0])));
+  g.add(slide);
+  // the round Tokarev hammer with its serrated spur
+  const hammerGeos = [at(cylX(0.0075, 0.0075, 0.007, 12), 0, 0.016, 0.008), side([[-0.002, 0.006], [-0.006, 0.02], [-0.018, 0.024], [-0.019, 0.02], [-0.008, 0.012], [-0.004, 0.006]], 0.007, 0.0006)];
+  if (hi()) serrations(hammerGeos, 4, 0, 0.0245, 0.008, 0.0025, 0.0075, 0.002, 0.0008);
+  g.add(part('hammer', hammerGeos, M.gunmetal, [0, 0.014, 0.004]));
+  g.add(part('trigger', [side([[0.056, -0.021], [0.063, -0.021], ['q', 0.066, -0.032, 0.062, -0.042], [0.056, -0.04]], 0.006, 0.0008)], M.gunmetal, [0.0, -0.021, -0.059]));
+  const mag = node('mag', 0, -0.024, -0.016); mag.rotation.x = -14 * DEG; mag.userData.base.r.copy(mag.rotation); g.add(mag);
+  g.add(marker('muzzle', 0, 0.013, -0.149)); g.add(marker('eject', 0.014, 0.024, -0.08)); g.add(marker('mount_muzzle', 0, 0.013, -0.146));
+  g.userData = pistolUD(id, 0.0325, -0.30, [0.0, -0.064, 0.0], null, 0.032, { sightLine: { rear: [0, 0.0325, -0.006], front: [0, 0.0325, -0.128] }, defaultMag: 'mag_tt8' });
+  return g;
+}
+function buildGlock(M, id) {
+  const g = new THREE.Group(); g.name = id;
+  const P = new Parts();
+  // polymer frame: squared dust cover with the accessory rail, finger grooves, flared grip
+  P.add(M.polymer, side([[-0.004, -0.002], [0.13, -0.002], [0.13, -0.016], [0.078, -0.018], [0.05, -0.02], [0.042, -0.03], [0.02, -0.108], ['q', 0.006, -0.116, -0.012, -0.112], [-0.03, -0.108], ['q', -0.038, -0.06, -0.024, -0.024], [-0.016, -0.004]], 0.026, 0.0015));
+  P.add(M.polymer, rect(0.05, 0.13, -0.016, 0.0, 0.0285, 0.001));
+  P.add(M.polymer, side([[0.04, -0.02], [0.076, -0.02], [0.076, -0.026], [0.04, -0.026], [0.04, -0.03], [0.08, -0.03], [0.08, -0.034], [0.04, -0.034]], 0.026, 0.0006));   // rail slots (two)
+  P.add(M.polymer, side([[0.04, -0.02], [0.092, -0.036], [0.096, -0.035], [0.098, -0.03], [0.095, -0.022], [0.094, -0.006], [0.04, -0.006], [0.038, -0.06]], 0.028, 0.0015)); // trigger guard with the hook
+  if (hi()) for (let i = 0; i < 3; i++) P.add(M.polymer, at(box(0.029, 0.005, 0.008), 0, -0.05 - i * 0.02, 0.006 - i * 0.004));   // finger grooves
+  P.add(M.polymerGrip, side([[0.026, -0.03], [0.014, -0.104], [-0.022, -0.1], ['q', -0.032, -0.06, -0.018, -0.03]], 0.029, 0.0018));   // textured grip panels
+  P.add(M.gunmetal, at(box(0.0025, 0.004, 0.022), -0.0145, 0.002, -0.06));                                  // slide stop
+  P.add(M.gunmetal, at(box(0.003, 0.003, 0.012), 0.0145, -0.004, -0.09)); P.add(M.gunmetal, at(box(0.003, 0.003, 0.012), -0.0145, -0.004, -0.09));   // takedown tabs
+  P.add(M.gunmetal, at(box(0.004, 0.006, 0.006), -0.015, -0.028, -0.038));                                  // mag release
+  if (hi()) { P.add(M.steel, pin(0, -0.006, -0.036, 0.002, 0.028)); P.add(M.steel, pin(0, -0.012, 0.002, 0.002, 0.028)); }
+  P.into(g);
+  const slideGeos = [
+    side([[-0.006, 0.0], [0.182, 0.0], [0.186, 0.004], [0.186, 0.024], [0.184, 0.028], [0.0, 0.028], [-0.006, 0.022]], 0.0255, 0.0016),
+    at(box(0.006, 0.003, 0.028), 0.0105, 0.02, -0.15),                                                     // extractor
+  ];
+  pistolSights(slideGeos, 0.008, 0.168, 0.028, 0.018);
+  if (hi()) serrations(slideGeos, 6, 0, 0.014, -0.012, 0.005, 0.0267, 0.02, 0.0016);
+  const slide = part('slide', slideGeos, M.painted, [0, 0, 0]);
+  slide.add(sub(part('port', [at(box(0.001, 0.012, 0.03), 0.0128, 0.02, -0.11)], M.bore, [0, 0, 0])));
+  slide.add(sub(part('barrelend', [at(cylZ(0.0075, 0.0075, 0.004, 14), 0, 0.014, -0.186), at(cylZ(0.0045, 0.0045, 0.002, 12), 0, 0.014, -0.1875)], M.bolt, [0, 0, 0])));
+  g.add(slide);
+  g.add(part('trigger', [side([[0.056, -0.023], [0.064, -0.023], ['q', 0.068, -0.036, 0.064, -0.048], [0.056, -0.046]], 0.007, 0.0008), at(box(0.0025, 0.014, 0.003), 0, -0.038, -0.0625)], M.polymer, [0.0, -0.023, -0.06]));
+  const mag = node('mag', 0, -0.026, -0.016); mag.rotation.x = -17 * DEG; mag.userData.base.r.copy(mag.rotation); g.add(mag);
+  g.add(marker('muzzle', 0, 0.014, -0.19)); g.add(marker('eject', 0.015, 0.024, -0.11)); g.add(marker('mount_muzzle', 0, 0.014, -0.186));
+  g.add(marker('mount_under', 0, -0.036, -0.075)); g.add(marker('mount_top', 0, 0.028, -0.03));
+  g.userData = pistolUD(id, 0.0335, -0.30, [0.0, -0.066, -0.002], null, 0.036, { sightLine: { rear: [0, 0.0335, -0.008], front: [0, 0.0335, -0.168] }, defaultMag: 'mag_glock17', magTravel: [0, -0.17, 0.02] });
+  return g;
+}
+function buildM9(M, id) {
+  const g = new THREE.Group(); g.name = id;
+  const P = new Parts();
+  P.add(M.frame, side([[-0.004, -0.002], [0.14, -0.002], [0.14, -0.014], [0.086, -0.016], [0.06, -0.018], [0.05, -0.028], [0.024, -0.104], [-0.024, -0.112], ['q', -0.036, -0.06, -0.022, -0.022], [-0.012, -0.004]], 0.026, 0.0015));
+  P.add(M.frame, rect(0.058, 0.14, -0.014, 0.0, 0.028, 0.001));
+  P.add(M.frame, side([[0.05, -0.02], [0.098, -0.02], [0.106, -0.03], [0.104, -0.044], ['q', 0.1, -0.05, 0.094, -0.048], [0.056, -0.05], [0.05, -0.044], [0.05, -0.024]], 0.008, 0.0008)); // rounded trigger guard with front hook
+  P.add(M.gunmetal, at(box(0.0025, 0.005, 0.024), -0.0145, 0.004, -0.058));
+  P.add(M.gunmetal, at(ringX(0.0045, 0.001, 0, Math.PI * 2, 10, 5), 0, -0.114, 0.02));
+  P.add(M.gunmetal, at(box(0.004, 0.006, 0.006), -0.015, -0.03, -0.036));
+  if (hi()) { P.add(M.steel, pin(0, -0.008, -0.04, 0.0025, 0.028)); P.add(M.gunmetal, at(box(0.006, 0.01, 0.014), 0.0145, -0.008, -0.1)); }   // disassembly latch, right
+  for (const sx of [-1, 1]) { P.add(M.polymerGrip, at(side([[0.036, -0.03], [0.018, -0.1], [-0.02, -0.106], ['q', -0.032, -0.06, -0.018, -0.03]], 0.004, 0.0015), sx * 0.0145, 0, 0)); if (hi()) P.addAll(M.gunmetal, screw(sx * 0.0168, -0.066, 0.003, 0.0028, 'x')); }
+  P.into(g);
+  // open-top slide: rails on both sides, bridged at the rear and front; the barrel shows in the cut-out
+  const slideGeos = [
+    side([[-0.006, 0.0], [0.05, 0.0], [0.05, 0.03], [0.0, 0.03], [-0.006, 0.024]], 0.026, 0.0016),
+    side([[0.148, 0.0], [0.182, 0.0], [0.186, 0.005], [0.186, 0.022], [0.18, 0.028], [0.148, 0.028]], 0.026, 0.0016),
+    at(side([[0.05, 0.0], [0.148, 0.0], [0.148, 0.02], [0.05, 0.02]], 0.007, 0.0012), 0.0095, 0, 0),
+    at(side([[0.05, 0.0], [0.148, 0.0], [0.148, 0.02], [0.05, 0.02]], 0.007, 0.0012), -0.0095, 0, 0),
+  ];
+  pistolSights(slideGeos, 0.01, 0.172, 0.03, 0.018);
+  if (hi()) serrations(slideGeos, 5, 0, 0.016, -0.014, 0.005, 0.0272, 0.02, 0.0016);
+  const slide = part('slide', slideGeos, M.bolt, [0, 0, 0]);
+  slide.add(sub(part('safety', [at(box(0.003, 0.008, 0.016), -0.0145, 0.026, -0.016), at(box(0.003, 0.008, 0.016), 0.0145, 0.026, -0.016)], M.gunmetal, [0, 0, 0])));   // ambidextrous decocker
+  g.add(slide);
+  P.add(M.barrel, at(cylZ(0.0085, 0.008, 0.125, 14), 0, 0.016, -0.1225));                                    // exposed barrel
+  P.add(M.gunmetal, at(box(0.016, 0.014, 0.024), 0, 0.01, -0.095));                                          // locking block
+  P.add(M.bore, at(cylZ(0.0045, 0.0045, 0.002, 12), 0, 0.016, -0.1845));
+  P.into(g);
+  g.add(part('hammer', [at(cylX(0.006, 0.006, 0.007, 12), 0, 0.02, 0.006), side([[-0.002, 0.008], [-0.004, 0.02], [-0.016, 0.026], [-0.018, 0.021], [-0.008, 0.012], [-0.004, 0.008]], 0.007, 0.0006)], M.gunmetal, [0, 0.016, 0.004]));
+  g.add(part('trigger', [side([[0.062, -0.023], [0.07, -0.023], ['q', 0.074, -0.036, 0.07, -0.048], [0.062, -0.046]], 0.007, 0.0008)], M.gunmetal, [0.0, -0.023, -0.066]));
+  const mag = node('mag', 0, -0.03, -0.014); mag.rotation.x = -16 * DEG; mag.userData.base.r.copy(mag.rotation); g.add(mag);
+  g.add(marker('muzzle', 0, 0.016, -0.19)); g.add(marker('eject', 0.015, 0.024, -0.1)); g.add(marker('mount_muzzle', 0, 0.016, -0.186));
+  g.add(marker('mount_under', 0, -0.014, -0.11)); g.add(marker('mount_top', 0, 0.03, -0.028));
+  g.userData = pistolUD(id, 0.0355, -0.30, [0.0, -0.068, -0.002], null, 0.036, { sightLine: { rear: [0, 0.0355, -0.01], front: [0, 0.0355, -0.172] }, defaultMag: 'mag_m9_15', magTravel: [0, -0.17, 0.02] });
+  return g;
+}
+function build1911(M, id) {
+  const g = new THREE.Group(); g.name = id;
+  const P = new Parts();
+  P.add(M.frame, side([[-0.004, -0.002], [0.134, -0.002], [0.134, -0.014], [0.074, -0.016], [0.05, -0.018], [0.042, -0.028], [0.022, -0.104], [-0.022, -0.11], ['q', -0.036, -0.06, -0.026, -0.028], [-0.03, -0.012], [-0.012, -0.004]], 0.024, 0.0015));
+  P.add(M.frame, rect(0.052, 0.134, -0.014, 0.0, 0.026, 0.001));
+  P.add(M.frame, side([[0.042, -0.02], [0.084, -0.02], ['q', 0.098, -0.02, 0.098, -0.034], ['q', 0.098, -0.048, 0.084, -0.048], [0.05, -0.048], [0.042, -0.04]], 0.008, 0.0008));
+  P.add(M.frame, side([[0.042, -0.02], [0.084, -0.02], ['q', 0.094, -0.02, 0.094, -0.034], ['q', 0.094, -0.044, 0.084, -0.044], [0.05, -0.044], [0.046, -0.04]], 0.0, 0.0));   // guard inner edge (thin)
+  // beavertail grip safety, arched checkered mainspring housing, thumb safety, slide stop
+  P.add(M.gunmetal, side([[-0.012, -0.004], [-0.03, -0.012], ['q', -0.04, -0.03, -0.034, -0.05], [-0.024, -0.03]], 0.014, 0.001));
+  P.add(M.polymerGrip, side([[-0.018, -0.05], ['q', -0.032, -0.08, -0.024, -0.108], [-0.014, -0.108], [-0.006, -0.05]], 0.02, 0.001));
+  P.add(M.gunmetal, at(side([[-0.014, 0.0], [0.004, 0.0], [0.006, 0.006], [-0.014, 0.008]], 0.003, 0.0005), -0.0135, 0.008, 0));
+  P.add(M.gunmetal, at(box(0.0025, 0.005, 0.03), -0.0135, 0.004, -0.058));
+  P.add(M.gunmetal, at(box(0.004, 0.006, 0.006), -0.014, -0.03, -0.04));                                    // mag release
+  if (hi()) { P.add(M.steel, pin(0, -0.006, -0.03, 0.0025, 0.026)); P.add(M.steel, pin(0, -0.026, 0.008, 0.0025, 0.026)); }
+  for (const sx of [-1, 1]) { P.add(M.woodChecker, at(side([[0.032, -0.03], [0.016, -0.1], [-0.02, -0.104], ['q', -0.03, -0.06, -0.018, -0.03]], 0.0045, 0.0015), sx * 0.0135, 0, 0)); if (hi()) { P.addAll(M.gunmetal, screw(sx * 0.016, -0.036, -0.002, 0.0028, 'x')); P.addAll(M.gunmetal, screw(sx * 0.016, -0.096, 0.01, 0.0028, 'x')); } }
+  P.into(g);
+  const slideGeos = [
+    side([[-0.006, 0.0], [0.194, 0.0], [0.198, 0.006], [0.198, 0.022], [0.19, 0.03], [0.0, 0.03], [-0.006, 0.024]], 0.024, 0.0018),
+    at(cylZ(0.0085, 0.0085, 0.01, 14), 0, 0.015, -0.198),                                                 // barrel bushing
+  ];
+  pistolSights(slideGeos, 0.008, 0.184, 0.03, 0.018);
+  if (hi()) serrations(slideGeos, 7, 0, 0.015, -0.012, 0.0036, 0.0252, 0.018, 0.001);
+  const slide = part('slide', slideGeos, M.bolt, [0, 0, 0]);
+  slide.add(sub(part('port', [at(box(0.001, 0.012, 0.028), 0.0125, 0.02, -0.1)], M.bore, [0, 0, 0])));
+  slide.add(sub(part('bore', [at(cylZ(0.0058, 0.0058, 0.002, 12), 0, 0.015, -0.2035)], M.bore, [0, 0, 0])));
+  g.add(slide);
+  g.add(part('hammer', [side([[-0.002, -0.001], [-0.006, 0.014], [-0.022, 0.024], [-0.026, 0.02], [-0.014, 0.008], [-0.008, -0.001]], 0.008, 0.0008)], M.gunmetal, [-0.003, 0, 0]));
+  g.add(part('trigger', [at(box(0.012, 0.012, 0.006), 0, -0.032, -0.062), at(box(0.006, 0.01, 0.003), 0, -0.032, -0.0665)], M.gunmetal, [0.0, -0.021, -0.062]));
+  const mag = node('mag', 0, -0.03, -0.012); mag.rotation.x = -14 * DEG; mag.userData.base.r.copy(mag.rotation); g.add(mag);
+  g.add(marker('muzzle', 0, 0.015, -0.206)); g.add(marker('eject', 0.014, 0.026, -0.1)); g.add(marker('mount_muzzle', 0, 0.015, -0.203));
+  g.userData = pistolUD(id, 0.0355, -0.30, [0.0, -0.066, -0.002], null, 0.04, { sightLine: { rear: [0, 0.0355, -0.008], front: [0, 0.0355, -0.184] }, defaultMag: 'mag_1911_7' });
+  return g;
+}

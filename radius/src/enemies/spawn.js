@@ -3,18 +3,25 @@
 // comes in erratic arcs, fast, and bites. Shoot one and it skitters back three metres, then returns. They die
 // curled up: the legs fold under, the body flips, and it crumbles to ash.
 //
+// v2: a pack has a nest, a hole with a lip of turned earth. Disturb it (a shot within twenty metres, one of the
+// pack killed) and two more come out of it, up to three times before the Tide. They hate the torch: caught in
+// the beam they scatter sideways out of it and come back in from the dark side, round to your back; the bites
+// come from behind. Bites stack: the second within a few seconds opens a bleed.
+//
 // Build: one skinned mesh per spawn (thorax, a three-segment abdomen, a tiny head with two dull red pinpoints,
 // six two-segment legs on two-bone IK), a dark oily material (fresnel rim with a thin-film shift, chitin
 // mottling) that shares one program across the pack. Gait: alternating tripods, exaggerated lift, jittered.
+// When the characters module lands a real crawler (buildCrawler without the stub flag) that rig is used.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Enemy } from './common.js';
+import { buildCrawler } from './charmesh.js';
 import { GLSL_NOISE } from '../render/glsl.js';
 import { fogUniforms } from '../render/fog.js';
 import { hash3 } from '../core/rng.js';
 import { clamp, clamp01, damp, dampAngle, angleDelta, lerp, TAU, DEG } from '../core/math.js';
 
-const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _dir = new THREE.Vector3();
+const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _dir = new THREE.Vector3(), _cam = new THREE.Vector3();
 const _hip = new THREE.Vector3(), _foot = new THREE.Vector3(), _pole = new THREE.Vector3(), _axis = new THREE.Vector3(), _upper = new THREE.Vector3(), _knee = new THREE.Vector3(), _fore = new THREE.Vector3();
 const _q = new THREE.Quaternion(), _qi = new THREE.Quaternion();
 const _m = new THREE.Matrix4();
@@ -132,6 +139,118 @@ function makeChitin() {
   return mat;
 }
 
+// ---- the nest: a hole with a lip of turned earth and a few shed carapaces. One low mesh, two materials. ----
+let earthMat = null, holeMat = null;
+function nestMesh(ctx, pos) {
+  if (!earthMat) {
+    earthMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.16, 0.13, 0.10), roughness: 1, metalness: 0, vertexColors: true });
+    holeMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.012, 0.012, 0.014), roughness: 0.9, metalness: 0 });
+  }
+  const g = new THREE.Group();
+  // the lip: a ring of lumps, irregular in height and radius
+  const lip = new THREE.TorusGeometry(0.55, 0.16, 6, 18);
+  lip.rotateX(Math.PI / 2);
+  const pos3 = lip.attributes.position, n = pos3.count, col = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const x = pos3.getX(i), y = pos3.getY(i), z = pos3.getZ(i);
+    const a = Math.atan2(z, x); const k = 0.75 + 0.5 * hash3(Math.round(a * 4) + 9, 3, 7);
+    pos3.setXYZ(i, x * k, Math.max(-0.02, y * (0.6 + 0.6 * hash3(i, 5, 2))) + 0.02, z * k);
+    const sh = 0.7 + 0.6 * hash3(i, 11, 3); col[i * 3] = sh; col[i * 3 + 1] = sh * 0.95; col[i * 3 + 2] = sh * 0.9;
+  }
+  lip.setAttribute('color', new THREE.BufferAttribute(col, 3)); lip.computeVertexNormals();
+  const lipM = new THREE.Mesh(lip, earthMat); lipM.receiveShadow = true; g.add(lipM);
+  // the hole: a dark disc sunk a little, and three shed shells around it
+  const hole = new THREE.CircleGeometry(0.42, 14); hole.rotateX(-Math.PI / 2);
+  const holeM = new THREE.Mesh(hole, holeMat); holeM.position.y = 0.01; g.add(holeM);
+  for (let i = 0; i < 3; i++) {
+    const s = new THREE.SphereGeometry(0.09, 7, 5, 0, TAU, 0, Math.PI * 0.5); s.scale(1, 0.55, 1.3); jitterVerts(s, 0.01);
+    const m = new THREE.Mesh(s, holeMat); const a = i * 2.2 + 0.4; m.position.set(Math.cos(a) * 0.75, 0.03, Math.sin(a) * 0.75); m.rotation.y = a; m.castShadow = true; g.add(m);
+  }
+  g.position.copy(pos); g.position.y += 0.005;
+  ctx.scene.add(g);
+  return g;
+}
+const nests = new Map();          // key: the shared pack/nest Vector3 (identity) -> nest
+const MAX_EMITS = 3, NEST_CAP = 8;
+function nestFor(ctx, key, poi) {
+  let n = nests.get(key);
+  if (n) return n;
+  const y = ctx.world.groundHeight(key.x, key.z, ctx.world.getHeight(key.x, key.z) + 2.5).y;
+  n = { key, position: new THREE.Vector3(key.x, y, key.z), poi, emitted: 0, cool: 0, pending: false, mesh: null };
+  n.mesh = nestMesh(ctx, n.position);
+  nests.set(key, n);
+  return n;
+}
+function clearNests() {
+  for (const n of nests.values()) { if (n.mesh) { n.mesh.parent?.remove(n.mesh); n.mesh.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); } }
+  nests.clear();
+}
+// would a thing here be in the player's view?
+function seenByPlayer(ctx, x, y, z) {
+  ctx.camera.getWorldDirection(_cam);
+  _v.set(x, y + 0.3, z).sub(ctx.player.eye);
+  const d = _v.length(); if (d < 0.01) return true; _v.divideScalar(d);
+  if (_cam.dot(_v) < Math.cos(62 * DEG)) return false;
+  return ctx.world.lineOfSight(ctx.player.eye, _v2.set(x, y + 0.3, z));
+}
+function nestAlive(ctx, nest) { let n = 0; for (const e of ctx.enemies.list) if (e.type === 'spawn' && e.alive && e.nest === nest) n++; return n; }
+// two more come out of the hole, out of the player's sight
+function tryEmit(ctx, nest) {
+  if (!nest.pending || nest.cool > 0 || nest.emitted >= MAX_EMITS) return false;
+  if (ctx.player.dead || ctx.mode !== 'playing') return false;
+  if (nestAlive(ctx, nest) >= NEST_CAP) return false;
+  const w = ctx.world; let placed = 0;
+  for (let i = 0; i < 16 && placed < 2; i++) {
+    const a = rng.range(0, TAU), rr = i < 8 ? rng.range(0.7, 2.2) : rng.range(2.2, 6);
+    const x = nest.position.x + Math.cos(a) * rr, z = nest.position.z + Math.sin(a) * rr;
+    if (Math.abs(x) > w.half - 6 || Math.abs(z) > w.half - 6 || w.isWater(x, z)) continue;
+    const y = w.groundHeight(x, z, nest.position.y + 1.5).y;
+    if (Math.abs(y - nest.position.y) > 1.5 || w.pointInSolid(x, y + 0.3, z)) continue;
+    if (seenByPlayer(ctx, x, y, z)) continue;
+    const e = ctx.enemies.spawn('spawn', _v3.set(x, y, z), { nest: nest.key, pack: nest.key, poi: nest.poi, yaw: Math.atan2(-(ctx.player.position.x - x), -(ctx.player.position.z - z)), fromNest: true });
+    if (!e) break;
+    e.aware = 1; if (!e.lastSeenPlayer) e.lastSeenPlayer = new THREE.Vector3(); e.lastSeenPlayer.copy(ctx.player.position); e.lastSeenT = ctx.elapsed;
+    e.setState('swarm'); e.headT = 0; e.biteCool = rng.range(0.6, 1.4);
+    placed++;
+  }
+  if (!placed) return false;
+  nest.emitted++; nest.cool = 5; nest.pending = false;
+  // the hole breathes out: dust and a chorus of skittering
+  ctx.vfx.dustPuff(_v.set(nest.position.x, nest.position.y + 0.1, nest.position.z), THREE.Object3D.DEFAULT_UP, 12, [0.14, 0.12, 0.1], 0.5);
+  ctx.audio.play('spawn_skitter', { pos: nest.position, hrtf: true, gain: 0.9, max: 45, ref: 2, rate: 0.8 });
+  ctx.audio.play('spawn_skitter', { pos: nest.position, hrtf: true, gain: 0.7, max: 45, ref: 2, rate: 1.25 });
+  return true;
+}
+function disturb(nest) { if (nest.emitted < MAX_EMITS) nest.pending = true; }
+let nestFrame = -1;
+function updateNests(ctx, dt) {
+  if (ctx.frame === nestFrame) return; nestFrame = ctx.frame;
+  for (const n of nests.values()) {
+    n.cool = Math.max(0, n.cool - dt);
+    if (!n.pending && n.emitted < MAX_EMITS && ctx.director && ctx.director.recentShotAt(n.position, 20) > 0.05) disturb(n);
+    if (n.pending) tryEmit(ctx, n);
+  }
+}
+
+// ---- the torch: how much of the light is on a point (the hand torch, the headlamp, the weapon light) ----
+function beamAt(ctx, x, y, z) {
+  const L = ctx.lighting; if (!L) return 0;
+  const torch = ctx.state.data.flashlight && ctx.state.data.flashlight.on ? (L.flashLevel ?? 1) : 0;
+  const lamp = L.headlampLevel || 0, wl = L.weaponLightLevel || 0;
+  if (torch + lamp + wl < 0.2) return 0;
+  ctx.camera.getWorldDirection(_cam);
+  _v.set(x, y, z).sub(ctx.player.eye); const d = _v.length() || 1; const c = _v.dot(_cam) / d;
+  let b = 0;
+  if (torch > 0.2) b = Math.max(b, torch * clamp01((c - COS_T_OUT) / (COS_T_IN - COS_T_OUT)) * clamp01(1.3 - d / 26));
+  if (lamp > 0.2) b = Math.max(b, lamp * clamp01((c - COS_H_OUT) / (COS_H_IN - COS_H_OUT)) * clamp01(1.3 - d / 18));
+  if (wl > 0.2) b = Math.max(b, wl * clamp01((c - COS_W_OUT) / (COS_W_IN - COS_W_OUT)) * clamp01(1.3 - d / 28));
+  return b;
+}
+const COS_T_OUT = Math.cos(23 * DEG), COS_T_IN = Math.cos(14 * DEG), COS_H_OUT = Math.cos(31 * DEG), COS_H_IN = Math.cos(20 * DEG), COS_W_OUT = Math.cos(16 * DEG), COS_W_IN = Math.cos(9 * DEG);
+
+// bites within eight seconds of one another stack; the second opens a bleed
+const bites = { n: 0, t: -1e9 };
+
 let rng = null;
 const SPEED = { dash: 2.6, swarm: 4.5 };
 
@@ -139,21 +258,30 @@ class Spawn extends Enemy {
   constructor(ctx, position, opts = {}) {
     super(ctx, 'spawn', position, Object.assign({ hp: 25 }, opts));
     this.radius = 0.35; this.height = 0.4; this.speed = SPEED.swarm;
-    this.pack = opts.pack || opts.packId || null;
-    // ---- rig ----
-    const bones = this.bones = []; const B = this.B = {};
-    const mk = (name, parent, x, y, z) => { const b = new THREE.Bone(); b.name = name; b.position.set(x, y, z); if (parent) parent.add(b); bones.push(b); B[name] = b; return b; };
-    mk('body', null, 0, BODY_Y, 0);
-    mk('abdomen', B.body, 0, -0.004, 0.09);
-    mk('head', B.body, 0, -0.012, -0.15);
-    for (const L of LEGS) mk(L.c, B.body, L.hip[0], L.hip[1], L.hip[2]);
-    for (const L of LEGS) mk(L.t, B[L.c], 0, -L1, 0);
-    this.material = makeChitin(); this.mu = this.material.userData.u;
-    const mesh = this.mesh = new THREE.SkinnedMesh(buildGeometry(), this.material);
-    mesh.castShadow = true; mesh.receiveShadow = false;
-    mesh.add(B.body); mesh.bind(new THREE.Skeleton(bones));
-    mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.2, 0), 0.9);
-    this.root.add(mesh);
+    this.pack = opts.pack || opts.packId || opts.nest || null;
+    const nestKey = opts.nest || opts.pack || null;
+    this.nest = nestKey && typeof nestKey === 'object' && 'x' in nestKey ? nestFor(ctx, nestKey, this.poi) : null;
+    // ---- rig: the characters module's crawler when it is real, else the built-in skinned rig ----
+    this.rig = null;
+    let ext = null;
+    try { ext = buildCrawler({ kind: 'spawn' }); } catch (e) { ext = null; }
+    if (ext && ext.root && !ext.stub) { this.rig = ext; this.root.add(ext.root); }
+    else if (ext && ext.dispose) ext.dispose();
+    if (!this.rig) {
+      const bones = this.bones = []; const B = this.B = {};
+      const mk = (name, parent, x, y, z) => { const b = new THREE.Bone(); b.name = name; b.position.set(x, y, z); if (parent) parent.add(b); bones.push(b); B[name] = b; return b; };
+      mk('body', null, 0, BODY_Y, 0);
+      mk('abdomen', B.body, 0, -0.004, 0.09);
+      mk('head', B.body, 0, -0.012, -0.15);
+      for (const L of LEGS) mk(L.c, B.body, L.hip[0], L.hip[1], L.hip[2]);
+      for (const L of LEGS) mk(L.t, B[L.c], 0, -L1, 0);
+      this.material = makeChitin(); this.mu = this.material.userData.u;
+      const mesh = this.mesh = new THREE.SkinnedMesh(buildGeometry(), this.material);
+      mesh.castShadow = true; mesh.receiveShadow = false;
+      mesh.add(B.body); mesh.bind(new THREE.Skeleton(bones));
+      mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.2, 0), 0.9);
+      this.root.add(mesh);
+    }
     // ---- animation ----
     this.phase = rng.range(0, TAU); this.gait = 0; this.moveSpeed = 0; this.flinch = 0; this.bite = 0; this.twitch = 0; this.twitchT = rng.range(1, 4);
     this.legJit = new Float32Array(6); for (let i = 0; i < 6; i++) this.legJit[i] = rng.range(-0.3, 0.3);
@@ -162,6 +290,7 @@ class Spawn extends Enemy {
     // ---- AI ----
     this.target = null; this.pauseT = rng.range(0.5, 3); this.headT = 0; this.heading = this.yaw; this.biteCool = 0; this.biteWind = 0; this.rear = 0; this.skitterT = rng.range(0, 0.4);
     this.los = false; this.losT = rng.range(0, 0.2); this.packC = new THREE.Vector3().copy(this.position); this.packN = 1; this.packT = rng.range(0, 0.5);
+    this.beam = 0; this.beamT = rng.range(0, 0.1); this.scatterT = 0; this.aroundT = 0; this.stunLeft = 0; this.stunSeen = false;
     this.deathDuration = 1.15; this.ashDone = false;
     this.setState('idle');
     this.syncRoot(); this.root.updateMatrixWorld(true);
@@ -185,7 +314,7 @@ class Spawn extends Enemy {
   // a pack arriving together must not all bite in the same instant
   onStateChange(s) { if (s === 'swarm') { this.biteCool = Math.max(this.biteCool, rng.range(0.15, 0.7)); this.biteWind = 0; } }
   onSpotted() {
-    if (this.state !== 'retreat') this.setState('swarm');
+    if (this.state !== 'retreat' && this.state !== 'stunned') this.setState('swarm');
     this.headT = 0;
     this.sound('spawn_skitter', { gain: 0.7, max: 40, ref: 2, rate: 1.2 });
     // the pack comes with it
@@ -196,8 +325,8 @@ class Spawn extends Enemy {
   }
   onHit(amount) {
     this.sound('spawn_skitter', { gain: 0.8, max: 40, ref: 2, rate: 1.5 });
-    this.flinch = 1; this.mu.uFlinch.value = 1;
-    if (!this.alive) return;
+    this.flinch = 1; if (this.mu) this.mu.uFlinch.value = 1;
+    if (!this.alive || this.stunLeft > 0) return;
     this.setState('retreat'); this.aware = 1;
     // a point three metres away from the player
     const p = this.player.position;
@@ -210,27 +339,51 @@ class Spawn extends Enemy {
   onDeath() {
     this.sound('spawn_death', { gain: 0.9, max: 60, ref: 2 });
     this.target = null;
+    if (this.nest) { disturb(this.nest); tryEmit(this.ctx, this.nest); }
+    if (this.rig) this.rig.setState?.({ dead: true, speed: 0 });
   }
   deathTick(dt) {
     const t = this.deathT;
+    if (this.rig) { this.rig.update?.(dt); if (t >= 0.8 && !this.ashDone) { this.ashDone = true; this.rig.root.visible = false; this.crumble(); } return; }
     // curl: the legs fold under, the body hops and flips onto its back, then it crumbles
     const f = clamp01(t / 0.5), fe = 1 - Math.pow(1 - f, 2.5);
     for (let i = 0; i < 6; i++) { const L = LEGS[i]; _foot.set(L.side * lerp(0.3, 0.07, fe), lerp(0, 0.11, fe), L.fwd * lerp(0.25, 0.05, fe) + 0.02); this.footPos[i].lerp(_foot, Math.min(1, dt * 14)); }
     const hop = Math.sin(Math.min(1, t / 0.45) * Math.PI) * 0.12;
     this.pose(dt, 0.35 * fe, Math.PI * fe, BODY_Y - 0.11 * fe + hop, 0);
     this.mu.uTime.value = this.time; this.mu.uFlinch.value = clamp01(1 - t);
-    if (t >= 0.8 && !this.ashDone) {
-      this.ashDone = true; this.mesh.visible = false;
-      // a low crumble: dark motes that fall and a small puff, not the mimic's rising plume
-      const vfx = this.ctx.vfx, now = this.ctx.elapsed, px = this.position.x, py = this.position.y, pz = this.position.z;
-      for (let i = 0; i < 18; i++) {
-        const a = rng.range(0, TAU), rr = rng.range(0, 0.28), sh = rng.range(0.04, 0.09);
-        vfx.dust.emit(px + Math.cos(a) * rr, py + rng.range(0.05, 0.28), pz + Math.sin(a) * rr, Math.cos(a) * rng.range(0.1, 0.35), rng.range(0.1, 0.45), Math.sin(a) * rng.range(0.1, 0.35), sh, sh, sh * 1.15, rng.range(1.0, 2.0), rng.range(0.1, 0.24), 0.5, 1, now);
-      }
-      vfx.dustPuff(_v.set(px, py + 0.1, pz), THREE.Object3D.DEFAULT_UP, 5, [0.1, 0.1, 0.11], 0.3);
-    }
+    if (t >= 0.8 && !this.ashDone) { this.ashDone = true; this.mesh.visible = false; this.crumble(); }
   }
-  onDispose() { this.mesh.skeleton.dispose(); }
+  crumble() {
+    // a low crumble: dark motes that fall and a small puff, not the mimic's rising plume
+    const vfx = this.ctx.vfx, now = this.ctx.elapsed, px = this.position.x, py = this.position.y, pz = this.position.z;
+    for (let i = 0; i < 18; i++) {
+      const a = rng.range(0, TAU), rr = rng.range(0, 0.28), sh = rng.range(0.04, 0.09);
+      vfx.dust.emit(px + Math.cos(a) * rr, py + rng.range(0.05, 0.28), pz + Math.sin(a) * rr, Math.cos(a) * rng.range(0.1, 0.35), rng.range(0.1, 0.45), Math.sin(a) * rng.range(0.1, 0.35), sh, sh, sh * 1.15, rng.range(1.0, 2.0), rng.range(0.1, 0.24), 0.5, 1, now);
+    }
+    vfx.dustPuff(_v.set(px, py + 0.1, pz), THREE.Object3D.DEFAULT_UP, 5, [0.1, 0.1, 0.11], 0.3);
+  }
+  onDispose() { if (this.rig) this.rig.dispose?.(); else this.mesh.skeleton.dispose(); }
+  // flashbang: gear sets e.stunned (seconds or a flag); either convention works
+  stunTick(dt) {
+    const s = this.stunned;
+    if (s) { if (!this.stunSeen) { this.stunSeen = true; this.stunLeft = Math.max(this.stunLeft, typeof s === 'number' ? s : 4); } }
+    else this.stunSeen = false;
+    if (this.stunLeft > 0) {
+      this.stunLeft -= dt;
+      if (this.state !== 'stunned') { this.setState('stunned'); this.target = null; this.biteWind = 0; }
+      if (this.stunLeft <= 0) { this.stunLeft = 0; this.setState(this.engaged ? 'swarm' : 'return'); this.headT = 0; }
+      return true;
+    }
+    return false;
+  }
+  // the bite: through the vest if the player wears one; the second within eight seconds opens a bleed
+  biteNow() {
+    const ctx = this.ctx, now = this.time;
+    bites.n = now - bites.t < 8 ? bites.n + 1 : 1; bites.t = now;
+    if (ctx.damage && ctx.damage.other) ctx.damage.other(7, { kind: 'melee', source: this, bleed: false }); else this.hurtPlayer(7, 'melee');
+    if (bites.n >= 2 && !ctx.player.dead && !ctx.debug.god) ctx.state.data.bleeding = true;
+    this.sound('spawn_bite', { gain: 0.9, max: 30, ref: 1.5, rate: rng.range(0.9, 1.15) });
+  }
 
   // ---- AI ----
   tick(dt) {
@@ -239,8 +392,10 @@ class Spawn extends Enemy {
     const d = this.distanceToPlayer();
     const prevX = this.position.x, prevZ = this.position.z;
     this.losT -= dt;
-    if (this.losT <= 0) { this.losT = 0.2; _v.set(this.position.x, this.position.y + 0.3, this.position.z); _v2.set(p.position.x, p.position.y + p.eyeHeight * 0.65, p.position.z); this.los = d < 34 && ctx.world.lineOfSight(_v, _v2); }
-    this.perceive(dt, { visGain: 4, hearGain: 4, decay: 0.15 });
+    if (this.losT <= 0) { this.losT = 0.2; _v.set(this.position.x, this.position.y + 0.3, this.position.z); _v2.set(p.position.x, p.position.y + p.eyeHeight * 0.65, p.position.z); this.los = d < 34 && ctx.world.lineOfSight(_v, _v2) && !(ctx.world.smokeBlocks && ctx.world.smokeBlocks(_v, _v2)); }
+    const stunned = this.stunTick(dt);
+    if (!stunned) this.perceive(dt, { visGain: 4, hearGain: 4, decay: 0.15 });
+    if (this.nest) updateNests(ctx, dt);
     // pack centre, refreshed twice a second
     this.packT -= dt;
     if (this.packT <= 0) {
@@ -248,12 +403,22 @@ class Spawn extends Enemy {
       for (const e of ctx.enemies.list) { if (e.type !== 'spawn' || !e.alive) continue; if (this.pack ? e.pack !== this.pack : e.position.distanceTo(this.position) > 8) continue; _v3.add(e.position); n++; }
       if (n > 0) { this.packC.copy(_v3).divideScalar(n); this.packN = n; }
     }
+    // the light on it, sampled ten times a second
+    this.beamT -= dt; if (this.beamT <= 0) { this.beamT = 0.1; this.beam = d < 30 ? beamAt(ctx, this.position.x, this.position.y + 0.2, this.position.z) : 0; }
     this.biteCool = Math.max(0, this.biteCool - dt);
     this.flinch = damp(this.flinch, 0, 6, dt);
     let headYaw = 0, speed = 0;
     const hd = Math.hypot(p.position.x - this.position.x, p.position.z - this.position.z);
+    // where it stands relative to your face: > 0.35 is in front of you
+    const facing = hd > 0.05 ? ((this.position.x - p.position.x) * p.forward.x + (this.position.z - p.position.z) * p.forward.z) / hd : 1;
 
     switch (this.state) {
+      case 'stunned': {
+        // blind: it spins on the spot, legs going, biting at nothing
+        this.yaw += dt * 5 * Math.sin(t * 2.3);
+        headYaw = Math.sin(t * 11) * 0.8; this.twitch = 1;
+        break;
+      }
       case 'idle': {
         // short dashes and pauses around home; the pack keeps loosely together
         if (this.target) {
@@ -271,26 +436,57 @@ class Spawn extends Enemy {
         }
         break;
       }
+      case 'scatter': {
+        // out of the beam, sideways, fast
+        this.scatterT -= dt;
+        _v.set(this.position.x + Math.sin(this.heading) * 2.5, this.position.y, this.position.z + Math.cos(this.heading) * 2.5);
+        this.moveToward(_v, SPEED.swarm, dt, { stop: 0.1, turnRate: 18, allowWater: true });
+        speed = SPEED.swarm;
+        if (this.scatterT <= 0 || (this.beam < 0.15 && this.stateT > 0.25)) { this.setState('swarm'); this.headT = 0; this.biteCool = Math.max(this.biteCool, 0.3); }
+        break;
+      }
       case 'swarm': {
         if (!this.engaged || p.dead || p.inBase) { this.setState('return'); break; }
         headYaw = angleDelta(this.yaw, Math.atan2(-(p.position.x - this.position.x), -(p.position.z - this.position.z)));
+        // caught in the light: break sideways out of it
+        if (this.beam > 0.35 && hd > 1.6 && this.biteWind <= 0) {
+          ctx.camera.getWorldDirection(_cam);
+          const cross = _cam.x * (this.position.z - p.position.z) - _cam.z * (this.position.x - p.position.x);   // which side of the beam axis it is on
+          const side = cross >= 0 ? 1 : -1;
+          const beamYaw = Math.atan2(_cam.x, _cam.z);
+          this.heading = beamYaw + side * (Math.PI / 2 + rng.range(-0.3, 0.3));
+          this.scatterT = rng.range(0.4, 0.7);
+          this.setState('scatter');
+          this.sound('spawn_skitter', { gain: 0.7, max: 35, ref: 1.5, rate: 1.6 });
+          break;
+        }
         if (this.biteWind > 0) {
           // the tell: it rears up on its hind legs for a beat, then snaps down
           this.faceToward(p.position.x, p.position.z, dt, 14);
           this.biteWind -= dt;
-          if (this.biteWind <= 0) { this.bite = 1; if (hd < 1.7) { this.hurtPlayer(7, 'melee'); this.sound('spawn_bite', { gain: 0.9, max: 30, ref: 1.5, rate: rng.range(0.9, 1.15) }); } }
-        } else if (hd < 1.2) {
-          // on you: face, wind up, bite
+          if (this.biteWind <= 0) { this.bite = 1; if (hd < 1.7) this.biteNow(); }
+        } else if (hd < 1.2 && (facing < 0.35 || this.aroundT > 2.5)) {
+          // on you, from behind: face, wind up, bite
           this.faceToward(p.position.x, p.position.z, dt, 14);
           if (this.biteCool <= 0) { this.biteCool = rng.range(1.25, 1.8); this.biteWind = 0.22; this.sound('spawn_skitter', { gain: 0.5, max: 30, ref: 1.5, rate: 1.7 }); }
         } else {
-          // a new heading every 0.4-0.8 s, biased toward the player; a gentle pull toward the pack
+          // a new heading every 0.4-0.8 s: toward your back, never through the beam; a gentle pull toward the pack
+          this.aroundT = hd < 3 && facing >= 0.35 ? this.aroundT + dt : 0;
           this.headT -= dt;
           if (this.headT <= 0) {
             this.headT = rng.range(0.4, 0.8);
-            let a = Math.atan2(p.position.x - this.position.x, p.position.z - this.position.z);
+            // the goal: a point behind you, round the side it is already on
+            const sideOf = (this.position.x - p.position.x) * p.forward.z - (this.position.z - p.position.z) * p.forward.x >= 0 ? 1 : -1;
+            const back = hd < 6 && facing > -0.2 ? 1 : 0;
+            const gx = p.position.x - p.forward.x * 1.4 * back + p.forward.z * sideOf * 1.2 * back, gz = p.position.z - p.forward.z * 1.4 * back - p.forward.x * sideOf * 1.2 * back;
+            let a = Math.atan2(gx - this.position.x, gz - this.position.z);
             a += clamp(rng.gauss() * 0.6, -1.3, 1.3) * clamp01((hd - 1.5) / 4);
             if (this.packN > 1) { const pc = this.packC; const dp = Math.hypot(pc.x - this.position.x, pc.z - this.position.z); if (dp > 5) { const ap = Math.atan2(pc.x - this.position.x, pc.z - this.position.z); a += angleDelta(a, ap) * 0.25; } }
+            // the dark side: if the step ahead is lit, swing round it
+            if (this.beam > 0.05 || ctx.state.data.flashlight.on) {
+              const bx = this.position.x + Math.sin(a) * 2.5, bz = this.position.z + Math.cos(a) * 2.5;
+              if (beamAt(ctx, bx, this.position.y + 0.2, bz) > 0.4) a += sideOf * rng.range(60, 90) * DEG;
+            }
             this.heading = a;
           }
           _v.set(this.position.x + Math.sin(this.heading) * 2.5, this.position.y, this.position.z + Math.cos(this.heading) * 2.5);
@@ -325,6 +521,11 @@ class Spawn extends Enemy {
   // ---- animation ----
   animate(dt, d) {
     const t = this.time;
+    if (this.rig) {
+      this.rig.setState?.({ speed: this.moveSpeed, hit: this.flinch, bite: this.bite, rear: this.biteWind > 0 ? 1 : 0, dead: false, aimAt: this.player.eye });
+      this.rig.update?.(dt);
+      return;
+    }
     const S = 0.085, lift = 0.075;
     const sf = clamp01(this.moveSpeed / 1.5);
     this.gait = damp(this.gait, sf, 12, dt);
@@ -393,4 +594,11 @@ class Spawn extends Enemy {
 export function registerSpawn(ctx) {
   rng = ctx.rng.fork(47);
   ctx.enemies.registerType('spawn', Spawn);
+  // nests reset with the zone; a shot near a nest with nobody left alive to tick it still wakes it
+  ctx.events.on('gameStart', clearNests);
+  ctx.events.on('tide', clearNests);
+  ctx.events.on('weaponFired', () => {
+    const p = ctx.player.position;
+    for (const n of nests.values()) { if (n.emitted >= MAX_EMITS) continue; if (Math.hypot(n.position.x - p.x, n.position.z - p.z) < 20) { disturb(n); tryEmit(ctx, n); } }
+  });
 }
