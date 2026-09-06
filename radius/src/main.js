@@ -79,6 +79,7 @@ function boot() {
   ctx.damage = createDamage(ctx);
   ctx.interact = createInteract(ctx);
   ctx.hands = createHands(ctx);
+  ctx.hands.root.add(ctx.lighting.weaponLight); ctx.hands.root.add(ctx.lighting.weaponLight.target);
   ctx.ballistics = createBallistics(ctx);
   ctx.weapons = createWeapons(ctx);
   ctx.enemies = createEnemies(ctx);

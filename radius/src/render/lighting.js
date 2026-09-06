@@ -47,7 +47,7 @@ export function createLighting(ctx) {
   ctx.camera.add(headlamp); ctx.camera.add(headlamp.target);
   const weaponLight = new THREE.SpotLight(0xf4f0ff, 0, 55, 0.36, 0.6, 1.5);
   weaponLight.position.set(0, 0, 0); weaponLight.target.position.set(0, 0, -8);
-  ctx.hands.root ? (ctx.hands.root.add(weaponLight), ctx.hands.root.add(weaponLight.target)) : (ctx.camera.add(weaponLight), ctx.camera.add(weaponLight.target));
+  ctx.camera.add(weaponLight); ctx.camera.add(weaponLight.target);   // main.js re-parents it under hands.root once the rig exists
 
   const sunDir = new THREE.Vector3(), tmp = new THREE.Vector3();
   const api = {
