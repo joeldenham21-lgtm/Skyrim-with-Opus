@@ -70,3 +70,50 @@ godot/
 - **Verification**: `tools/shot.sh tools/scenarios/<name>.gd` runs the game under Xvfb with software Vulkan and
   writes PNGs to `.shots/<name>/`; `godot --headless -s tools/tests/<name>.gd` runs logic tests. Every agent must
   look at its screenshots.
+
+## Contracts v1 (fixed; every agent codes against these)
+- **World root** is the `World` node of `scenes/main.tscn` with `scripts/world/world.gd` (`Game.world`). In `_ready` it
+  instantiates, in order and only if the scene file exists: `scenes/world/terrain.tscn` → child `Terrain`,
+  `water.tscn` → `Water`, `sky.tscn` → `Sky`, `structures.tscn` → `Structures`, `flora.tscn` → `Flora`,
+  `anomalies.tscn` → `Anomalies`; then emits `Events.world_ready`. Each of those scenes is owned by one agent and must
+  work standalone (missing siblings are normal during development).
+  API on `Game.world`: `get_height(x,z)`, `get_normal(x,z)`, `get_surface(x,z)` → one of
+  `grass dirt mud gravel rock road concrete wood metal sand water snow`, `in_water(x,z)`, `water_height(x,z)`,
+  `poi(id)`, `pois()`, `nearest_poi(x,z)`, `poi_at(x,z)`, `weather()`, `register(kind, dict)` with kind in
+  `cover|spawn|loot|hiding|footprint` (dicts carry at least `x`,`z` and for footprint `r`), `in_footprint(x,z,margin)`.
+  Terrain implements `get_height/get_normal/get_surface`; Water implements `in_water/water_height`; Sky exposes
+  `weather: String` (`clear|overcast|drizzle|rain|fog|storm`), `set_weather(name, seconds)` and emits
+  `Events.weather_changed`. When `Sky` exists, `main.gd` builds no environment or sun: Sky owns the
+  WorldEnvironment, the DirectionalLight3D (name it `Sun`), moon, clouds, fog volumes and precipitation.
+- **Map data** is `data/map.json` (`Data.map`): `SIZE` (metres, square, centred on 0,0), `WATER_LEVEL`, `POIS`
+  (`id,name,kind,x,z,r`, optional `anomaly`), `ROADS` (`id,width,pts`), `RAIL`, `START`, `BASE`, `COLUMN`.
+  The terrain agent may enlarge the map and add POIs; existing ids stay and `poi_tier.json`/`containers_by_poi.json`
+  get entries for new ids (mirror the closest existing kind).
+- **Terrain source data** is generated offline by `tools/gen_terrain.py` (numpy) into `assets/terrain/`:
+  `height.f32` (little-endian float32, `(N+1)×(N+1)` row-major, z-major then x, metres; N = SIZE at 1 m per sample),
+  `splat.png` (RGBA8: R grass, G dirt/mud, B rock, A gravel/road), `splat2.png` (R sand, G moss, B wet, A snow),
+  `flora.png` (RGBA8: R tree density, G bush density, B grass density, A clutter density), `water.png` (R water mask,
+  G flow-x, B flow-y, A depth), `terrain.json` (metadata: size, min/max height, sea level, generator seed/version).
+  `terrain.gd` loads these (never regenerates at runtime) and caches chunk meshes to `assets/cache/`.
+- **Textures**: `assets/textures/<kind>/<kind>_albedo.webp`, `<kind>_normal.webp` (OpenGL Y+), `<kind>_orm.webp`
+  (R ambient occlusion, G roughness, B metallic), `<kind>_height.webp` (grey). 2048² tileable. Kinds (minimum):
+  concrete, plaster, brick, rust, painted_metal, gunmetal, wood, logs, birch_bark, pine_bark, fabric, leather,
+  rubber, mud, gravel, road, asphalt, roof_tile, roof_metal, grass, dirt, rock, sand, moss, tarp, paper, glass;
+  plus card atlases with alpha in `assets/textures/cards/` (grass blades, pine branch, birch branch, dead branch,
+  bush, fern, reeds, leaves) and decals in `assets/textures/decals/` (bullet holes per surface, blood, cracks, moss,
+  puddle, oil, scorch, rust streak, posters). Access through `Mats.pbr(kind, uv, tint, opts)` (`scripts/util/mats.gd`)
+  which falls back to flat colours until the generator has run. Commit the generated files; keep the whole texture
+  payload under ~150 MB (WebP q88–92 for albedo/orm/height, lossless WebP for normals or q95).
+- **Audio**: `assets/audio/<name>.ogg` or `<name>_1.ogg … _4.ogg` variants (44.1 kHz, Vorbis q≈0.5),
+  `Audio.play(name, pos)` / `Audio.loop(name, pos)` choose variants; bus layout `default_bus_layout.tres` with
+  Master, SFX, Music, Ambience, UI, Voice; reverb is a per-area send set by `Audio.set_area(kind)`.
+- **Verification**: `tools/shot.sh tools/scenarios/<name>.gd [WxH]` — imports new assets, takes the render lock
+  (only one headless Godot at a time on this machine), writes `.shots/<name>/`. Always look at the PNGs.
+  Fast syntax check: `godot --headless --path . --check-only --script <file.gd>` (autoload names report as
+  "not found" there; that is a false positive, everything else is real). Runtime errors print as `SCRIPT ERROR`.
+- **Performance budget (4K, 100 fps target on a laptop RTX 4060/4070 class GPU, FSR2 at 0.67–0.77)**: whole frame
+  ≤ 1 200 draw calls and ≤ 4 M primitives at any position; terrain ≤ 40 draw calls (chunk LOD); flora is
+  MultiMeshInstance3D per chunk with distance rings (grass ≤ 60 m, bushes ≤ 180 m, tree LOD0 ≤ 60 m, LOD1 ≤ 220 m,
+  impostor beyond), grass and clutter cast no shadows, trees LOD0/LOD1 cast; structures merge static geometry
+  per building into one ArrayMesh per material; particles ≤ 64 systems alive. `stats()` in the scenario driver
+  prints draw calls and primitives — report them in your scenario and stay under budget.

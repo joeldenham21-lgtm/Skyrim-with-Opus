@@ -16,6 +16,12 @@ Audio="*res://autoload/audio.gd"
 Director="*res://autoload/director.gd"
 Game="*res://autoload/game.gd"
 
+[debug]
+gdscript/warnings/inference_on_variant=1
+gdscript/warnings/get_node_default_without_onready=1
+gdscript/warnings/native_method_override=1
+gdscript/warnings/onready_with_export=1
+
 [display]
 window/size/viewport_width=1920
 window/size/viewport_height=1080

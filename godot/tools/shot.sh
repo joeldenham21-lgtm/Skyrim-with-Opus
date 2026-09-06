@@ -10,5 +10,8 @@ mkdir -p "$HERE/.shots/$NAME"
 export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
 export RADIUS_SHOTS="$HERE/.shots/$NAME"
 cd "$HERE"
+# Serialise headless Godot runs (4 CPUs, software Vulkan) and make sure new assets are imported first.
+exec 9>/tmp/radius-godot.lock; flock 9
+if [ -z "$NO_IMPORT" ]; then "$GODOT" --headless --path . --import >/dev/null 2>&1 || true; fi
 xvfb-run -a -s "-screen 0 1280x720x24" timeout ${TIMEOUT:-600} "$GODOT" --path . --rendering-driver vulkan --resolution "$RES" --scenario "$SCEN" 2>&1 | grep -vE "ALSA|snd_|audio_driver_alsa|dummy driver|^$|WARNING: All audio"
 ls "$HERE/.shots/$NAME"

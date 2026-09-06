@@ -10,11 +10,11 @@ var sun: DirectionalLight3D = null
 func _ready() -> void:
 	Game.player = player
 	Game.world = world_root
-	_build_environment()
-	var terrain_scene := load("res://scenes/world/terrain.tscn") if ResourceLoader.exists("res://scenes/world/terrain.tscn") else null
-	if terrain_scene: world_root.add_child(terrain_scene.instantiate())
-	else: _placeholder_ground()
-	player.global_position = Vector3(0, 8.0, 284)
+	# World (scripts/world/world.gd) instantiates Terrain/Water/Sky/Structures/Flora/Anomalies when their scenes exist.
+	if world_root.get_node_or_null("Sky") == null: _build_environment()
+	if world_root.get_node_or_null("Terrain") == null: _placeholder_ground()
+	var start: Dictionary = Data.map.get("START", {"x": 0, "z": 284})
+	player.global_position = Vector3(float(start.get("x", 0)), world_root.get_height(float(start.get("x", 0)), float(start.get("z", 284))) + 1.0, float(start.get("z", 284)))
 	Game.set_mode("title")
 	var args := OS.get_cmdline_user_args()
 	var all_args := OS.get_cmdline_args()
@@ -57,7 +57,8 @@ func _placeholder_ground() -> void:
 	world_root.add_child(m); world_root.add_child(body)
 
 func _process(_dt: float) -> void:
-	# sun from the clock; the sky module (when present) refines colours
+	# placeholder sun/fog drive; the Sky scene (scenes/world/sky.tscn) owns lighting when present
+	if sun == null or env == null: return
 	var d := Clock.sun_dir()
 	sun.global_transform = Transform3D(Basis.looking_at(-d, Vector3.UP), Vector3.ZERO)
 	var elev := clampf(d.y * 3.0 + 0.2, 0.0, 1.0)

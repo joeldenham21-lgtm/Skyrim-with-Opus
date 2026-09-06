@@ -58,14 +58,14 @@ func default_ammo(cal: String) -> String:
 	const D := { "9x18": "9x18_fmj", "9x19": "9x19_fmj", "7.62x25": "762x25_fmj", ".45": "45_fmj", "5.45x39": "545_fmj", "7.62x39": "762_fmj", "5.56x45": "556_fmj", "9x39": "939_sp5", "7.62x54": "754_fmj", "12ga": "12_buck" }
 	return D.get(cal, "")
 func mags_for(weapon_id: String) -> Array:
-	var w := weapons.get(weapon_id, {}); var out := []
+	var w: Dictionary = weapons.get(weapon_id, {}); var out := []
 	if w.is_empty(): return out
 	for m in magazines.values(): if w["family"] in m["fits"]: out.append(m)
 	return out
 func effective_mounts(weapon_def: Dictionary, rails: Array) -> Dictionary:
 	var m: Dictionary = weapon_def.get("mounts", {}).duplicate()
 	for rid in rails:
-		var r := attachments.get(rid, {})
+		var r: Dictionary = attachments.get(rid, {})
 		if r.has("gives"): m.merge(r["gives"], true)
 	return m
 func attachment_fits(att: Dictionary, weapon_def: Dictionary, rails: Array) -> bool:
