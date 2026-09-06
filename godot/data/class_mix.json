@@ -1,0 +1,33 @@
+{
+ "1": {
+  "recruit": 0.55,
+  "regular": 0.35,
+  "veteran": 0.06,
+  "shotgunner": 0.04
+ },
+ "2": {
+  "recruit": 0.25,
+  "regular": 0.4,
+  "veteran": 0.2,
+  "shotgunner": 0.07,
+  "sniper": 0.05,
+  "gunner": 0.03
+ },
+ "3": {
+  "recruit": 0.1,
+  "regular": 0.3,
+  "veteran": 0.3,
+  "elite": 0.12,
+  "shotgunner": 0.08,
+  "sniper": 0.06,
+  "gunner": 0.04
+ },
+ "4": {
+  "regular": 0.2,
+  "veteran": 0.35,
+  "elite": 0.25,
+  "shotgunner": 0.08,
+  "sniper": 0.07,
+  "gunner": 0.05
+ }
+}

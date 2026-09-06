@@ -1,0 +1,508 @@
+{
+ "mag_pm8": {
+  "id": "mag_pm8",
+  "cal": "9x18",
+  "name": "PM magazine, 8",
+  "cap": 8,
+  "weight": 0.08,
+  "price": 40,
+  "rank": 1,
+  "rarity": "common",
+  "fits": [
+   "pm"
+  ],
+  "kind": "mag"
+ },
+ "mag_pmm12": {
+  "id": "mag_pmm12",
+  "cal": "9x18",
+  "name": "PMM magazine, 12",
+  "cap": 12,
+  "weight": 0.1,
+  "price": 90,
+  "rank": 2,
+  "rarity": "uncommon",
+  "fits": [
+   "pm"
+  ],
+  "kind": "mag"
+ },
+ "mag_aps20": {
+  "id": "mag_aps20",
+  "cal": "9x18",
+  "name": "APS magazine, 20",
+  "cap": 20,
+  "weight": 0.14,
+  "price": 120,
+  "rank": 2,
+  "rarity": "uncommon",
+  "fits": [
+   "aps"
+  ],
+  "kind": "mag"
+ },
+ "mag_kedr20": {
+  "id": "mag_kedr20",
+  "cal": "9x18",
+  "name": "Kedr magazine, 20",
+  "cap": 20,
+  "weight": 0.15,
+  "price": 80,
+  "rank": 1,
+  "rarity": "common",
+  "fits": [
+   "kedr"
+  ],
+  "kind": "mag"
+ },
+ "mag_kedr30": {
+  "id": "mag_kedr30",
+  "cal": "9x18",
+  "name": "Kedr magazine, 30",
+  "cap": 30,
+  "weight": 0.2,
+  "price": 140,
+  "rank": 2,
+  "rarity": "uncommon",
+  "fits": [
+   "kedr"
+  ],
+  "kind": "mag"
+ },
+ "mag_bizon64": {
+  "id": "mag_bizon64",
+  "cal": "9x18",
+  "name": "Bizon helical, 64",
+  "cap": 64,
+  "weight": 0.45,
+  "price": 360,
+  "rank": 3,
+  "rarity": "rare",
+  "fits": [
+   "bizon"
+  ],
+  "kind": "mag"
+ },
+ "mag_tt8": {
+  "id": "mag_tt8",
+  "cal": "7.62x25",
+  "name": "TT magazine, 8",
+  "cap": 8,
+  "weight": 0.09,
+  "price": 40,
+  "rank": 1,
+  "rarity": "common",
+  "fits": [
+   "tt"
+  ],
+  "kind": "mag"
+ },
+ "mag_ppsh35": {
+  "id": "mag_ppsh35",
+  "cal": "7.62x25",
+  "name": "PPSh stick, 35",
+  "cap": 35,
+  "weight": 0.35,
+  "price": 160,
+  "rank": 2,
+  "rarity": "uncommon",
+  "fits": [
+   "ppsh"
+  ],
+  "kind": "mag"
+ },
+ "mag_ppsh71": {
+  "id": "mag_ppsh71",
+  "cal": "7.62x25",
+  "name": "PPSh drum, 71",
+  "cap": 71,
+  "weight": 0.9,
+  "price": 420,
+  "rank": 3,
+  "rarity": "rare",
+  "fits": [
+   "ppsh"
+  ],
+  "kind": "mag"
+ },
+ "mag_glock17": {
+  "id": "mag_glock17",
+  "cal": "9x19",
+  "name": "Glock magazine, 17",
+  "cap": 17,
+  "weight": 0.1,
+  "price": 70,
+  "rank": 2,
+  "rarity": "common",
+  "fits": [
+   "glock"
+  ],
+  "kind": "mag"
+ },
+ "mag_glock33": {
+  "id": "mag_glock33",
+  "cal": "9x19",
+  "name": "Glock extended, 33",
+  "cap": 33,
+  "weight": 0.18,
+  "price": 220,
+  "rank": 3,
+  "rarity": "uncommon",
+  "fits": [
+   "glock"
+  ],
+  "kind": "mag"
+ },
+ "mag_m9_15": {
+  "id": "mag_m9_15",
+  "cal": "9x19",
+  "name": "M9 magazine, 15",
+  "cap": 15,
+  "weight": 0.1,
+  "price": 70,
+  "rank": 2,
+  "rarity": "common",
+  "fits": [
+   "m9"
+  ],
+  "kind": "mag"
+ },
+ "mag_mp5_30": {
+  "id": "mag_mp5_30",
+  "cal": "9x19",
+  "name": "MP5 magazine, 30",
+  "cap": 30,
+  "weight": 0.22,
+  "price": 140,
+  "rank": 2,
+  "rarity": "uncommon",
+  "fits": [
+   "mp5"
+  ],
+  "kind": "mag"
+ },
+ "mag_vityaz30": {
+  "id": "mag_vityaz30",
+  "cal": "9x19",
+  "name": "Vityaz magazine, 30",
+  "cap": 30,
+  "weight": 0.24,
+  "price": 140,
+  "rank": 2,
+  "rarity": "uncommon",
+  "fits": [
+   "vityaz"
+  ],
+  "kind": "mag"
+ },
+ "mag_1911_7": {
+  "id": "mag_1911_7",
+  "cal": ".45",
+  "name": "1911 magazine, 7",
+  "cap": 7,
+  "weight": 0.09,
+  "price": 60,
+  "rank": 2,
+  "rarity": "uncommon",
+  "fits": [
+   "m1911"
+  ],
+  "kind": "mag"
+ },
+ "mag_1911_10": {
+  "id": "mag_1911_10",
+  "cal": ".45",
+  "name": "1911 extended, 10",
+  "cap": 10,
+  "weight": 0.12,
+  "price": 140,
+  "rank": 3,
+  "rarity": "rare",
+  "fits": [
+   "m1911"
+  ],
+  "kind": "mag"
+ },
+ "mag_ak545_30": {
+  "id": "mag_ak545_30",
+  "cal": "5.45x39",
+  "name": "AK-74 magazine, 30",
+  "cap": 30,
+  "weight": 0.23,
+  "price": 160,
+  "rank": 2,
+  "rarity": "common",
+  "fits": [
+   "ak545"
+  ],
+  "kind": "mag"
+ },
+ "mag_ak545_45": {
+  "id": "mag_ak545_45",
+  "cal": "5.45x39",
+  "name": "RPK-74 magazine, 45",
+  "cap": 45,
+  "weight": 0.34,
+  "price": 300,
+  "rank": 3,
+  "rarity": "uncommon",
+  "fits": [
+   "ak545"
+  ],
+  "kind": "mag"
+ },
+ "mag_ak545_60": {
+  "id": "mag_ak545_60",
+  "cal": "5.45x39",
+  "name": "5.45 quad-stack, 60",
+  "cap": 60,
+  "weight": 0.52,
+  "price": 560,
+  "rank": 4,
+  "rarity": "rare",
+  "fits": [
+   "ak545"
+  ],
+  "kind": "mag"
+ },
+ "mag_ak762_30": {
+  "id": "mag_ak762_30",
+  "cal": "7.62x39",
+  "name": "AKM magazine, 30",
+  "cap": 30,
+  "weight": 0.33,
+  "price": 160,
+  "rank": 1,
+  "rarity": "common",
+  "fits": [
+   "ak762"
+  ],
+  "kind": "mag"
+ },
+ "mag_ak762_40": {
+  "id": "mag_ak762_40",
+  "cal": "7.62x39",
+  "name": "RPK magazine, 40",
+  "cap": 40,
+  "weight": 0.45,
+  "price": 300,
+  "rank": 2,
+  "rarity": "uncommon",
+  "fits": [
+   "ak762"
+  ],
+  "kind": "mag"
+ },
+ "mag_ak762_75": {
+  "id": "mag_ak762_75",
+  "cal": "7.62x39",
+  "name": "RPK drum, 75",
+  "cap": 75,
+  "weight": 1.2,
+  "price": 680,
+  "rank": 3,
+  "rarity": "rare",
+  "fits": [
+   "ak762"
+  ],
+  "kind": "mag"
+ },
+ "mag_sks10": {
+  "id": "mag_sks10",
+  "cal": "7.62x39",
+  "name": "SKS clip, 10",
+  "cap": 10,
+  "weight": 0.05,
+  "price": 30,
+  "rank": 1,
+  "rarity": "common",
+  "fits": [
+   "sks"
+  ],
+  "kind": "mag",
+  "clip": true
+ },
+ "mag_sks20": {
+  "id": "mag_sks20",
+  "cal": "7.62x39",
+  "name": "SKS detachable, 20",
+  "cap": 20,
+  "weight": 0.3,
+  "price": 220,
+  "rank": 2,
+  "rarity": "uncommon",
+  "fits": [
+   "sks"
+  ],
+  "kind": "mag"
+ },
+ "mag_stanag30": {
+  "id": "mag_stanag30",
+  "cal": "5.56x45",
+  "name": "STANAG magazine, 30",
+  "cap": 30,
+  "weight": 0.16,
+  "price": 180,
+  "rank": 3,
+  "rarity": "uncommon",
+  "fits": [
+   "ar"
+  ],
+  "kind": "mag"
+ },
+ "mag_stanag60": {
+  "id": "mag_stanag60",
+  "cal": "5.56x45",
+  "name": "5.56 drum, 60",
+  "cap": 60,
+  "weight": 0.6,
+  "price": 640,
+  "rank": 4,
+  "rarity": "rare",
+  "fits": [
+   "ar"
+  ],
+  "kind": "mag"
+ },
+ "mag_vss10": {
+  "id": "mag_vss10",
+  "cal": "9x39",
+  "name": "VSS magazine, 10",
+  "cap": 10,
+  "weight": 0.18,
+  "price": 160,
+  "rank": 3,
+  "rarity": "uncommon",
+  "fits": [
+   "vss"
+  ],
+  "kind": "mag"
+ },
+ "mag_vss20": {
+  "id": "mag_vss20",
+  "cal": "9x39",
+  "name": "Val magazine, 20",
+  "cap": 20,
+  "weight": 0.3,
+  "price": 300,
+  "rank": 3,
+  "rarity": "uncommon",
+  "fits": [
+   "vss"
+  ],
+  "kind": "mag"
+ },
+ "mag_sr3_30": {
+  "id": "mag_sr3_30",
+  "cal": "9x39",
+  "name": "SR-3M magazine, 30",
+  "cap": 30,
+  "weight": 0.42,
+  "price": 480,
+  "rank": 4,
+  "rarity": "rare",
+  "fits": [
+   "vss"
+  ],
+  "kind": "mag"
+ },
+ "mag_svd10": {
+  "id": "mag_svd10",
+  "cal": "7.62x54",
+  "name": "SVD magazine, 10",
+  "cap": 10,
+  "weight": 0.22,
+  "price": 240,
+  "rank": 3,
+  "rarity": "uncommon",
+  "fits": [
+   "svd"
+  ],
+  "kind": "mag"
+ },
+ "mag_sv98_10": {
+  "id": "mag_sv98_10",
+  "cal": "7.62x54",
+  "name": "SV-98 magazine, 10",
+  "cap": 10,
+  "weight": 0.25,
+  "price": 320,
+  "rank": 4,
+  "rarity": "rare",
+  "fits": [
+   "sv98"
+  ],
+  "kind": "mag"
+ },
+ "mag_mosin5": {
+  "id": "mag_mosin5",
+  "cal": "7.62x54",
+  "name": "Mosin clip, 5",
+  "cap": 5,
+  "weight": 0.03,
+  "price": 20,
+  "rank": 1,
+  "rarity": "common",
+  "fits": [
+   "mosin"
+  ],
+  "kind": "mag",
+  "clip": true
+ },
+ "mag_pkm100": {
+  "id": "mag_pkm100",
+  "cal": "7.62x54",
+  "name": "PKM belt box, 100",
+  "cap": 100,
+  "weight": 2.4,
+  "price": 1200,
+  "rank": 5,
+  "rarity": "rare",
+  "fits": [
+   "pkm"
+  ],
+  "kind": "mag"
+ },
+ "mag_saiga8": {
+  "id": "mag_saiga8",
+  "cal": "12ga",
+  "name": "Saiga magazine, 8",
+  "cap": 8,
+  "weight": 0.3,
+  "price": 160,
+  "rank": 2,
+  "rarity": "uncommon",
+  "fits": [
+   "saiga"
+  ],
+  "kind": "mag"
+ },
+ "mag_saiga12": {
+  "id": "mag_saiga12",
+  "cal": "12ga",
+  "name": "Saiga magazine, 12",
+  "cap": 12,
+  "weight": 0.42,
+  "price": 300,
+  "rank": 3,
+  "rarity": "rare",
+  "fits": [
+   "saiga"
+  ],
+  "kind": "mag"
+ },
+ "mag_saiga20": {
+  "id": "mag_saiga20",
+  "cal": "12ga",
+  "name": "Saiga drum, 20",
+  "cap": 20,
+  "weight": 0.9,
+  "price": 720,
+  "rank": 4,
+  "rarity": "rare",
+  "fits": [
+   "saiga"
+  ],
+  "kind": "mag"
+ }
+}

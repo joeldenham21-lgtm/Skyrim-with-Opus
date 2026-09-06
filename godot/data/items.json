@@ -1,0 +1,759 @@
+{
+ "bandage": {
+  "id": "bandage",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.05,
+  "stack": 10,
+  "name": "Bandage",
+  "kind": "med",
+  "price": 60,
+  "use": 3,
+  "effect": {
+   "stopBleed": true,
+   "heal": 10
+  },
+  "desc": "Stops bleeding. +10."
+ },
+ "hemostat": {
+  "id": "hemostat",
+  "rank": 2,
+  "rarity": "uncommon",
+  "weight": 0.05,
+  "stack": 10,
+  "name": "Hemostatic",
+  "kind": "med",
+  "price": 140,
+  "use": 1.2,
+  "effect": {
+   "stopBleed": true,
+   "heal": 5
+  },
+  "desc": "Celox. Stops bleeding at once."
+ },
+ "medkit": {
+  "id": "medkit",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.4,
+  "stack": 10,
+  "name": "IFAK",
+  "kind": "med",
+  "price": 320,
+  "use": 5,
+  "effect": {
+   "healOver": [
+    45,
+    8
+   ],
+   "stopBleed": true
+  },
+  "desc": "+45 over eight seconds. Stops bleeding."
+ },
+ "medkit_ai2": {
+  "id": "medkit_ai2",
+  "rank": 2,
+  "rarity": "uncommon",
+  "weight": 0.6,
+  "stack": 10,
+  "name": "AI-2 field kit",
+  "kind": "med",
+  "price": 720,
+  "use": 6,
+  "effect": {
+   "healOver": [
+    80,
+    12
+   ],
+   "stopBleed": true,
+   "cure": true
+  },
+  "desc": "The orange box. +80 over twelve seconds."
+ },
+ "morphine": {
+  "id": "morphine",
+  "rank": 2,
+  "rarity": "uncommon",
+  "weight": 0.05,
+  "stack": 10,
+  "name": "Morphine",
+  "kind": "med",
+  "price": 260,
+  "use": 1.5,
+  "effect": {
+   "painkiller": 90,
+   "heal": 5
+  },
+  "desc": "Ninety seconds without the edges. No blur, no shake."
+ },
+ "stim": {
+  "id": "stim",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.05,
+  "stack": 10,
+  "name": "Stimulant",
+  "kind": "med",
+  "price": 140,
+  "use": 1.2,
+  "effect": {
+   "stamina": 100,
+   "heal": 5
+  },
+  "desc": "Stamina restored. +5."
+ },
+ "adrenaline": {
+  "id": "adrenaline",
+  "rank": 3,
+  "rarity": "rare",
+  "weight": 0.05,
+  "stack": 10,
+  "name": "Adrenaline",
+  "kind": "med",
+  "price": 360,
+  "use": 0.8,
+  "effect": {
+   "stamina": 100,
+   "speedFor": [
+    30,
+    1.15
+   ],
+   "heal": 0
+  },
+  "desc": "Thirty seconds faster than you should be."
+ },
+ "water": {
+  "id": "water",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.5,
+  "stack": 10,
+  "name": "Water, canteen",
+  "kind": "food",
+  "price": 40,
+  "use": 2,
+  "effect": {
+   "staminaRegen": [
+    120,
+    1.5
+   ],
+   "heal": 0
+  },
+  "desc": "Two minutes of better wind."
+ },
+ "energy": {
+  "id": "energy",
+  "rank": 2,
+  "rarity": "common",
+  "weight": 0.3,
+  "stack": 10,
+  "name": "Energy drink",
+  "kind": "food",
+  "price": 120,
+  "use": 1.5,
+  "effect": {
+   "staminaRegen": [
+    180,
+    2
+   ],
+   "stamina": 40
+  }
+ },
+ "tushonka": {
+  "id": "tushonka",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.4,
+  "stack": 10,
+  "name": "Canned meat",
+  "kind": "food",
+  "price": 90,
+  "use": 4,
+  "effect": {
+   "healOver": [
+    20,
+    30
+   ]
+  },
+  "desc": "Tushonka. +20 over half a minute."
+ },
+ "bread": {
+  "id": "bread",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.3,
+  "stack": 10,
+  "name": "Rye bread",
+  "kind": "food",
+  "price": 30,
+  "use": 2.5,
+  "effect": {
+   "healOver": [
+    8,
+    20
+   ]
+  }
+ },
+ "cigarettes": {
+  "id": "cigarettes",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.05,
+  "stack": 10,
+  "name": "Cigarettes",
+  "kind": "food",
+  "price": 50,
+  "use": 3,
+  "effect": {
+   "steady": 60
+  },
+  "desc": "Sixty seconds of steadier hands. Everything smells it."
+ },
+ "probe": {
+  "id": "probe",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.08,
+  "stack": 30,
+  "name": "Probe",
+  "kind": "tool",
+  "price": 12,
+  "desc": "Throw ahead. Reveals anomalies."
+ },
+ "battery": {
+  "id": "battery",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.05,
+  "stack": 20,
+  "name": "Battery cell",
+  "kind": "battery",
+  "price": 45,
+  "charge": 100,
+  "desc": "For the torch, the lamp and the tubes."
+ },
+ "filter": {
+  "id": "filter",
+  "rank": 2,
+  "rarity": "common",
+  "weight": 0.2,
+  "stack": 6,
+  "name": "Mask filter",
+  "kind": "filter",
+  "price": 90,
+  "charge": 100
+ },
+ "cleankit": {
+  "id": "cleankit",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.4,
+  "stack": 3,
+  "name": "Cleaning kit",
+  "kind": "tool",
+  "price": 180,
+  "uses": 4,
+  "desc": "Field-strips one weapon. Four uses."
+ },
+ "repairkit": {
+  "id": "repairkit",
+  "rank": 2,
+  "rarity": "uncommon",
+  "weight": 0.8,
+  "stack": 2,
+  "name": "Weapon repair kit",
+  "kind": "tool",
+  "price": 900,
+  "uses": 2,
+  "repair": 35,
+  "desc": "Springs, pins, a file. +35 % to one part."
+ },
+ "armorkit": {
+  "id": "armorkit",
+  "rank": 2,
+  "rarity": "uncommon",
+  "weight": 1.2,
+  "stack": 2,
+  "name": "Armour repair kit",
+  "kind": "tool",
+  "price": 700,
+  "uses": 2,
+  "repair": 40,
+  "desc": "Plates and patches. +40 durability."
+ },
+ "detector": {
+  "id": "detector",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.5,
+  "stack": 1,
+  "name": "Detector \"Veer\"",
+  "kind": "tool",
+  "price": 900,
+  "detect": {
+   "range": 30,
+   "dir": false
+  },
+  "desc": "Ticks near artifacts."
+ },
+ "detector2": {
+  "id": "detector2",
+  "rank": 3,
+  "rarity": "rare",
+  "weight": 0.7,
+  "stack": 1,
+  "name": "Detector \"Bear\"",
+  "kind": "tool",
+  "price": 3200,
+  "detect": {
+   "range": 50,
+   "dir": true
+  },
+  "desc": "Ticks and points."
+ },
+ "detector3": {
+  "id": "detector3",
+  "rank": 5,
+  "rarity": "epic",
+  "weight": 0.9,
+  "stack": 1,
+  "name": "Detector \"Svarog\"",
+  "kind": "tool",
+  "price": 9000,
+  "detect": {
+   "range": 70,
+   "dir": true,
+   "type": true
+  },
+  "desc": "Names the artifact before you see it."
+ },
+ "binoculars": {
+  "id": "binoculars",
+  "rank": 2,
+  "rarity": "common",
+  "weight": 0.7,
+  "stack": 1,
+  "name": "Binoculars 8×",
+  "kind": "tool",
+  "price": 800,
+  "zoom": 8
+ },
+ "torch": {
+  "id": "torch",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.3,
+  "stack": 1,
+  "name": "Torch",
+  "kind": "tool",
+  "price": 300,
+  "light": 42,
+  "hidden": true
+ },
+ "knife": {
+  "id": "knife",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.3,
+  "stack": 1,
+  "name": "Knife",
+  "kind": "melee",
+  "price": 250,
+  "damage": 35,
+  "desc": "Quiet. Close."
+ },
+ "bayonet": {
+  "id": "bayonet",
+  "rank": 2,
+  "rarity": "uncommon",
+  "weight": 0.45,
+  "stack": 1,
+  "name": "Bayonet 6Kh4",
+  "kind": "melee",
+  "price": 500,
+  "damage": 45
+ },
+ "machete": {
+  "id": "machete",
+  "rank": 3,
+  "rarity": "rare",
+  "weight": 0.9,
+  "stack": 1,
+  "name": "Machete",
+  "kind": "melee",
+  "price": 900,
+  "damage": 65
+ },
+ "lockpick": {
+  "id": "lockpick",
+  "rank": 2,
+  "rarity": "uncommon",
+  "weight": 0.1,
+  "stack": 5,
+  "name": "Lockpicks",
+  "kind": "tool",
+  "price": 400,
+  "uses": 3,
+  "desc": "For locked lockers. Three tries."
+ },
+ "gr_rgd5": {
+  "id": "gr_rgd5",
+  "rank": 2,
+  "rarity": "uncommon",
+  "weight": 0.31,
+  "stack": 6,
+  "name": "RGD-5",
+  "kind": "grenade",
+  "price": 500,
+  "fuse": 3.5,
+  "radius": 7,
+  "damage": 110,
+  "desc": "Offensive. Throw far."
+ },
+ "gr_f1": {
+  "id": "gr_f1",
+  "rank": 2,
+  "rarity": "uncommon",
+  "weight": 0.6,
+  "stack": 6,
+  "name": "F-1",
+  "kind": "grenade",
+  "price": 700,
+  "fuse": 3.8,
+  "radius": 10,
+  "damage": 140,
+  "desc": "Defensive. Do not stand up."
+ },
+ "gr_rgn": {
+  "id": "gr_rgn",
+  "rank": 3,
+  "rarity": "rare",
+  "weight": 0.31,
+  "stack": 6,
+  "name": "RGN",
+  "kind": "grenade",
+  "price": 900,
+  "fuse": 3.5,
+  "radius": 8,
+  "damage": 120,
+  "impact": true,
+  "desc": "Impact fuse."
+ },
+ "gr_m67": {
+  "id": "gr_m67",
+  "rank": 3,
+  "rarity": "rare",
+  "weight": 0.4,
+  "stack": 6,
+  "name": "M67",
+  "kind": "grenade",
+  "price": 800,
+  "fuse": 4,
+  "radius": 9,
+  "damage": 130
+ },
+ "gr_flash": {
+  "id": "gr_flash",
+  "rank": 2,
+  "rarity": "uncommon",
+  "weight": 0.2,
+  "stack": 6,
+  "name": "Zarya-2 flashbang",
+  "kind": "grenade",
+  "price": 450,
+  "fuse": 2,
+  "radius": 12,
+  "damage": 0,
+  "flash": true,
+  "desc": "Blinds entities. And you, if you look."
+ },
+ "gr_smoke": {
+  "id": "gr_smoke",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.5,
+  "stack": 6,
+  "name": "RDG-2 smoke",
+  "kind": "grenade",
+  "price": 300,
+  "fuse": 2,
+  "radius": 8,
+  "damage": 0,
+  "smoke": 25,
+  "desc": "Twenty-five seconds of nothing to see."
+ },
+ "part_barrel": {
+  "id": "part_barrel",
+  "rank": 2,
+  "rarity": "uncommon",
+  "weight": 0.9,
+  "stack": 3,
+  "name": "Replacement barrel",
+  "kind": "part",
+  "part": "barrel",
+  "price": 1200
+ },
+ "part_bolt": {
+  "id": "part_bolt",
+  "rank": 2,
+  "rarity": "uncommon",
+  "weight": 0.5,
+  "stack": 3,
+  "name": "Bolt group",
+  "kind": "part",
+  "part": "bolt",
+  "price": 800
+ },
+ "part_spring": {
+  "id": "part_spring",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.2,
+  "stack": 5,
+  "name": "Recoil spring set",
+  "kind": "part",
+  "part": "frame",
+  "price": 400
+ },
+ "art_pearl": {
+  "id": "art_pearl",
+  "rank": 1,
+  "rarity": "uncommon",
+  "weight": 0.3,
+  "stack": 5,
+  "name": "Pearl",
+  "kind": "artifact",
+  "price": 1400,
+  "desc": "Cold. Hums when held."
+ },
+ "art_ember": {
+  "id": "art_ember",
+  "rank": 1,
+  "rarity": "uncommon",
+  "weight": 0.3,
+  "stack": 5,
+  "name": "Ember",
+  "kind": "artifact",
+  "price": 1900,
+  "desc": "Warm to the touch. Never cools."
+ },
+ "art_tear": {
+  "id": "art_tear",
+  "rank": 1,
+  "rarity": "rare",
+  "weight": 0.2,
+  "stack": 5,
+  "name": "Tear",
+  "kind": "artifact",
+  "price": 2600,
+  "desc": "A drop that will not fall."
+ },
+ "art_lens": {
+  "id": "art_lens",
+  "rank": 1,
+  "rarity": "rare",
+  "weight": 0.4,
+  "stack": 5,
+  "name": "Lens",
+  "kind": "artifact",
+  "price": 2200,
+  "desc": "Shows the room behind you."
+ },
+ "art_bracelet": {
+  "id": "art_bracelet",
+  "rank": 1,
+  "rarity": "uncommon",
+  "weight": 0.3,
+  "stack": 5,
+  "name": "Bracelet",
+  "kind": "artifact",
+  "price": 1600,
+  "desc": "Fits any wrist. Tightens at night."
+ },
+ "art_spine": {
+  "id": "art_spine",
+  "rank": 1,
+  "rarity": "rare",
+  "weight": 0.5,
+  "stack": 5,
+  "name": "Spine",
+  "kind": "artifact",
+  "price": 3400,
+  "desc": "Segments that count themselves."
+ },
+ "art_thorn": {
+  "id": "art_thorn",
+  "rank": 1,
+  "rarity": "rare",
+  "weight": 0.2,
+  "stack": 5,
+  "name": "Thorn",
+  "kind": "artifact",
+  "price": 2900,
+  "desc": "Draws blood through the glove."
+ },
+ "art_knot": {
+  "id": "art_knot",
+  "rank": 1,
+  "rarity": "rare",
+  "weight": 0.4,
+  "stack": 5,
+  "name": "Knot",
+  "kind": "artifact",
+  "price": 3800,
+  "desc": "Rope with no ends."
+ },
+ "art_egg": {
+  "id": "art_egg",
+  "rank": 1,
+  "rarity": "epic",
+  "weight": 0.6,
+  "stack": 5,
+  "name": "Egg",
+  "kind": "artifact",
+  "price": 4400,
+  "desc": "Warm. Something turns inside."
+ },
+ "art_crown": {
+  "id": "art_crown",
+  "rank": 1,
+  "rarity": "epic",
+  "weight": 0.5,
+  "stack": 5,
+  "name": "Crown",
+  "kind": "artifact",
+  "price": 5200,
+  "desc": "Committee priority. Do not open."
+ },
+ "art_heart": {
+  "id": "art_heart",
+  "rank": 1,
+  "rarity": "epic",
+  "weight": 0.7,
+  "stack": 5,
+  "name": "Heart",
+  "kind": "artifact",
+  "price": 7200,
+  "desc": "It beats when you stop."
+ },
+ "art_snow": {
+  "id": "art_snow",
+  "rank": 1,
+  "rarity": "epic",
+  "weight": 0.2,
+  "stack": 5,
+  "name": "Snowflake",
+  "kind": "artifact",
+  "price": 6100,
+  "desc": "Never melts. Frost on the bag."
+ },
+ "recorder": {
+  "id": "recorder",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.8,
+  "stack": 1,
+  "name": "Data recorder",
+  "kind": "mission",
+  "price": 0,
+  "desc": "UNPSC property."
+ },
+ "beacon": {
+  "id": "beacon",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 1.2,
+  "stack": 3,
+  "name": "Survey beacon",
+  "kind": "mission",
+  "price": 0,
+  "desc": "Plant at the listed coordinates."
+ },
+ "dogtag": {
+  "id": "dogtag",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.02,
+  "stack": 5,
+  "name": "Explorer tag",
+  "kind": "mission",
+  "price": 0,
+  "desc": "Explorer 44."
+ },
+ "samples": {
+  "id": "samples",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.6,
+  "stack": 1,
+  "name": "Soil samples",
+  "kind": "mission",
+  "price": 0,
+  "desc": "Sealed. Three vials."
+ },
+ "guardlog": {
+  "id": "guardlog",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.3,
+  "stack": 1,
+  "name": "Guard log",
+  "kind": "mission",
+  "price": 0,
+  "desc": "Checkpoint 2. Last entry incomplete."
+ },
+ "manifest": {
+  "id": "manifest",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.6,
+  "stack": 1,
+  "name": "Convoy manifest",
+  "kind": "mission",
+  "price": 0,
+  "desc": "Sealed steel case. Committee property."
+ },
+ "relay": {
+  "id": "relay",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 3,
+  "stack": 1,
+  "name": "Signal relay",
+  "kind": "mission",
+  "price": 0,
+  "desc": "Plant at the listed coordinates. Do not open."
+ },
+ "documents": {
+  "id": "documents",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.4,
+  "stack": 3,
+  "name": "Committee documents",
+  "kind": "mission",
+  "price": 0,
+  "desc": "Stamped SECRET. Do not read."
+ },
+ "explorer_pack": {
+  "id": "explorer_pack",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 1,
+  "stack": 3,
+  "name": "Explorer’s effects",
+  "kind": "mission",
+  "price": 0,
+  "desc": "Letters, a watch, a photograph."
+ },
+ "key_locker": {
+  "id": "key_locker",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.02,
+  "stack": 5,
+  "name": "Locker key",
+  "kind": "key",
+  "price": 0
+ }
+}

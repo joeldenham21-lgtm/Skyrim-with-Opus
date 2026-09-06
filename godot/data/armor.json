@@ -1,0 +1,499 @@
+{
+ "vest_paca": {
+  "id": "vest_paca",
+  "kind": "vest",
+  "zones": [
+   "torso"
+  ],
+  "rank": 1,
+  "rarity": "common",
+  "speed": 1,
+  "stamina": 1,
+  "repairCost": 0,
+  "name": "PACA soft armour",
+  "cls": 2,
+  "durability": 60,
+  "weight": 3,
+  "price": 1800,
+  "desc": "Kevlar. Stops pistol rounds, nothing else."
+ },
+ "vest_6b2": {
+  "id": "vest_6b2",
+  "kind": "vest",
+  "zones": [
+   "torso"
+  ],
+  "rank": 1,
+  "rarity": "common",
+  "speed": 1,
+  "stamina": 1,
+  "repairCost": 0,
+  "name": "6B2 flak vest",
+  "cls": 2,
+  "durability": 80,
+  "weight": 4.2,
+  "price": 2200,
+  "desc": "Titanium plates in nylon. Afghanistan surplus."
+ },
+ "vest_kirasa": {
+  "id": "vest_kirasa",
+  "kind": "vest",
+  "zones": [
+   "torso",
+   "stomach"
+  ],
+  "rank": 2,
+  "rarity": "uncommon",
+  "speed": 1,
+  "stamina": 1,
+  "repairCost": 0,
+  "name": "Kirasa-N",
+  "cls": 3,
+  "durability": 90,
+  "weight": 5,
+  "price": 3600
+ },
+ "vest_6b23_1": {
+  "id": "vest_6b23_1",
+  "kind": "vest",
+  "zones": [
+   "torso",
+   "stomach"
+  ],
+  "rank": 2,
+  "rarity": "uncommon",
+  "speed": 1,
+  "stamina": 1.05,
+  "repairCost": 0,
+  "name": "6B23-1",
+  "cls": 3,
+  "durability": 110,
+  "weight": 6.5,
+  "price": 4800
+ },
+ "vest_6b23_2": {
+  "id": "vest_6b23_2",
+  "kind": "vest",
+  "zones": [
+   "torso",
+   "stomach"
+  ],
+  "rank": 3,
+  "rarity": "rare",
+  "speed": 0.97,
+  "stamina": 1.1,
+  "repairCost": 0,
+  "name": "6B23-2",
+  "cls": 4,
+  "durability": 130,
+  "weight": 8.4,
+  "price": 7200
+ },
+ "vest_zhuk": {
+  "id": "vest_zhuk",
+  "kind": "vest",
+  "zones": [
+   "torso"
+  ],
+  "rank": 3,
+  "rarity": "rare",
+  "speed": 0.98,
+  "stamina": 1.06,
+  "repairCost": 0,
+  "name": "Zhuk-3 plate carrier",
+  "cls": 4,
+  "durability": 120,
+  "weight": 7,
+  "price": 8600,
+  "desc": "Ceramic plates front and back. Sides are cloth."
+ },
+ "vest_iotv": {
+  "id": "vest_iotv",
+  "kind": "vest",
+  "zones": [
+   "torso",
+   "stomach"
+  ],
+  "rank": 4,
+  "rarity": "rare",
+  "speed": 0.95,
+  "stamina": 1.15,
+  "repairCost": 0,
+  "name": "IOTV with ESAPI",
+  "cls": 5,
+  "durability": 150,
+  "weight": 10.5,
+  "price": 14000
+ },
+ "vest_6b43": {
+  "id": "vest_6b43",
+  "kind": "vest",
+  "zones": [
+   "torso",
+   "stomach",
+   "arms"
+  ],
+  "rank": 5,
+  "rarity": "epic",
+  "speed": 0.9,
+  "stamina": 1.25,
+  "repairCost": 0,
+  "name": "6B43",
+  "cls": 6,
+  "durability": 180,
+  "weight": 14.5,
+  "price": 22000,
+  "desc": "Full coverage. You will hear yourself breathing."
+ },
+ "vest_fort": {
+  "id": "vest_fort",
+  "kind": "vest",
+  "zones": [
+   "torso",
+   "stomach",
+   "arms"
+  ],
+  "rank": 4,
+  "rarity": "epic",
+  "speed": 0.93,
+  "stamina": 1.2,
+  "repairCost": 0,
+  "name": "FORT Defender-2",
+  "cls": 5,
+  "durability": 170,
+  "weight": 12,
+  "price": 18000
+ },
+ "helm_ssh68": {
+  "id": "helm_ssh68",
+  "kind": "helmet",
+  "zones": [
+   "head"
+  ],
+  "rank": 1,
+  "rarity": "common",
+  "speed": 1,
+  "stamina": 1,
+  "visor": false,
+  "name": "SSh-68 steel helmet",
+  "cls": 2,
+  "durability": 50,
+  "weight": 1.5,
+  "price": 900,
+  "desc": "Steel. Rings when hit."
+ },
+ "helm_6b7": {
+  "id": "helm_6b7",
+  "kind": "helmet",
+  "zones": [
+   "head"
+  ],
+  "rank": 2,
+  "rarity": "uncommon",
+  "speed": 1,
+  "stamina": 1,
+  "visor": false,
+  "name": "6B7-1M",
+  "cls": 3,
+  "durability": 65,
+  "weight": 1.3,
+  "price": 2400
+ },
+ "helm_6b47": {
+  "id": "helm_6b47",
+  "kind": "helmet",
+  "zones": [
+   "head"
+  ],
+  "rank": 3,
+  "rarity": "uncommon",
+  "speed": 1,
+  "stamina": 1,
+  "visor": false,
+  "name": "6B47 Ratnik",
+  "cls": 3,
+  "durability": 75,
+  "weight": 1.1,
+  "price": 3600,
+  "desc": "Aramid. Mounts for a headlamp."
+ },
+ "helm_kiver": {
+  "id": "helm_kiver",
+  "kind": "helmet",
+  "zones": [
+   "head"
+  ],
+  "rank": 2,
+  "rarity": "uncommon",
+  "speed": 1,
+  "stamina": 1,
+  "visor": false,
+  "name": "Kiver-M",
+  "cls": 3,
+  "durability": 80,
+  "weight": 1.9,
+  "price": 3200
+ },
+ "helm_zsh": {
+  "id": "helm_zsh",
+  "kind": "helmet",
+  "zones": [
+   "head"
+  ],
+  "rank": 4,
+  "rarity": "rare",
+  "speed": 1,
+  "stamina": 1,
+  "visor": true,
+  "name": "ZSh-1-2M",
+  "cls": 4,
+  "durability": 110,
+  "weight": 3.4,
+  "price": 7800,
+  "desc": "Visor down: the world through a scratch."
+ },
+ "helm_altyn": {
+  "id": "helm_altyn",
+  "kind": "helmet",
+  "zones": [
+   "head"
+  ],
+  "rank": 5,
+  "rarity": "epic",
+  "speed": 1,
+  "stamina": 1.05,
+  "visor": true,
+  "name": "Altyn",
+  "cls": 4,
+  "durability": 130,
+  "weight": 4,
+  "price": 12000,
+  "desc": "Titanium with a visor. Committee issue for the Column."
+ },
+ "helm_ach": {
+  "id": "helm_ach",
+  "kind": "helmet",
+  "zones": [
+   "head"
+  ],
+  "rank": 3,
+  "rarity": "uncommon",
+  "speed": 1,
+  "stamina": 1,
+  "visor": false,
+  "name": "ACH",
+  "cls": 3,
+  "durability": 85,
+  "weight": 1.4,
+  "price": 4200
+ },
+ "pack_none": {
+  "id": "pack_none",
+  "kind": "backpack",
+  "rank": 1,
+  "rarity": "common",
+  "speed": 1,
+  "stamina": 1,
+  "name": "No backpack",
+  "capacity": 0,
+  "weight": 0,
+  "price": 0,
+  "hidden": true
+ },
+ "pack_tortilla": {
+  "id": "pack_tortilla",
+  "kind": "backpack",
+  "rank": 1,
+  "rarity": "common",
+  "speed": 1,
+  "stamina": 1,
+  "name": "Tortilla daypack",
+  "capacity": 12,
+  "weight": 0.6,
+  "price": 700,
+  "desc": "20 litres."
+ },
+ "pack_pilgrim": {
+  "id": "pack_pilgrim",
+  "kind": "backpack",
+  "rank": 2,
+  "rarity": "uncommon",
+  "speed": 1,
+  "stamina": 1,
+  "name": "Pilgrim pack",
+  "capacity": 20,
+  "weight": 1.1,
+  "price": 1800,
+  "desc": "30 litres."
+ },
+ "pack_attack2": {
+  "id": "pack_attack2",
+  "kind": "backpack",
+  "rank": 3,
+  "rarity": "uncommon",
+  "speed": 1,
+  "stamina": 1,
+  "name": "Attack 2 pack",
+  "capacity": 30,
+  "weight": 1.6,
+  "price": 3600,
+  "desc": "45 litres."
+ },
+ "pack_6sh118": {
+  "id": "pack_6sh118",
+  "kind": "backpack",
+  "rank": 4,
+  "rarity": "rare",
+  "speed": 0.98,
+  "stamina": 1,
+  "name": "6Sh118 raid pack",
+  "capacity": 42,
+  "weight": 2.4,
+  "price": 6400,
+  "desc": "60 litres. The frame creaks."
+ },
+ "rig_belt": {
+  "id": "rig_belt",
+  "kind": "rig",
+  "rank": 1,
+  "rarity": "common",
+  "speed": 1,
+  "stamina": 1,
+  "armor": 0,
+  "name": "Belt pouches",
+  "readyMags": 2,
+  "quick": 2,
+  "weight": 0.4,
+  "price": 300
+ },
+ "rig_6sh112": {
+  "id": "rig_6sh112",
+  "kind": "rig",
+  "rank": 2,
+  "rarity": "uncommon",
+  "speed": 1,
+  "stamina": 1,
+  "armor": 0,
+  "name": "6Sh112 rig",
+  "readyMags": 4,
+  "quick": 3,
+  "weight": 0.9,
+  "price": 1400
+ },
+ "rig_alpha": {
+  "id": "rig_alpha",
+  "kind": "rig",
+  "rank": 3,
+  "rarity": "uncommon",
+  "speed": 1,
+  "stamina": 1,
+  "armor": 0,
+  "name": "Alpha chest rig",
+  "readyMags": 6,
+  "quick": 4,
+  "weight": 1.1,
+  "price": 2600
+ },
+ "rig_tv110": {
+  "id": "rig_tv110",
+  "kind": "rig",
+  "rank": 4,
+  "rarity": "rare",
+  "speed": 1,
+  "stamina": 1,
+  "armor": 1,
+  "name": "TV-110 plate carrier rig",
+  "readyMags": 6,
+  "quick": 4,
+  "weight": 2.4,
+  "price": 5200,
+  "desc": "Pouches over a soft insert. Wears under a vest."
+ },
+ "rig_smersh": {
+  "id": "rig_smersh",
+  "kind": "rig",
+  "rank": 3,
+  "rarity": "rare",
+  "speed": 1,
+  "stamina": 1,
+  "armor": 0,
+  "name": "SMERSH vest",
+  "readyMags": 8,
+  "quick": 4,
+  "weight": 1.6,
+  "price": 4200
+ },
+ "head_lamp": {
+  "id": "head_lamp",
+  "kind": "headgear",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.4,
+  "name": "Headlamp",
+  "price": 600,
+  "light": 18,
+  "battery": true,
+  "desc": "Hands free. Everything sees it."
+ },
+ "head_pnv57": {
+  "id": "head_pnv57",
+  "kind": "headgear",
+  "rank": 3,
+  "rarity": "rare",
+  "weight": 0.9,
+  "name": "PNV-57E night vision",
+  "price": 6800,
+  "nvg": 1,
+  "battery": true,
+  "desc": "Gen 1 tubes. Grain and bloom. Phantoms show."
+ },
+ "head_1pn138": {
+  "id": "head_1pn138",
+  "kind": "headgear",
+  "rank": 4,
+  "rarity": "epic",
+  "weight": 0.7,
+  "name": "1PN138 night vision",
+  "price": 14000,
+  "nvg": 2,
+  "battery": true,
+  "desc": "Gen 2+. Clean picture."
+ },
+ "mask_resp": {
+  "id": "mask_resp",
+  "kind": "mask",
+  "rank": 1,
+  "rarity": "common",
+  "weight": 0.5,
+  "name": "Respirator",
+  "price": 400,
+  "gas": 0.5,
+  "filter": 100,
+  "desc": "Halves the burn. Muffles you."
+ },
+ "mask_gp5": {
+  "id": "mask_gp5",
+  "kind": "mask",
+  "rank": 2,
+  "rarity": "uncommon",
+  "weight": 0.5,
+  "name": "GP-5 gas mask",
+  "price": 1200,
+  "gas": 1,
+  "filter": 100,
+  "fov": 0.85,
+  "desc": "Full protection. Fogged lenses."
+ },
+ "mask_gp7": {
+  "id": "mask_gp7",
+  "kind": "mask",
+  "rank": 3,
+  "rarity": "rare",
+  "weight": 0.5,
+  "name": "GP-7",
+  "price": 2600,
+  "gas": 1,
+  "filter": 160,
+  "fov": 0.92
+ }
+}

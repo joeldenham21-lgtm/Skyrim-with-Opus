@@ -1,0 +1,13 @@
+{
+ "hp": 700,
+ "cls": 6,
+ "weapons": [
+  "pkm"
+ ],
+ "drops": [
+  "mag_pkm100",
+  "part_barrel",
+  "armorkit",
+  "art_crown"
+ ]
+}

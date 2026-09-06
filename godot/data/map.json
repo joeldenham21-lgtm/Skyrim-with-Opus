@@ -1,0 +1,288 @@
+{
+ "SIZE": 640,
+ "HALF": 320,
+ "WATER_LEVEL": -0.6,
+ "POIS": [
+  {
+   "id": "vanno",
+   "name": "Vanno Outpost",
+   "kind": "base",
+   "x": 0,
+   "z": 300,
+   "r": 34
+  },
+  {
+   "id": "checkpoint",
+   "name": "Checkpoint 2",
+   "kind": "checkpoint",
+   "x": 22,
+   "z": 212,
+   "r": 22
+  },
+  {
+   "id": "convoy",
+   "name": "Convoy wreck",
+   "kind": "convoy",
+   "x": 48,
+   "z": 160,
+   "r": 26
+  },
+  {
+   "id": "marsh",
+   "name": "Lower marsh",
+   "kind": "marsh",
+   "x": -40,
+   "z": 140,
+   "r": 95
+  },
+  {
+   "id": "zarya",
+   "name": "Kolkhoz \"Zarya\"",
+   "kind": "village",
+   "x": -130,
+   "z": 60,
+   "r": 72
+  },
+  {
+   "id": "object12",
+   "name": "Object 12 substation",
+   "kind": "industrial",
+   "x": 150,
+   "z": -60,
+   "r": 58
+  },
+  {
+   "id": "rail",
+   "name": "Rail cutting",
+   "kind": "rail",
+   "x": -60,
+   "z": -150,
+   "r": 60
+  },
+  {
+   "id": "church",
+   "name": "Church of St. Nikolai",
+   "kind": "church",
+   "x": 50,
+   "z": -230,
+   "r": 42
+  },
+  {
+   "id": "forest",
+   "name": "Dead forest",
+   "kind": "forest",
+   "x": -230,
+   "z": -70,
+   "r": 85
+  },
+  {
+   "id": "field_a",
+   "name": "Anomaly field A",
+   "kind": "anomaly",
+   "x": -60,
+   "z": -40,
+   "r": 40,
+   "anomaly": "electric"
+  },
+  {
+   "id": "field_b",
+   "name": "Anomaly field B",
+   "kind": "anomaly",
+   "x": 225,
+   "z": 70,
+   "r": 45,
+   "anomaly": "reflector"
+  },
+  {
+   "id": "field_c",
+   "name": "Anomaly field C",
+   "kind": "anomaly",
+   "x": -210,
+   "z": -210,
+   "r": 40,
+   "anomaly": "gravity"
+  },
+  {
+   "id": "vents",
+   "name": "Marsh vents",
+   "kind": "anomaly",
+   "x": -90,
+   "z": 170,
+   "r": 35,
+   "anomaly": "gas"
+  },
+  {
+   "id": "north",
+   "name": "Northern ridge",
+   "kind": "ridge",
+   "x": 0,
+   "z": -300,
+   "r": 60
+  }
+ ],
+ "ROADS": [
+  {
+   "id": "main",
+   "width": 5.5,
+   "pts": [
+    [
+     0,
+     318
+    ],
+    [
+     0,
+     282
+    ],
+    [
+     14,
+     240
+    ],
+    [
+     22,
+     212
+    ],
+    [
+     40,
+     176
+    ],
+    [
+     48,
+     160
+    ],
+    [
+     34,
+     120
+    ],
+    [
+     10,
+     96
+    ],
+    [
+     -50,
+     72
+    ],
+    [
+     -130,
+     60
+    ],
+    [
+     -180,
+     40
+    ]
+   ]
+  },
+  {
+   "id": "east",
+   "width": 5,
+   "pts": [
+    [
+     10,
+     96
+    ],
+    [
+     70,
+     50
+    ],
+    [
+     120,
+     -10
+    ],
+    [
+     150,
+     -60
+    ],
+    [
+     165,
+     -110
+    ]
+   ]
+  },
+  {
+   "id": "church",
+   "width": 4,
+   "pts": [
+    [
+     150,
+     -60
+    ],
+    [
+     110,
+     -150
+    ],
+    [
+     70,
+     -205
+    ],
+    [
+     50,
+     -230
+    ]
+   ]
+  },
+  {
+   "id": "forest",
+   "width": 3.5,
+   "pts": [
+    [
+     -130,
+     60
+    ],
+    [
+     -180,
+     0
+    ],
+    [
+     -230,
+     -70
+    ],
+    [
+     -250,
+     -150
+    ]
+   ]
+  }
+ ],
+ "RAIL": {
+  "width": 9,
+  "pts": [
+   [
+    -320,
+    -120
+   ],
+   [
+    -200,
+    -128
+   ],
+   [
+    -100,
+    -138
+   ],
+   [
+    40,
+    -155
+   ],
+   [
+    160,
+    -168
+   ],
+   [
+    320,
+    -178
+   ]
+  ]
+ },
+ "START": {
+  "x": 0,
+  "z": 284,
+  "yaw": 0
+ },
+ "BASE": {
+  "x": 0,
+  "z": 302,
+  "yaw": 0
+ },
+ "COLUMN": {
+  "x": 40,
+  "z": -1100
+ }
+}

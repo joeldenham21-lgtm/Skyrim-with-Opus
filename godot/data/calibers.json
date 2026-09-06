@@ -1,0 +1,52 @@
+{
+ "9x18": {
+  "name": "9×18 mm Makarov",
+  "short": "9×18",
+  "weight": 0.01
+ },
+ "9x19": {
+  "name": "9×19 mm Parabellum",
+  "short": "9×19",
+  "weight": 0.012
+ },
+ "7.62x25": {
+  "name": "7.62×25 mm Tokarev",
+  "short": "7.62×25",
+  "weight": 0.011
+ },
+ ".45": {
+  "name": ".45 ACP",
+  "short": ".45",
+  "weight": 0.021
+ },
+ "5.45x39": {
+  "name": "5.45×39 mm",
+  "short": "5.45",
+  "weight": 0.011
+ },
+ "7.62x39": {
+  "name": "7.62×39 mm",
+  "short": "7.62×39",
+  "weight": 0.016
+ },
+ "5.56x45": {
+  "name": "5.56×45 mm NATO",
+  "short": "5.56",
+  "weight": 0.012
+ },
+ "9x39": {
+  "name": "9×39 mm",
+  "short": "9×39",
+  "weight": 0.023
+ },
+ "7.62x54": {
+  "name": "7.62×54R",
+  "short": "7.62×54R",
+  "weight": 0.024
+ },
+ "12ga": {
+  "name": "12 gauge",
+  "short": "12 ga",
+  "weight": 0.04
+ }
+}

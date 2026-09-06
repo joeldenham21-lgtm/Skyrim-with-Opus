@@ -1,0 +1,32 @@
+{
+ "1": {
+  "rank": 1,
+  "earned": 0,
+  "missions": 0,
+  "title": "Explorer, provisional"
+ },
+ "2": {
+  "rank": 2,
+  "earned": 6000,
+  "missions": 2,
+  "title": "Explorer"
+ },
+ "3": {
+  "rank": 3,
+  "earned": 18000,
+  "missions": 6,
+  "title": "Explorer, second class"
+ },
+ "4": {
+  "rank": 4,
+  "earned": 45000,
+  "missions": 12,
+  "title": "Explorer, first class"
+ },
+ "5": {
+  "rank": 5,
+  "earned": 100000,
+  "missions": 20,
+  "title": "Senior explorer"
+ }
+}

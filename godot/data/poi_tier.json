@@ -1,0 +1,13 @@
+{
+ "checkpoint": 1,
+ "convoy": 1,
+ "village": 1,
+ "marsh": 0,
+ "rail": 2,
+ "industrial": 2,
+ "church": 2,
+ "forest": 1,
+ "anomaly": 1,
+ "ridge": 3,
+ "base": 0
+}

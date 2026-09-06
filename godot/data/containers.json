@@ -1,0 +1,187 @@
+{
+ "ammo_tin": {
+  "name": "Ammo tin",
+  "rolls": [
+   1,
+   3
+  ],
+  "categories": {
+   "ammo": 8,
+   "mag": 2
+  },
+  "empty": 0.15
+ },
+ "ammo_crate": {
+  "name": "Ammunition crate",
+  "rolls": [
+   2,
+   5
+  ],
+  "categories": {
+   "ammo": 8,
+   "mag": 3,
+   "grenade": 1
+  },
+  "empty": 0.1,
+  "tierMin": 1
+ },
+ "med_bag": {
+  "name": "Medical bag",
+  "rolls": [
+   1,
+   3
+  ],
+  "categories": {
+   "med": 8,
+   "food": 2
+  },
+  "empty": 0.15
+ },
+ "med_cabinet": {
+  "name": "Medical cabinet",
+  "rolls": [
+   2,
+   4
+  ],
+  "categories": {
+   "med": 9,
+   "filter": 1
+  },
+  "empty": 0.2
+ },
+ "footlocker": {
+  "name": "Footlocker",
+  "rolls": [
+   2,
+   4
+  ],
+  "categories": {
+   "tool": 4,
+   "food": 2,
+   "battery": 2,
+   "attachment": 1.5,
+   "armor": 0.6,
+   "weapon": 0.5
+  },
+  "empty": 0.15
+ },
+ "weapon_crate": {
+  "name": "Weapon crate",
+  "rolls": [
+   1,
+   2
+  ],
+  "categories": {
+   "weapon": 5,
+   "attachment": 3,
+   "mag": 3
+  },
+  "empty": 0.25,
+  "tierMin": 1
+ },
+ "armor_locker": {
+  "name": "Armour locker",
+  "rolls": [
+   1,
+   2
+  ],
+  "categories": {
+   "armor": 6,
+   "helmet": 3,
+   "rig": 2,
+   "pack": 1
+  },
+  "empty": 0.3,
+  "tierMin": 1,
+  "locked": 0.35
+ },
+ "toolbox": {
+  "name": "Toolbox",
+  "rolls": [
+   1,
+   3
+  ],
+  "categories": {
+   "tool": 5,
+   "part": 3,
+   "battery": 2
+  },
+  "empty": 0.15
+ },
+ "ration_box": {
+  "name": "Ration box",
+  "rolls": [
+   1,
+   3
+  ],
+  "categories": {
+   "food": 9,
+   "med": 1
+  },
+  "empty": 0.1
+ },
+ "explorer_pack": {
+  "name": "Explorer’s pack",
+  "rolls": [
+   3,
+   6
+  ],
+  "categories": {
+   "ammo": 3,
+   "med": 3,
+   "food": 2,
+   "tool": 2,
+   "mag": 2,
+   "artifact": 0.8,
+   "attachment": 1,
+   "mission": 0.5
+  },
+  "empty": 0
+ },
+ "safe": {
+  "name": "Safe",
+  "rolls": [
+   2,
+   4
+  ],
+  "categories": {
+   "artifact": 3,
+   "attachment": 3,
+   "weapon": 2,
+   "armor": 1,
+   "grenade": 1
+  },
+  "empty": 0.1,
+  "locked": 0.9,
+  "tierMin": 2
+ },
+ "desk": {
+  "name": "Desk",
+  "rolls": [
+   0,
+   2
+  ],
+  "categories": {
+   "food": 3,
+   "battery": 2,
+   "tool": 2,
+   "mission": 0.5,
+   "key": 0.6
+  },
+  "empty": 0.3
+ },
+ "shelf": {
+  "name": "Shelf",
+  "rolls": [
+   0,
+   2
+  ],
+  "categories": {
+   "food": 4,
+   "tool": 3,
+   "ammo": 2,
+   "battery": 2
+  },
+  "empty": 0.3
+ }
+}

@@ -1,0 +1,1177 @@
+{
+ "pm": {
+  "id": "pm",
+  "modes": [
+   "semi"
+  ],
+  "moa": 1.6,
+  "recoil": [
+   0.9,
+   0.5
+  ],
+  "ergo": 0.85,
+  "wear": 0.015,
+  "rank": 1,
+  "rarity": "common",
+  "mounts": {
+   "top": "none",
+   "muzzle": "none",
+   "under": "none"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "PM",
+  "full": "Makarov PM",
+  "cls": "pistol",
+  "cal": "9x18",
+  "family": "pm",
+  "defaultMag": "mag_pm8",
+  "rpm": 400,
+  "price": 380,
+  "weight": 0.73,
+  "build": "pm"
+ },
+ "pb": {
+  "id": "pb",
+  "modes": [
+   "semi"
+  ],
+  "moa": 1.7,
+  "recoil": [
+   0.8,
+   0.5
+  ],
+  "ergo": 0.8,
+  "wear": 0.015,
+  "rank": 2,
+  "rarity": "uncommon",
+  "mounts": {
+   "top": "none",
+   "muzzle": "integral",
+   "under": "none"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "PB",
+  "full": "PB 6P9 silenced pistol",
+  "cls": "pistol",
+  "cal": "9x18",
+  "family": "pm",
+  "defaultMag": "mag_pm8",
+  "rpm": 400,
+  "price": 900,
+  "weight": 0.97,
+  "build": "pb",
+  "suppressed": 0.35
+ },
+ "aps": {
+  "id": "aps",
+  "modes": [
+   "semi",
+   "auto"
+  ],
+  "moa": 1.8,
+  "recoil": [
+   1.1,
+   0.8
+  ],
+  "ergo": 0.7,
+  "wear": 0.02,
+  "rank": 2,
+  "rarity": "uncommon",
+  "mounts": {
+   "top": "none",
+   "muzzle": "none",
+   "under": "none"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "APS",
+  "full": "Stechkin APS",
+  "cls": "pistol",
+  "cal": "9x18",
+  "family": "aps",
+  "defaultMag": "mag_aps20",
+  "rpm": 750,
+  "price": 1400,
+  "weight": 1.22,
+  "build": "aps"
+ },
+ "tt": {
+  "id": "tt",
+  "modes": [
+   "semi"
+  ],
+  "moa": 1.9,
+  "recoil": [
+   1.2,
+   0.6
+  ],
+  "ergo": 0.8,
+  "wear": 0.02,
+  "rank": 1,
+  "rarity": "common",
+  "mounts": {
+   "top": "none",
+   "muzzle": "none",
+   "under": "none"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "TT-33",
+  "full": "Tokarev TT-33",
+  "cls": "pistol",
+  "cal": "7.62x25",
+  "family": "tt",
+  "defaultMag": "mag_tt8",
+  "rpm": 380,
+  "price": 320,
+  "weight": 0.85,
+  "build": "tt"
+ },
+ "glock": {
+  "id": "glock",
+  "modes": [
+   "semi"
+  ],
+  "moa": 1.4,
+  "recoil": [
+   0.9,
+   0.5
+  ],
+  "ergo": 0.9,
+  "wear": 0.012,
+  "rank": 2,
+  "rarity": "uncommon",
+  "mounts": {
+   "top": "pistol",
+   "muzzle": "m13",
+   "under": "pistol"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "Glock 17",
+  "full": "Glock 17",
+  "cls": "pistol",
+  "cal": "9x19",
+  "family": "glock",
+  "defaultMag": "mag_glock17",
+  "rpm": 420,
+  "price": 1100,
+  "weight": 0.63,
+  "build": "glock"
+ },
+ "m9": {
+  "id": "m9",
+  "modes": [
+   "semi"
+  ],
+  "moa": 1.4,
+  "recoil": [
+   0.95,
+   0.5
+  ],
+  "ergo": 0.85,
+  "wear": 0.014,
+  "rank": 2,
+  "rarity": "uncommon",
+  "mounts": {
+   "top": "pistol",
+   "muzzle": "m13",
+   "under": "pistol"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "M9",
+  "full": "Beretta M9",
+  "cls": "pistol",
+  "cal": "9x19",
+  "family": "m9",
+  "defaultMag": "mag_m9_15",
+  "rpm": 400,
+  "price": 1000,
+  "weight": 0.95,
+  "build": "m9"
+ },
+ "m1911": {
+  "id": "m1911",
+  "modes": [
+   "semi"
+  ],
+  "moa": 1.5,
+  "recoil": [
+   1.3,
+   0.6
+  ],
+  "ergo": 0.8,
+  "wear": 0.015,
+  "rank": 2,
+  "rarity": "uncommon",
+  "mounts": {
+   "top": "none",
+   "muzzle": "none",
+   "under": "none"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "M1911",
+  "full": "Colt M1911A1",
+  "cls": "pistol",
+  "cal": ".45",
+  "family": "m1911",
+  "defaultMag": "mag_1911_7",
+  "rpm": 380,
+  "price": 1300,
+  "weight": 1.1,
+  "build": "m1911"
+ },
+ "kedr": {
+  "id": "kedr",
+  "modes": [
+   "semi",
+   "auto"
+  ],
+  "moa": 2.2,
+  "recoil": [
+   0.8,
+   0.7
+  ],
+  "ergo": 0.8,
+  "wear": 0.02,
+  "rank": 2,
+  "rarity": "uncommon",
+  "mounts": {
+   "top": "none",
+   "muzzle": "none",
+   "under": "none",
+   "stock": "fixed"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "PP-91 Kedr",
+  "full": "PP-91 Kedr",
+  "cls": "smg",
+  "cal": "9x18",
+  "family": "kedr",
+  "defaultMag": "mag_kedr20",
+  "rpm": 900,
+  "price": 1500,
+  "weight": 1.6,
+  "build": "kedr"
+ },
+ "bizon": {
+  "id": "bizon",
+  "modes": [
+   "semi",
+   "auto"
+  ],
+  "moa": 1.9,
+  "recoil": [
+   0.7,
+   0.6
+  ],
+  "ergo": 0.7,
+  "wear": 0.02,
+  "rank": 3,
+  "rarity": "rare",
+  "mounts": {
+   "top": "dovetail",
+   "muzzle": "none",
+   "under": "none",
+   "stock": "ak"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "PP-19 Bizon",
+  "full": "PP-19 Bizon",
+  "cls": "smg",
+  "cal": "9x18",
+  "family": "bizon",
+  "defaultMag": "mag_bizon64",
+  "rpm": 700,
+  "price": 3200,
+  "weight": 2.7,
+  "build": "bizon"
+ },
+ "vityaz": {
+  "id": "vityaz",
+  "modes": [
+   "semi",
+   "auto"
+  ],
+  "moa": 1.7,
+  "recoil": [
+   0.75,
+   0.6
+  ],
+  "ergo": 0.75,
+  "wear": 0.018,
+  "rank": 3,
+  "rarity": "rare",
+  "mounts": {
+   "top": "dovetail",
+   "muzzle": "m24",
+   "under": "akhg",
+   "stock": "ak"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "PP-19-01 Vityaz",
+  "full": "PP-19-01 Vityaz-SN",
+  "cls": "smg",
+  "cal": "9x19",
+  "family": "vityaz",
+  "defaultMag": "mag_vityaz30",
+  "rpm": 700,
+  "price": 3600,
+  "weight": 2.9,
+  "build": "vityaz"
+ },
+ "mp5": {
+  "id": "mp5",
+  "modes": [
+   "semi",
+   "auto"
+  ],
+  "moa": 1.5,
+  "recoil": [
+   0.7,
+   0.55
+  ],
+  "ergo": 0.8,
+  "wear": 0.016,
+  "rank": 3,
+  "rarity": "rare",
+  "mounts": {
+   "top": "picatinny",
+   "muzzle": "trilug",
+   "under": "picatinny",
+   "stock": "fixed"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "MP5A3",
+  "full": "H&K MP5A3",
+  "cls": "smg",
+  "cal": "9x19",
+  "family": "mp5",
+  "defaultMag": "mag_mp5_30",
+  "rpm": 800,
+  "price": 4200,
+  "weight": 2.9,
+  "build": "mp5"
+ },
+ "ppsh": {
+  "id": "ppsh",
+  "modes": [
+   "semi",
+   "auto"
+  ],
+  "moa": 2.4,
+  "recoil": [
+   1,
+   0.9
+  ],
+  "ergo": 0.6,
+  "wear": 0.025,
+  "rank": 1,
+  "rarity": "uncommon",
+  "mounts": {
+   "top": "none",
+   "muzzle": "none",
+   "under": "none",
+   "stock": "fixed"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "PPSh-41",
+  "full": "PPSh-41",
+  "cls": "smg",
+  "cal": "7.62x25",
+  "family": "ppsh",
+  "defaultMag": "mag_ppsh35",
+  "rpm": 1000,
+  "price": 1200,
+  "weight": 3.6,
+  "build": "ppsh"
+ },
+ "akm": {
+  "id": "akm",
+  "modes": [
+   "semi",
+   "auto"
+  ],
+  "moa": 2.4,
+  "recoil": [
+   1.6,
+   1
+  ],
+  "ergo": 0.6,
+  "wear": 0.02,
+  "rank": 2,
+  "rarity": "common",
+  "mounts": {
+   "top": "dovetail",
+   "muzzle": "m14",
+   "under": "akhg",
+   "stock": "ak"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "AKM",
+  "full": "AKM",
+  "cls": "rifle",
+  "cal": "7.62x39",
+  "family": "ak762",
+  "defaultMag": "mag_ak762_30",
+  "rpm": 600,
+  "price": 2400,
+  "weight": 3.5,
+  "build": "akm"
+ },
+ "akms": {
+  "id": "akms",
+  "modes": [
+   "semi",
+   "auto"
+  ],
+  "moa": 2.5,
+  "recoil": [
+   1.7,
+   1.1
+  ],
+  "ergo": 0.65,
+  "wear": 0.02,
+  "rank": 2,
+  "rarity": "uncommon",
+  "mounts": {
+   "top": "dovetail",
+   "muzzle": "m14",
+   "under": "akhg",
+   "stock": "fixed"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "AKMS",
+  "full": "AKMS (folding stock)",
+  "cls": "rifle",
+  "cal": "7.62x39",
+  "family": "ak762",
+  "defaultMag": "mag_ak762_30",
+  "rpm": 600,
+  "price": 2500,
+  "weight": 3.3,
+  "build": "akms"
+ },
+ "ak74m": {
+  "id": "ak74m",
+  "modes": [
+   "semi",
+   "auto"
+  ],
+  "moa": 2,
+  "recoil": [
+   1.2,
+   0.8
+  ],
+  "ergo": 0.65,
+  "wear": 0.018,
+  "rank": 2,
+  "rarity": "common",
+  "mounts": {
+   "top": "dovetail",
+   "muzzle": "m24",
+   "under": "akhg",
+   "stock": "ak"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "AK-74M",
+  "full": "AK-74M",
+  "cls": "rifle",
+  "cal": "5.45x39",
+  "family": "ak545",
+  "defaultMag": "mag_ak545_30",
+  "rpm": 650,
+  "price": 3200,
+  "weight": 3.4,
+  "build": "ak74m"
+ },
+ "aks74u": {
+  "id": "aks74u",
+  "modes": [
+   "semi",
+   "auto"
+  ],
+  "moa": 2.6,
+  "recoil": [
+   1.4,
+   0.95
+  ],
+  "ergo": 0.8,
+  "wear": 0.022,
+  "rank": 2,
+  "rarity": "uncommon",
+  "mounts": {
+   "top": "dovetail",
+   "muzzle": "m24",
+   "under": "akhg",
+   "stock": "fixed"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "AKS-74U",
+  "full": "AKS-74U",
+  "cls": "rifle",
+  "cal": "5.45x39",
+  "family": "ak545",
+  "defaultMag": "mag_ak545_30",
+  "rpm": 700,
+  "price": 2800,
+  "weight": 2.7,
+  "build": "aks74u"
+ },
+ "ak105": {
+  "id": "ak105",
+  "modes": [
+   "semi",
+   "auto"
+  ],
+  "moa": 2.1,
+  "recoil": [
+   1.25,
+   0.85
+  ],
+  "ergo": 0.72,
+  "wear": 0.018,
+  "rank": 3,
+  "rarity": "uncommon",
+  "mounts": {
+   "top": "dovetail",
+   "muzzle": "m24",
+   "under": "akhg",
+   "stock": "ak"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "AK-105",
+  "full": "AK-105",
+  "cls": "rifle",
+  "cal": "5.45x39",
+  "family": "ak545",
+  "defaultMag": "mag_ak545_30",
+  "rpm": 650,
+  "price": 3600,
+  "weight": 3.2,
+  "build": "ak105"
+ },
+ "ak12": {
+  "id": "ak12",
+  "modes": [
+   "semi",
+   "auto"
+  ],
+  "moa": 1.7,
+  "recoil": [
+   1.05,
+   0.7
+  ],
+  "ergo": 0.75,
+  "wear": 0.016,
+  "rank": 4,
+  "rarity": "rare",
+  "mounts": {
+   "top": "picatinny",
+   "muzzle": "m24",
+   "under": "picatinny",
+   "side": "picatinny",
+   "stock": "ar"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "AK-12",
+  "full": "AK-12",
+  "cls": "rifle",
+  "cal": "5.45x39",
+  "family": "ak545",
+  "defaultMag": "mag_ak545_30",
+  "rpm": 700,
+  "price": 5200,
+  "weight": 3.5,
+  "build": "ak12"
+ },
+ "sks": {
+  "id": "sks",
+  "modes": [
+   "semi"
+  ],
+  "moa": 1.6,
+  "recoil": [
+   1.4,
+   0.7
+  ],
+  "ergo": 0.55,
+  "wear": 0.015,
+  "rank": 1,
+  "rarity": "common",
+  "mounts": {
+   "top": "dovetail",
+   "muzzle": "none",
+   "under": "none",
+   "stock": "fixed"
+  },
+  "clip": true,
+  "internal": 0,
+  "name": "SKS",
+  "full": "SKS carbine",
+  "cls": "rifle",
+  "cal": "7.62x39",
+  "family": "sks",
+  "defaultMag": "mag_sks10",
+  "rpm": 320,
+  "price": 1400,
+  "weight": 3.85,
+  "build": "sks"
+ },
+ "m4": {
+  "id": "m4",
+  "modes": [
+   "semi",
+   "auto"
+  ],
+  "moa": 1.6,
+  "recoil": [
+   1,
+   0.65
+  ],
+  "ergo": 0.8,
+  "wear": 0.018,
+  "rank": 4,
+  "rarity": "rare",
+  "mounts": {
+   "top": "picatinny",
+   "muzzle": "half28",
+   "under": "picatinny",
+   "side": "picatinny",
+   "stock": "ar"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "M4A1",
+  "full": "Colt M4A1",
+  "cls": "rifle",
+  "cal": "5.56x45",
+  "family": "ar",
+  "defaultMag": "mag_stanag30",
+  "rpm": 800,
+  "price": 5600,
+  "weight": 3,
+  "build": "m4"
+ },
+ "hk416": {
+  "id": "hk416",
+  "modes": [
+   "semi",
+   "auto"
+  ],
+  "moa": 1.4,
+  "recoil": [
+   0.95,
+   0.6
+  ],
+  "ergo": 0.8,
+  "wear": 0.012,
+  "rank": 5,
+  "rarity": "epic",
+  "mounts": {
+   "top": "picatinny",
+   "muzzle": "half28",
+   "under": "picatinny",
+   "side": "picatinny",
+   "stock": "ar"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "HK416",
+  "full": "H&K HK416",
+  "cls": "rifle",
+  "cal": "5.56x45",
+  "family": "ar",
+  "defaultMag": "mag_stanag30",
+  "rpm": 850,
+  "price": 7400,
+  "weight": 3.5,
+  "build": "hk416"
+ },
+ "scar": {
+  "id": "scar",
+  "modes": [
+   "semi",
+   "auto"
+  ],
+  "moa": 1.4,
+  "recoil": [
+   0.9,
+   0.6
+  ],
+  "ergo": 0.78,
+  "wear": 0.014,
+  "rank": 5,
+  "rarity": "epic",
+  "mounts": {
+   "top": "picatinny",
+   "muzzle": "half28",
+   "under": "picatinny",
+   "side": "picatinny",
+   "stock": "ar"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "SCAR-L",
+  "full": "FN SCAR-L",
+  "cls": "rifle",
+  "cal": "5.56x45",
+  "family": "ar",
+  "defaultMag": "mag_stanag30",
+  "rpm": 625,
+  "price": 7000,
+  "weight": 3.3,
+  "build": "scar"
+ },
+ "vss": {
+  "id": "vss",
+  "modes": [
+   "semi",
+   "auto"
+  ],
+  "moa": 1.2,
+  "recoil": [
+   0.9,
+   0.5
+  ],
+  "ergo": 0.7,
+  "wear": 0.02,
+  "rank": 4,
+  "rarity": "rare",
+  "mounts": {
+   "top": "dovetail",
+   "muzzle": "integral",
+   "under": "none",
+   "stock": "fixed"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "VSS",
+  "full": "VSS Vintorez",
+  "cls": "rifle",
+  "cal": "9x39",
+  "family": "vss",
+  "defaultMag": "mag_vss10",
+  "rpm": 900,
+  "price": 6800,
+  "weight": 2.6,
+  "build": "vss",
+  "suppressed": 0.3
+ },
+ "val": {
+  "id": "val",
+  "modes": [
+   "semi",
+   "auto"
+  ],
+  "moa": 1.5,
+  "recoil": [
+   1,
+   0.6
+  ],
+  "ergo": 0.75,
+  "wear": 0.02,
+  "rank": 4,
+  "rarity": "rare",
+  "mounts": {
+   "top": "dovetail",
+   "muzzle": "integral",
+   "under": "none",
+   "stock": "fixed"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "AS Val",
+  "full": "AS Val",
+  "cls": "rifle",
+  "cal": "9x39",
+  "family": "vss",
+  "defaultMag": "mag_vss20",
+  "rpm": 900,
+  "price": 7200,
+  "weight": 2.5,
+  "build": "val",
+  "suppressed": 0.3
+ },
+ "sr3m": {
+  "id": "sr3m",
+  "modes": [
+   "semi",
+   "auto"
+  ],
+  "moa": 1.8,
+  "recoil": [
+   1.1,
+   0.7
+  ],
+  "ergo": 0.82,
+  "wear": 0.02,
+  "rank": 5,
+  "rarity": "epic",
+  "mounts": {
+   "top": "dovetail",
+   "muzzle": "m24",
+   "under": "none",
+   "stock": "fixed"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "SR-3M",
+  "full": "SR-3M Vikhr",
+  "cls": "rifle",
+  "cal": "9x39",
+  "family": "vss",
+  "defaultMag": "mag_sr3_30",
+  "rpm": 900,
+  "price": 7800,
+  "weight": 2.4,
+  "build": "sr3m"
+ },
+ "toz": {
+  "id": "toz",
+  "modes": [
+   "break"
+  ],
+  "moa": 2,
+  "recoil": [
+   3,
+   1.2
+  ],
+  "ergo": 0.6,
+  "wear": 0.03,
+  "rank": 1,
+  "rarity": "common",
+  "mounts": {
+   "top": "none",
+   "muzzle": "none",
+   "under": "none",
+   "stock": "fixed"
+  },
+  "clip": false,
+  "internal": 2,
+  "name": "TOZ-34",
+  "full": "TOZ-34 over-under",
+  "cls": "shotgun",
+  "cal": "12ga",
+  "family": "toz",
+  "defaultMag": null,
+  "rpm": 220,
+  "price": 1100,
+  "weight": 3.2,
+  "build": "toz"
+ },
+ "mp153": {
+  "id": "mp153",
+  "modes": [
+   "semi"
+  ],
+  "moa": 2.2,
+  "recoil": [
+   2.6,
+   1.1
+  ],
+  "ergo": 0.6,
+  "wear": 0.028,
+  "rank": 2,
+  "rarity": "uncommon",
+  "mounts": {
+   "top": "none",
+   "muzzle": "none",
+   "under": "none",
+   "stock": "fixed"
+  },
+  "clip": false,
+  "internal": 6,
+  "name": "MP-153",
+  "full": "Baikal MP-153",
+  "cls": "shotgun",
+  "cal": "12ga",
+  "family": "mp153",
+  "defaultMag": null,
+  "rpm": 240,
+  "price": 2600,
+  "weight": 3.5,
+  "build": "mp153",
+  "tube": true
+ },
+ "rem870": {
+  "id": "rem870",
+  "modes": [
+   "pump"
+  ],
+  "moa": 2.1,
+  "recoil": [
+   2.8,
+   1.2
+  ],
+  "ergo": 0.62,
+  "wear": 0.026,
+  "rank": 2,
+  "rarity": "uncommon",
+  "mounts": {
+   "top": "picatinny",
+   "muzzle": "none",
+   "under": "none",
+   "stock": "fixed"
+  },
+  "clip": false,
+  "internal": 7,
+  "name": "Remington 870",
+  "full": "Remington 870",
+  "cls": "shotgun",
+  "cal": "12ga",
+  "family": "rem870",
+  "defaultMag": null,
+  "rpm": 90,
+  "price": 2400,
+  "weight": 3.3,
+  "build": "rem870",
+  "tube": true
+ },
+ "saiga": {
+  "id": "saiga",
+  "modes": [
+   "semi"
+  ],
+  "moa": 2.4,
+  "recoil": [
+   2.4,
+   1.1
+  ],
+  "ergo": 0.6,
+  "wear": 0.03,
+  "rank": 3,
+  "rarity": "rare",
+  "mounts": {
+   "top": "dovetail",
+   "muzzle": "none",
+   "under": "akhg",
+   "stock": "ak"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "Saiga-12",
+  "full": "Saiga-12K",
+  "cls": "shotgun",
+  "cal": "12ga",
+  "family": "saiga",
+  "defaultMag": "mag_saiga8",
+  "rpm": 300,
+  "price": 3800,
+  "weight": 3.6,
+  "build": "saiga"
+ },
+ "mosin": {
+  "id": "mosin",
+  "modes": [
+   "bolt"
+  ],
+  "moa": 0.5,
+  "recoil": [
+   3.6,
+   1
+  ],
+  "ergo": 0.45,
+  "wear": 0.02,
+  "rank": 2,
+  "rarity": "common",
+  "mounts": {
+   "top": "mosin",
+   "muzzle": "none",
+   "under": "none",
+   "stock": "fixed"
+  },
+  "clip": true,
+  "internal": 5,
+  "name": "Mosin",
+  "full": "Mosin-Nagant M91/30",
+  "cls": "sniper",
+  "cal": "7.62x54",
+  "family": "mosin",
+  "defaultMag": "mag_mosin5",
+  "rpm": 40,
+  "price": 1600,
+  "weight": 4,
+  "build": "mosin"
+ },
+ "obrez": {
+  "id": "obrez",
+  "modes": [
+   "bolt"
+  ],
+  "moa": 3.5,
+  "recoil": [
+   4.5,
+   1.6
+  ],
+  "ergo": 0.7,
+  "wear": 0.03,
+  "rank": 1,
+  "rarity": "uncommon",
+  "mounts": {
+   "top": "none",
+   "muzzle": "none",
+   "under": "none"
+  },
+  "clip": true,
+  "internal": 5,
+  "name": "Obrez",
+  "full": "Mosin obrez (sawn-off)",
+  "cls": "pistol",
+  "cal": "7.62x54",
+  "family": "mosin",
+  "defaultMag": "mag_mosin5",
+  "rpm": 40,
+  "price": 900,
+  "weight": 2.2,
+  "build": "obrez"
+ },
+ "svd": {
+  "id": "svd",
+  "modes": [
+   "semi"
+  ],
+  "moa": 0.6,
+  "recoil": [
+   2.6,
+   0.9
+  ],
+  "ergo": 0.5,
+  "wear": 0.018,
+  "rank": 3,
+  "rarity": "rare",
+  "mounts": {
+   "top": "dovetail",
+   "muzzle": "none",
+   "under": "none",
+   "stock": "fixed"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "SVD",
+  "full": "SVD Dragunov",
+  "cls": "sniper",
+  "cal": "7.62x54",
+  "family": "svd",
+  "defaultMag": "mag_svd10",
+  "rpm": 120,
+  "price": 6400,
+  "weight": 4.3,
+  "build": "svd"
+ },
+ "sv98": {
+  "id": "sv98",
+  "modes": [
+   "bolt"
+  ],
+  "moa": 0.3,
+  "recoil": [
+   3,
+   0.9
+  ],
+  "ergo": 0.45,
+  "wear": 0.014,
+  "rank": 5,
+  "rarity": "epic",
+  "mounts": {
+   "top": "picatinny",
+   "muzzle": "m18",
+   "under": "picatinny",
+   "stock": "fixed"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "SV-98",
+  "full": "SV-98",
+  "cls": "sniper",
+  "cal": "7.62x54",
+  "family": "sv98",
+  "defaultMag": "mag_sv98_10",
+  "rpm": 45,
+  "price": 9800,
+  "weight": 5.8,
+  "build": "sv98"
+ },
+ "rpk74": {
+  "id": "rpk74",
+  "modes": [
+   "semi",
+   "auto"
+  ],
+  "moa": 1.8,
+  "recoil": [
+   1,
+   0.75
+  ],
+  "ergo": 0.45,
+  "wear": 0.016,
+  "rank": 4,
+  "rarity": "rare",
+  "mounts": {
+   "top": "dovetail",
+   "muzzle": "m24",
+   "under": "none",
+   "stock": "fixed"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "RPK-74",
+  "full": "RPK-74",
+  "cls": "mg",
+  "cal": "5.45x39",
+  "family": "ak545",
+  "defaultMag": "mag_ak545_45",
+  "rpm": 600,
+  "price": 5400,
+  "weight": 4.7,
+  "build": "rpk74"
+ },
+ "pkm": {
+  "id": "pkm",
+  "modes": [
+   "auto"
+  ],
+  "moa": 2.4,
+  "recoil": [
+   1.8,
+   1.3
+  ],
+  "ergo": 0.3,
+  "wear": 0.02,
+  "rank": 5,
+  "rarity": "epic",
+  "mounts": {
+   "top": "dovetail",
+   "muzzle": "none",
+   "under": "none",
+   "stock": "fixed"
+  },
+  "clip": false,
+  "internal": 0,
+  "name": "PKM",
+  "full": "PKM",
+  "cls": "mg",
+  "cal": "7.62x54",
+  "family": "pkm",
+  "defaultMag": "mag_pkm100",
+  "rpm": 650,
+  "price": 12000,
+  "weight": 7.5,
+  "build": "pkm"
+ }
+}
