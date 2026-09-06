@@ -117,3 +117,61 @@ godot/
   impostor beyond), grass and clutter cast no shadows, trees LOD0/LOD1 cast; structures merge static geometry
   per building into one ArrayMesh per material; particles ≤ 64 systems alive. `stats()` in the scenario driver
   prints draw calls and primitives — report them in your scenario and stay under budget.
+
+## Contracts v2 (gameplay wave; fixed)
+- **Player** (`scripts/player/player.gd`, `Game.player`): `head`, `cam`, `hands` (Node3D under the camera where the
+  viewmodel attaches), `torch`, `weapons` (set by the weapons node), `yaw/pitch`, `crouched`, `sprinting`, `in_base`,
+  `in_water`, `alive`, `hp`, `stamina`, `noise` (0..1 recent movement/shot loudness; `make_noise(l)`), `light_level`
+  (0..1 how lit the player is), `eye_pos()`, `look_dir()`, `damage(amount, info)`, `heal(v)`, `stop_bleeding()`,
+  `add_stamina(v)`, `lock_movement(s)`, `die(info)`, `revive()`, `teleport(x,z,y)`, `set_look(yaw,pitch)`.
+  Interaction: every frame the player raycasts 2.6 m from the camera on layers 1|4|5 (areas included) and walks up
+  the tree to a node in group `interactable`; `focus`/`focus_prompt` are exposed for the HUD. Interactables implement
+  `prompt() -> String` (register style: "[E] SEARCH · CRATE") and `interact(player)`; optional `hold_time: float`.
+  Physics layers: 1 world, 2 player, 3 entities, 4 props, 5 triggers.
+- **Inventory** (`scripts/inventory/inventory.gd`, `class_name Inventory`; `Game.inventory` and `Game.storage` are
+  instances over `Game.state["inventory"]` / `["storage"]`, the exact JSON shape of the browser inventory v2 so saves
+  and GEAR.md stay valid: `weapons[]`, `mags[]`, `gear[]`, `items{id:count}`, `equipment{primary,secondary,sidearm,
+  melee,vest,helmet,backpack,rig,headgear,mask}`, `readyMags[]`, `quick[4]`). Methods are the browser API in
+  snake_case: `count/has/add/remove`, `add_ammo/ammo_count/take_ammo/ammo_types_of/preferred_ammo/set_preferred_ammo`,
+  `add_weapon/remove_weapon/weapon_by_uid/weapon_in_slot/equip_weapon`, `add_mag/remove_mag/mag_by_uid/
+  mags_for_weapon/is_ready/set_ready/best_mag/load_mag/unload_mag/fill_mags`, `add_gear/remove_gear/gear_by_uid/
+  equip_gear/unequip/equipped/equipped_def/armor_pieces`, `weight/capacity/overweight`, `money/spend/earn/artifacts`,
+  `set_quick`, `drop_all/give_starter_kit`, `list()`; static `make_weapon(id, opts)`, `make_mag(mag_id, ammo, rounds)`,
+  `make_gear(id, opts)`, `attach(w, att_id)`, `detach(w, att_id)`, `weapon_effects(w)`, `weapon_weight(w)`,
+  `mag_weight(m)`. Emits `Events.inventory_changed(id, delta)` ("equip"/"quick"/"*" for structural changes).
+  Player damage model port lives in `scripts/player/damage.gd` (node `Damage` added under the player at start,
+  `Game.player.dmg`): `bullet(ammo_id, h01, lateral01, info)`, `other(amount, info)`, `use(item_id) -> bool`, buffs.
+- **Entities**: root `CharacterBody3D` in group `entities`, layer 3, mask 1|3|4; properties `kind` (mimic, slider,
+  fragment, spawn, seeker, phantom), `alive: bool`, `aware: float` (0..1), `hp`, `squad`; methods `hit(info)` with
+  `info = {damage, ammo_id, zone, pos, dir, from ("player"|"entity"|"blast"|"anomaly"), pen}`, `blast(pos, radius,
+  damage)`, `flash(pos)`, `hear(pos, loudness)`, `stun(seconds)`. Hit zones: `Area3D` children on layer 3 named
+  `head chest stomach arm_l arm_r leg_l leg_r` with `meta "zone"` and `meta "entity"` (the root). Weapon rays use mask
+  1|3|4 and read `meta "entity"`/`"zone"` from the collider (falling back to `Data.zone_from_hit`).
+  Entities call `Game.player.damage(amount, info)` for melee/blast and `Game.player.dmg.bullet(...)` for shots.
+- **Rigs** (`scripts/entities/rig_builder.gd`, `class_name RigBuilder`): `static build(kind, variant := {}) ->
+  Node3D` returns a rig (script `rig.gd`) with `play(name, blend := 0.2, speed := 1.0)` over clips `idle idle_alert
+  walk run crouch_idle crouch_walk aim fire reload hit_front hit_back death_front death_back melee throw peek_l peek_r
+  search flinch` (each kind implements the subset it needs), `set_aim(pitch, yaw)`, `attach(node, socket)` with
+  sockets `hand_r hand_l back hip head chest`, `bone_pos(name)`, `eye_pos()`, `zones()` (the zone Area3Ds above),
+  `set_ragdoll(on)`, `set_shiver(amount)` (mimic distortion shader), `set_loadout(dict)` (vest/helmet/mask/backpack
+  meshes), signal `footstep(foot)`. Skins use `Mats`.
+- **Weapons** (`scripts/weapons/weapons.gd`, node `Weapons` created under `Game.player.hands` at game start, sets
+  `Game.player.weapons = self`): `equip_slot(i)`, `holster()`, `current() -> Dictionary` (inventory instance),
+  `fire_pressed()/fire_released()`, `reload()`, `load_rounds()`, `cycle_fire_mode()`, `toggle_light()`, `melee()`,
+  `throw_grenade(item_id)`, `set_ads(on)`, `ads: float`, `ammo_text()`. Ballistics: `scripts/weapons/ballistics.gd`
+  static `trace(from, dir, ammo_def, effects) -> Array[Dictionary]`. Fire noise goes to `Director.notify("shot",
+  {pos, loud})` and to every entity within range via `hear`. `scripts/weapons/gun_builder.gd`, `class_name
+  GunBuilder`: `static build(weapon_def, instance) -> Node3D` with mount Node3Ds `muzzle top_rail side_rail
+  bottom_rail mag_well ejection sight_rear sight_front grip stock`, `static refresh(node, instance)`; used for the
+  viewmodel, for mimic loadouts (attached to rig socket `hand_r`) and for dropped weapons.
+- **Anomalies** (`scenes/world/anomalies.tscn` → World child `Anomalies`, script `scripts/anomalies/anomalies.gd`):
+  places fields from `Data.map` POIs of kind `anomaly` plus scattered singles; each anomaly node is in group
+  `anomalies` with `kind`, `center`, `radius`, `revealed`, `reveal()`; API `throw_probe(from, velocity)`,
+  `nearest(pos, max_dist) -> Dictionary`, `detector_query(pos, range) -> Array`, `spawn_artifact(pos, id)`.
+  Artifacts are interactables. Damage via `Game.player.damage(amount, {"kind": "anomaly", "type": kind})`.
+- **Loot** (`scripts/loot/loot.gd`, node `Loot` created by the inventory system, `Game.loot`): `roll_container(kind,
+  tier) -> Array`, `spawn_pile(pos, items) -> Node`, `open_container(node)`; structures mark containers as
+  interactables with `meta "container"` = kind (`crate locker safe desk cabinet bag corpse`) and `meta "poi"`; on
+  first interaction Loot fills them and opens the loot panel via `Events.open_panel("loot", data)`.
+- **Panels/HUD** (front-end wave): `Events.open_panel(name, data)` / `Events.close_panel()`; HUD reads
+  `Game.player.focus_prompt`, `weapons.ammo_text()`, `Game.state`.

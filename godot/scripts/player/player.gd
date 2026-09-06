@@ -8,6 +8,12 @@ const EYE_CROUCH := 1.05
 @onready var head: Node3D = $Head
 @onready var cam: Camera3D = $Head/Camera
 @onready var torch: SpotLight3D = $Head/Camera/Torch
+@onready var hands: Node3D = $Head/Camera/Hands
+var weapons: Node = null      # set by scripts/weapons/weapons.gd when it attaches under Hands
+var focus: Node = null        # interactable currently under the crosshair (group "interactable")
+var focus_prompt := ""
+var light_level := 0.5        # 0..1 how lit the player is (torch/headlamp/weapon light raise it; AI perception reads it)
+var _interact_hold := 0.0
 var yaw := 0.0
 var pitch := 0.0
 var crouched := false
@@ -37,6 +43,34 @@ var stamina: float:
 
 func _ready() -> void:
 	set_look(0.0, 0.0)   # yaw 0 faces -z (north)
+
+func eye_pos() -> Vector3: return cam.global_position
+func look_dir() -> Vector3: return -cam.global_transform.basis.z
+func make_noise(loudness: float) -> void: noise = maxf(noise, loudness)
+
+func _update_focus(dt: float) -> void:
+	var prev := focus
+	focus = null; focus_prompt = ""
+	if Game.mode == "playing" and not dead:
+		var space := get_world_3d().direct_space_state
+		var from := eye_pos(); var to := from + look_dir() * 2.6
+		var q := PhysicsRayQueryParameters3D.create(from, to, 1 | 8 | 16, [get_rid()])
+		q.collide_with_areas = true
+		var hit := space.intersect_ray(q)
+		if hit:
+			var n: Node = hit.collider
+			while n and not n.is_in_group("interactable"): n = n.get_parent()
+			if n:
+				focus = n
+				focus_prompt = n.prompt() if n.has_method("prompt") else "[E]"
+	if focus != prev: _interact_hold = 0.0
+	if focus and Input.is_action_pressed("interact"):
+		var need: float = float(focus.get("hold_time")) if "hold_time" in focus else 0.0
+		_interact_hold += dt
+		if _interact_hold >= need and (need > 0.0 or Input.is_action_just_pressed("interact")):
+			_interact_hold = -999.0
+			if focus.has_method("interact"): focus.interact(self)
+	elif not Input.is_action_pressed("interact"): _interact_hold = 0.0
 
 func set_look(y: float, p: float) -> void:
 	yaw = y; pitch = p
@@ -80,6 +114,7 @@ func revive() -> void:
 	dead = false; hp = maxf(hp, 60.0); Game.state["bleeding"] = false; stamina = 100.0
 
 func _physics_process(dt: float) -> void:
+	_update_focus(dt)
 	var playing := Game.mode == "playing" and not dead
 	rotation.y = yaw
 	_move_lock = maxf(0.0, _move_lock - dt)
