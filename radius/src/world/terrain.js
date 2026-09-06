@@ -138,15 +138,19 @@ export function createTerrain(ctx) {
   geo.computeBoundingSphere();
 
   const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.96, metalness: 0.0 });
+  // optional 2 m ground detail (pebbles, cracks, stubble) from the procedural material library when it is present
+  const detail = ctx.materials && ctx.materials.terrainDetail ? (ctx.materials.terrainDetail() || null) : null;
+  const hasDetail = !!(detail && detail.normalMap);
   mat.onBeforeCompile = (shader) => {
     for (const k in fogUniforms) shader.uniforms[k] = fogUniforms[k];
     shader.uniforms.uTime = { value: 0 };
+    if (hasDetail) { shader.uniforms.uDetailNormal = { value: detail.normalMap }; shader.uniforms.uDetailRough = { value: detail.roughnessMap || detail.normalMap }; shader.defines = Object.assign(shader.defines || {}, { RADIUS_DETAIL: 1 }); }
     mat.userData.shader = shader;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\nattribute vec4 aSurf; attribute float aWet; varying vec4 vSurf; varying float vWet; varying vec3 vWPos;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>\nvSurf = aSurf; vWet = aWet; vWPos = (modelMatrix * vec4(position, 1.0)).xyz;`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\n${GLSL_NOISE}\nvarying vec4 vSurf; varying float vWet; varying vec3 vWPos; uniform float uTime;`)
+      .replace('#include <common>', `#include <common>\n${GLSL_NOISE}\nvarying vec4 vSurf; varying float vWet; varying vec3 vWPos; uniform float uTime;\n#ifdef RADIUS_DETAIL\nuniform sampler2D uDetailNormal; uniform sampler2D uDetailRough;\n#endif`)
       .replace('#include <map_fragment>', /* glsl */`
         vec2 wp = vWPos.xz;
         float macro = fbm3(wp * 0.035);
@@ -171,7 +175,7 @@ export function createTerrain(ctx) {
         alb *= 0.85 + 0.3 * macro;
         diffuseColor.rgb *= alb;
       `)
-      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\nroughnessFactor = mix(0.97, 0.55, vWet * vWet);`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\nroughnessFactor = mix(0.97, 0.55, vWet * vWet);\n#ifdef RADIUS_DETAIL\nroughnessFactor *= 0.85 + 0.3 * texture2D(uDetailRough, vWPos.xz * 0.5).r;\n#endif`)
       .replace('#include <normal_fragment_begin>', /* glsl */`
         #include <normal_fragment_begin>
         {
@@ -182,6 +186,13 @@ export function createTerrain(ctx) {
           vec2 grad = (vec2(bx - b0, bz - b0) * 0.9 + vec2(gx - g0, gz - g0) * 0.25) / e;
           float fade = 1.0 - smoothstep(20.0, 60.0, length(vWPos - cameraPosition));
           normal = normalize(normal - vec3(grad.x, 0.0, grad.y) * 0.22 * fade * (1.0 - vSurf.z * 0.6));
+          #ifdef RADIUS_DETAIL
+          {
+            vec3 dn = texture2D(uDetailNormal, wp2 * 0.5).xyz * 2.0 - 1.0;
+            float dfade = 1.0 - smoothstep(12.0, 40.0, length(vWPos - cameraPosition));
+            normal = normalize(normal + vec3(dn.x, 0.0, dn.y) * 0.55 * dfade);
+          }
+          #endif
         }
       `);
   };
