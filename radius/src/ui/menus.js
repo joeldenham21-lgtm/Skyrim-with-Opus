@@ -286,7 +286,7 @@ export function createMenus(ctx) {
       ['', dots('Artifacts recovered', st.artifacts)],
       ['', dots('Distance walked', `${(st.distance / 1000).toFixed(1)} km`)],
       ['', dots('Rounds expended', st.shots)],
-      ['', dots('Earned to date', money(d.earned).replace(THIN, ','))],
+      ['', dots('Earned to date', money(d.earned))],
       ['gap', ''],
       ['v', 'Body not recovered. Contract void.'],
     ];

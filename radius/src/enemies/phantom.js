@@ -76,7 +76,9 @@ class Phantom extends Enemy {
     this.reveal = 0; this.nvg = false; this.visT = 0; this.shown = true;
     this.ringR = rng.range(17, 26); this.circleDir = rng.chance(0.5) ? 1 : -1; this.circleT = rng.range(7, 14); this.retargetT = 0;
     this.target = new THREE.Vector3(); this.hasTarget = false; this.freezeT = 0; this.lookedT = 0;
-    this.dragLeft = 0; this.dragT = 0; this.distortT = 0; this.vanishT = 0; this.grabbed = false;
+    this.dragLeft = 0; this.dragT = 0; this.distortT = 0; this.vanishT = 0; this.grabbed = false; this.lostT = 0; this.glitchLeft = 0;
+    // no rifle: the hands hang at the hips, and go wide for the scream
+    this.rig.gripR.set(0.30, -0.42, 0.22); this.rig.gripL.set(-0.34, -0.42, 0.22);
     this.deathDuration = 1.2; this.shattered = false;
     this.moveSpeed = 0;
     this.setState('idle');
@@ -139,7 +141,7 @@ class Phantom extends Enemy {
       let score = 0;
       if (!this.seenByPlayer(pt.x, pt.y, pt.z)) score += 4;
       score -= Math.abs(angleDelta(vb + Math.PI, a)) * 0.5;
-      if (score > bs) { bs = score; best = pt; if (!this.hasTarget) this.target.copy(pt); else this.target.copy(pt); }
+      if (score > bs) { bs = score; best = true; this.target.copy(pt); }
     }
     if (best) { this.position.copy(this.target); this.followGround(0); }
     this.setState('circle'); this.circleT = rng.range(6, 12); this.ringR = rng.range(16, 26); this.hasTarget = false; this.grabbed = false;
@@ -293,8 +295,9 @@ class Phantom extends Enemy {
     const rig = this.rig, t = this.time, ctx = this.ctx;
     if (this.glitchLeft > 0) { this.glitchLeft -= dt; if (this.glitchLeft <= 0) rig.glitchOn = false; }
     const pitch = Math.atan2(this.player.eye.y - (this.position.y + 1.6), Math.max(1, d));
+    const wide = damp(this.wide || 0, this.state === 'scream' || this.state === 'grab' ? 1 : 0, 14, dt); this.wide = wide;
+    rig.gripR.set(lerp(0.30, 0.62, wide), lerp(-0.42, 0.05, wide), lerp(0.22, -0.15, wide)); rig.gripL.set(lerp(-0.34, -0.66, wide), lerp(-0.42, 0.05, wide), lerp(0.22, -0.15, wide));
     rig.pose({ speed: this.moveSpeed, dt, aim: 0, headYaw, headPitch: this.state === 'scream' ? -0.5 : pitch, crouch, lean, stride: 1.2 });
-    // the gun bone carries nothing: park the hands low and open
     this.root.position.copy(this.position); this.root.rotation.y = this.yaw;
     // material: night vision shows it solid; otherwise the glass, clouding when revealed
     const nvg = this.nvgOn();

@@ -133,7 +133,7 @@ class Slider extends Enemy {
     this.clickT = rng.range(1, 3); this.target = null; this.waitT = 0; this.obsT = 0; this.observed = true; this.watchedT = 0;
     this.approachBearing = 0; this.lungeHit = false; this.leapT = 0; this.awayT = 0; this.lostT = 0; this.circleDir = 1;
     // v2: pairs, roofs, the aimed-at break, stun, smoke
-    this.pairId = opts.pairId ?? null; this.partner = null; this.role = null; this.struck = false; this.pairT = rng.range(0.3, 1.2);
+    this.pairId = opts.pairId ?? null; this.partner = null; this.role = null; this.struck = false; this.pairT = rng.range(0.3, 1.2); this.engageT = rng.range(0.3, 1.2);
     this.aimedT = 0; this.decoyT = 0; this.resumeDecoy = false; this.mockT = 0;
     this.stunLeft = 0; this.stunSeen = false; this.smokeT = 0; this.smoked = false;
     this.onRoof = false; this.hideKind = null; this.dropVel = new THREE.Vector3(); this.dropOnto = false;
@@ -281,6 +281,8 @@ class Slider extends Enemy {
     this.setState('retreat');
     this.target = this.pickRetreatPoint();
     this.waitT = rng.range(4, 10);
+    // a striker that has had its go is a slider again: it clicks, it circles
+    if (this.role === 'striker' && this.struck) { this.role = null; this.clickT = rng.range(1, 3); }
   }
   // the roof ambush: a leap from the eave. onto = true lands on the player; otherwise it jumps down toward them and charges
   startDrop(onto) {
@@ -383,7 +385,7 @@ class Slider extends Enemy {
     this.obsT += dt; if (this.obsT > 0.12) { this.obsT = 0; this.observed = this.observedByPlayer(40); }
     this.flinch = damp(this.flinch, 0, 7, dt);
     this.mockT = Math.max(0, this.mockT - dt);
-    if (!this.partner && this.pairT > 0) { this.pairT -= dt; if (this.pairT <= 0) this.findPartner(); }
+    if (!this.partner) { this.pairT -= dt; if (this.pairT <= 0) { this.pairT = 2; this.findPartner(); } }
     let headYaw = 0, headPitch = 0, torsoY = TORSO_Y, crouch = 0, stretch = 0;
     // head tracking values (computed without a per-frame closure)
     const trackYaw = angleDelta(this.yaw, Math.atan2(-(p.position.x - this.position.x), -(p.position.z - this.position.z)));
@@ -414,8 +416,8 @@ class Slider extends Enemy {
           else if (canCharge && d < 15) this.startDrop(false);
         } else if (d < 30 && !p.dead && !p.inBase && this.partnerAlive() && this.partner.state === 'hidden' && !this.partner.onRoof) {
           // a pair wakes together once the player is close enough to be worked
-          this.pairT -= dt;
-          if (this.pairT <= 0 || canCharge) this.pairEngage();
+          this.engageT -= dt;
+          if (this.engageT <= 0 || canCharge) this.pairEngage();
         } else if (canCharge) this.startCharge();
         break;
       }
@@ -423,6 +425,7 @@ class Slider extends Enemy {
         headYaw = trackYaw; headPitch = trackPitch; stretch = 1;
         this.dropVel.y -= GRAVITY * dt;
         this.position.addScaledVector(this.dropVel, dt);
+        w.resolveCapsule(this.position, 0.3, 0.6, 0.2);
         this.faceToward(p.position.x, p.position.z, dt, 16);
         const g = w.groundHeight(this.position.x, this.position.z, this.position.y + 0.2);
         const landed = this.dropVel.y < 0 && this.position.y <= g.y + 0.02;

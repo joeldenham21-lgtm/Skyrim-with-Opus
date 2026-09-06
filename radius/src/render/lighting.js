@@ -88,7 +88,7 @@ const BEAM_VERT = /* glsl */`varying vec3 vWorld; void main(){ vec4 w = modelMat
 const BEAM_FRAG = /* glsl */`
   ${GLSL_NOISE}
   #include <packing>
-  uniform sampler2D uDepth; uniform vec2 uRes; uniform float uNear, uFar, uTime, uIntensity, uTanAngle, uPenumbra, uLength, uSeed, uNoise;
+  uniform highp sampler2D uDepth; uniform vec2 uRes; uniform float uNear, uFar, uTime, uIntensity, uTanAngle, uPenumbra, uLength, uSeed, uNoise;
   uniform mat4 uInvModel; uniform vec3 uColor;
   varying vec3 vWorld;
   void main(){
