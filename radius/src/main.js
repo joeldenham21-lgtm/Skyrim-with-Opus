@@ -55,6 +55,17 @@ const canvas = document.getElementById('gl');
 const ctx = { THREE, canvas, mode: 'boot', elapsed: 0, frame: 0, debug: { god: false, noEnemies: false }, _tmpDir: new THREE.Vector3() };
 window.__radius = { ctx, ready: false };
 
+// A subsystem that throws while being created gets a stub so the rest of the game still boots (modules are rewritten in parallel).
+const STUB = {
+  weapons: () => ({ current: null, adsBlend: 0, spreadDeg: 2, equipSlot() {}, holster() {}, fire() {}, reload() {}, onInventoryChanged() {}, update() {} }),
+  hands: () => { const root = new THREE.Group(); ctx.camera.add(root); return { root, adsBlend: 0, setWeaponMesh() {}, kick() {}, playAnim() {}, update() {} }; },
+  panels: () => ({ isOpen: false, current: null, open() {}, close() {}, update() {} }),
+  menus: () => ({ current: null, show() {}, hide() {}, update() {} }),
+  generic: () => ({ update() {}, populate() {}, reset() {}, start() {}, stop() {}, list: [], active: [], available() { return []; } }),
+};
+function safe(name, fn) {
+  try { return fn(); } catch (e) { console.error(`[boot:${name}]`, e); ctx._bootErrors = (ctx._bootErrors || []).concat(name + ': ' + (e && e.message)); return (STUB[name] || STUB.generic)(); }
+}
 function boot() {
   installFog();
   ctx.events = createEvents();
@@ -72,38 +83,38 @@ function boot() {
   ctx.lighting = createLighting(ctx);
   ctx.post = createPost(ctx);
   ctx.vfx = createVfx(ctx);
-  ctx.materials = createMaterials(ctx);
+  ctx.materials = safe('materials', () => createMaterials(ctx));
   ctx.world = createWorld(ctx);
   ctx.inventory = createInventory(ctx);
   ctx.player = createPlayer(ctx);
   ctx.damage = createDamage(ctx);
   ctx.interact = createInteract(ctx);
-  ctx.hands = createHands(ctx);
+  ctx.hands = safe('hands', () => createHands(ctx));
   ctx.hands.root.add(ctx.lighting.weaponLight); ctx.hands.root.add(ctx.lighting.weaponLight.target);
-  ctx.ballistics = createBallistics(ctx);
-  ctx.weapons = createWeapons(ctx);
+  ctx.ballistics = safe('ballistics', () => createBallistics(ctx));
+  ctx.weapons = safe('weapons', () => createWeapons(ctx));
   ctx.enemies = createEnemies(ctx);
   ctx.director = createDirector(ctx);
-  registerMimic(ctx); registerSeeker(ctx); registerSlider(ctx); registerFragment(ctx); registerSpawn(ctx); registerPhantom(ctx);
-  ctx.population = createPopulation(ctx);
-  ctx.anomalies = createAnomalies(ctx);
-  ctx.artifacts = createArtifacts(ctx);
-  ctx.probes = createProbes(ctx);
-  ctx.detector = createDetector(ctx);
-  ctx.gear = createGear(ctx);
-  ctx.structures = createStructures(ctx);
-  ctx.props = createProps(ctx);
-  ctx.base = createBase(ctx);
-  ctx.flora = createFlora(ctx);
-  ctx.debris = createDebris(ctx);
-  ctx.loot = createLoot(ctx);
-  ctx.missions = createMissions(ctx);
-  ctx.scares = createScares(ctx);
+  for (const [n, f] of [['mimic', registerMimic], ['seeker', registerSeeker], ['slider', registerSlider], ['fragment', registerFragment], ['spawn', registerSpawn], ['phantom', registerPhantom]]) safe(n, () => f(ctx));
+  ctx.population = safe('population', () => createPopulation(ctx));
+  ctx.anomalies = safe('anomalies', () => createAnomalies(ctx));
+  ctx.artifacts = safe('artifacts', () => createArtifacts(ctx));
+  ctx.probes = safe('probes', () => createProbes(ctx));
+  ctx.detector = safe('detector', () => createDetector(ctx));
+  ctx.gear = safe('gear', () => createGear(ctx));
+  ctx.structures = safe('structures', () => createStructures(ctx));
+  ctx.props = safe('props', () => createProps(ctx));
+  ctx.base = safe('base', () => createBase(ctx));
+  ctx.flora = safe('flora', () => createFlora(ctx));
+  ctx.debris = safe('debris', () => createDebris(ctx));
+  ctx.loot = safe('loot', () => createLoot(ctx));
+  ctx.missions = safe('missions', () => createMissions(ctx));
+  ctx.scares = safe('scares', () => createScares(ctx));
   ctx.tide = createTide(ctx);
-  ctx.music = createMusic(ctx);
-  ctx.ambience = createAmbience(ctx);
-  ctx.panels = createPanels(ctx);
-  ctx.menus = createMenus(ctx);
+  ctx.music = safe('music', () => createMusic(ctx));
+  ctx.ambience = safe('ambience', () => createAmbience(ctx));
+  ctx.panels = safe('panels', () => createPanels(ctx));
+  ctx.menus = safe('menus', () => createMenus(ctx));
 
   window.addEventListener('resize', () => { r.resize(); ctx.camera.aspect = window.innerWidth / window.innerHeight; ctx.camera.updateProjectionMatrix(); ctx.post.resize(); });
   ctx.events.on('canvasClick', () => { ctx.audio.resume(); if (ctx.mode === 'playing') ctx.input.lock(); });
@@ -247,7 +258,7 @@ Object.assign(window.__radius, {
   press(action) { const code = ctx.input.bindings[action][0]; window.dispatchEvent(new KeyboardEvent('keydown', { code })); setTimeout(() => window.dispatchEvent(new KeyboardEvent('keyup', { code })), 60); },
   stats() {
     const info = ctx.renderer.info;
-    return { fps: Math.round(fps), mode: ctx.mode, calls: info.render.calls, triangles: info.render.triangles, enemies: ctx.enemies.list.length, anomalies: ctx.anomalies.list?.length, missingSounds: [...ctx.audio.missing], hp: ctx.state.data.hp, pos: ctx.player.position.toArray().map((v) => +v.toFixed(1)), director: ctx.director.state, tension: +ctx.director.tension.toFixed(2), hour: +ctx.state.data.hour.toFixed(2), error: ctx._errorLogged || false, errors: ctx._errors ? [...ctx._errors.entries()].map(([k, n]) => `${k} x${n}`).slice(0, 8) : [] };
+    return { fps: Math.round(fps), mode: ctx.mode, calls: info.render.calls, triangles: info.render.triangles, enemies: ctx.enemies.list.length, anomalies: ctx.anomalies.list?.length, missingSounds: [...ctx.audio.missing], hp: ctx.state.data.hp, pos: ctx.player.position.toArray().map((v) => +v.toFixed(1)), director: ctx.director.state, tension: +ctx.director.tension.toFixed(2), hour: +ctx.state.data.hour.toFixed(2), bootErrors: ctx._bootErrors || [], error: ctx._errorLogged || false, errors: ctx._errors ? [...ctx._errors.entries()].map(([k, n]) => `${k} x${n}`).slice(0, 8) : [] };
   },
 });
 
