@@ -14,7 +14,7 @@ export function defaultData() {
     missions: { active: [], completed: [], chainStep: 0 },
     stats: { kills: 0, shots: 0, artifacts: 0, deaths: 0, tides: 0, distance: 0 },
     flags: {},             // arbitrary story/tutorial flags
-    settings: { sensitivity: 1.0, fov: 75, volume: 0.8, music: 0.8, quality: 'high', grain: 1.0, motion: 1.0 },
+    settings: { sensitivity: 1.0, fov: 75, volume: 0.8, music: 0.8, quality: 'high', grain: 1.0, motion: 1.0, targetFps: 100, resolutionScale: 1.0, dynamicResolution: true },
     seed: 1987,
   };
 }

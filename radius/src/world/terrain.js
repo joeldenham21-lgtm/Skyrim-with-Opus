@@ -137,6 +137,49 @@ export function createTerrain(ctx) {
   geo.computeVertexNormals();
   geo.computeBoundingSphere();
 
+  // ---- bake: the expensive procedural splat is rendered once from above into a texture; the runtime shader samples it ----
+  const BAKE = 4096;
+  const bakeTarget = new THREE.WebGLRenderTarget(BAKE, BAKE, { type: THREE.UnsignedByteType, format: THREE.RGBAFormat, depthBuffer: false, stencilBuffer: false, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, anisotropy: 8 });
+  bakeTarget.texture.colorSpace = THREE.NoColorSpace;
+  const bakeMat = new THREE.ShaderMaterial({
+    vertexShader: /* glsl */`attribute vec4 aSurf; attribute float aWet; varying vec4 vSurf; varying float vWet; varying vec3 vWPos;
+      void main(){ vSurf = aSurf; vWet = aWet; vWPos = (modelMatrix * vec4(position, 1.0)).xyz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: /* glsl */`${GLSL_NOISE}
+      varying vec4 vSurf; varying float vWet; varying vec3 vWPos;
+      void main(){
+        vec2 wp = vWPos.xz;
+        float macro = fbm3(wp * 0.035);
+        float micro = vnoise(wp * 1.7) * 0.6 + vnoise(wp * 5.3) * 0.4;
+        float clump = worley(wp * 0.9);
+        vec3 grassA = vec3(0.40, 0.38, 0.22), grassB = vec3(0.30, 0.31, 0.16), grassC = vec3(0.52, 0.47, 0.28);
+        vec3 grass = mix(grassA, grassB, smoothstep(0.3, 0.8, clump)); grass = mix(grass, grassC, smoothstep(0.55, 0.9, micro) * 0.6);
+        vec3 mud = mix(vec3(0.26, 0.23, 0.18), vec3(0.17, 0.15, 0.12), smoothstep(0.2, 0.7, micro));
+        float cracks = smoothstep(0.02, 0.07, worley(wp * 1.6));
+        mud *= 0.8 + 0.25 * cracks;
+        vec3 road = mix(vec3(0.36, 0.33, 0.28), vec3(0.30, 0.28, 0.25), smoothstep(0.3, 0.7, vnoise(wp * 3.0)));
+        road *= 0.9 + 0.2 * smoothstep(0.6, 0.9, vnoise(wp * 12.0));
+        vec3 rock = mix(vec3(0.37, 0.36, 0.34), vec3(0.28, 0.30, 0.26), smoothstep(0.4, 0.7, vnoise(wp * 0.8)));
+        rock = mix(rock, vec3(0.42, 0.44, 0.30), smoothstep(0.62, 0.8, fbm3(wp * 0.3)) * 0.5);
+        vec4 w = vSurf; w.x *= 0.8 + 0.5 * macro; w.y *= 0.8 + 0.6 * (1.0 - macro); w /= max(w.x + w.y + w.z + w.w, 1e-3);
+        vec3 alb = grass * w.x + mud * w.y + road * w.z + rock * w.w;
+        alb = mix(alb, alb * vec3(0.55, 0.55, 0.6), vWet * 0.7);
+        alb *= 0.85 + 0.3 * macro;
+        float rough = mix(0.97, 0.55, vWet * vWet) * (0.85 + 0.3 * fbm3(wp * 1.4));
+        gl_FragColor = vec4(alb, rough);
+      }`,
+  });
+  let baked = false;
+  function bakeAlbedo() {
+    if (baked || !ctx.renderer) return;
+    const cam = new THREE.OrthographicCamera(-HALF, HALF, HALF, -HALF, 1, 400);
+    cam.position.set(0, 200, 0); cam.up.set(0, 0, 1); cam.lookAt(0, 0, 0);   // top of the image is +z so v = (z + HALF) / SIZE cam.updateMatrixWorld(); cam.updateProjectionMatrix();
+    const r = ctx.renderer; const prevRT = r.getRenderTarget(); const prevMat = mesh.material;
+    mesh.material = bakeMat;
+    const bakeScene = new THREE.Scene(); const parent = mesh.parent; bakeScene.add(mesh);
+    r.setRenderTarget(bakeTarget); r.setClearColor(0x000000, 1); r.clear(); r.render(bakeScene, cam);
+    r.setRenderTarget(prevRT); mesh.material = prevMat; if (parent) parent.add(mesh);
+    baked = true;
+  }
   const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.96, metalness: 0.0 });
   // optional 2 m ground detail (pebbles, cracks, stubble) from the procedural material library when it is present
   const detail = ctx.materials && ctx.materials.terrainDetail ? (ctx.materials.terrainDetail() || null) : null;
@@ -144,48 +187,36 @@ export function createTerrain(ctx) {
   mat.onBeforeCompile = (shader) => {
     for (const k in fogUniforms) shader.uniforms[k] = fogUniforms[k];
     shader.uniforms.uTime = { value: 0 };
+    shader.uniforms.uBake = { value: bakeTarget.texture };
     if (hasDetail) { shader.uniforms.uDetailNormal = { value: detail.normalMap }; shader.uniforms.uDetailRough = { value: detail.roughnessMap || detail.normalMap }; shader.defines = Object.assign(shader.defines || {}, { RADIUS_DETAIL: 1 }); }
     mat.userData.shader = shader;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\nattribute vec4 aSurf; attribute float aWet; varying vec4 vSurf; varying float vWet; varying vec3 vWPos;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>\nvSurf = aSurf; vWet = aWet; vWPos = (modelMatrix * vec4(position, 1.0)).xyz;`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\n${GLSL_NOISE}\nvarying vec4 vSurf; varying float vWet; varying vec3 vWPos; uniform float uTime;\n#ifdef RADIUS_DETAIL\nuniform sampler2D uDetailNormal; uniform sampler2D uDetailRough;\n#endif`)
+      .replace('#include <common>', `#include <common>\n${GLSL_NOISE}\nvarying vec4 vSurf; varying float vWet; varying vec3 vWPos; uniform float uTime; uniform sampler2D uBake;\n#ifdef RADIUS_DETAIL\nuniform sampler2D uDetailNormal; uniform sampler2D uDetailRough;\n#endif`)
       .replace('#include <map_fragment>', /* glsl */`
         vec2 wp = vWPos.xz;
-        float macro = fbm3(wp * 0.035);
-        float micro = vnoise(wp * 1.7) * 0.6 + vnoise(wp * 5.3) * 0.4;
-        float clump = worley(wp * 0.9);
-        // dead grass: yellow-olive tufts with darker roots
-        vec3 grassA = vec3(0.40, 0.38, 0.22), grassB = vec3(0.30, 0.31, 0.16), grassC = vec3(0.52, 0.47, 0.28);
-        vec3 grass = mix(grassA, grassB, smoothstep(0.3, 0.8, clump)); grass = mix(grass, grassC, smoothstep(0.55, 0.9, micro) * 0.6);
-        // mud: dark, glossy when wet, with cracked cells
-        vec3 mud = mix(vec3(0.26, 0.23, 0.18), vec3(0.17, 0.15, 0.12), smoothstep(0.2, 0.7, micro));
-        float cracks = smoothstep(0.02, 0.07, worley(wp * 1.6));
-        mud *= 0.8 + 0.25 * cracks;
-        // road: packed dirt with tyre ruts and gravel
-        vec3 road = mix(vec3(0.36, 0.33, 0.28), vec3(0.30, 0.28, 0.25), smoothstep(0.3, 0.7, vnoise(wp * 3.0)));
-        road *= 0.9 + 0.2 * smoothstep(0.6, 0.9, vnoise(wp * 12.0));
-        // rock: grey with lichen
-        vec3 rock = mix(vec3(0.37, 0.36, 0.34), vec3(0.28, 0.30, 0.26), smoothstep(0.4, 0.7, vnoise(wp * 0.8)));
-        rock = mix(rock, vec3(0.42, 0.44, 0.30), smoothstep(0.62, 0.8, fbm3(wp * 0.3)) * 0.5);
-        vec4 w = vSurf; w.x *= 0.8 + 0.5 * macro; w.y *= 0.8 + 0.6 * (1.0 - macro); w /= max(w.x + w.y + w.z + w.w, 1e-3);
-        vec3 alb = grass * w.x + mud * w.y + road * w.z + rock * w.w;
-        alb = mix(alb, alb * vec3(0.55, 0.55, 0.6), vWet * 0.7);
-        alb *= 0.85 + 0.3 * macro;
+        vec2 buv = (wp + vec2(${HALF}.0)) / ${SIZE}.0;
+        vec4 bake = texture2D(uBake, buv);
+        // one cheap high-frequency variation on top of the bake keeps the ground alive at arm's length
+        float micro = vnoise(wp * 5.3);
+        vec3 alb = bake.rgb * (0.9 + 0.2 * micro);
         diffuseColor.rgb *= alb;
+        float bakeRough = bake.a;
       `)
-      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\nroughnessFactor = mix(0.97, 0.55, vWet * vWet);\n#ifdef RADIUS_DETAIL\nroughnessFactor *= 0.85 + 0.3 * texture2D(uDetailRough, vWPos.xz * 0.5).r;\n#endif`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\nroughnessFactor = bakeRough;\n#ifdef RADIUS_DETAIL\nroughnessFactor *= 0.85 + 0.3 * texture2D(uDetailRough, vWPos.xz * 0.5).r;\n#endif`)
       .replace('#include <normal_fragment_begin>', /* glsl */`
         #include <normal_fragment_begin>
         {
           // fake bump from noise gradient so the ground has grain up close
           vec2 wp2 = vWPos.xz; float e = 0.05;
-          float b0 = fbm3(wp2 * 1.4), bx = fbm3((wp2 + vec2(e, 0.0)) * 1.4), bz = fbm3((wp2 + vec2(0.0, e)) * 1.4);
-          float g0 = vnoise(wp2 * 6.0), gx = vnoise((wp2 + vec2(e, 0.0)) * 6.0), gz = vnoise((wp2 + vec2(0.0, e)) * 6.0);
-          vec2 grad = (vec2(bx - b0, bz - b0) * 0.9 + vec2(gx - g0, gz - g0) * 0.25) / e;
           float fade = 1.0 - smoothstep(20.0, 60.0, length(vWPos - cameraPosition));
-          normal = normalize(normal - vec3(grad.x, 0.0, grad.y) * 0.22 * fade * (1.0 - vSurf.z * 0.6));
+          #ifndef RADIUS_DETAIL
+          float g0 = vnoise(wp2 * 6.0), gx = vnoise((wp2 + vec2(e, 0.0)) * 6.0), gz = vnoise((wp2 + vec2(0.0, e)) * 6.0);
+          vec2 grad = vec2(gx - g0, gz - g0) / e;
+          normal = normalize(normal - vec3(grad.x, 0.0, grad.y) * 0.08 * fade * (1.0 - vSurf.z * 0.6));
+          #endif
           #ifdef RADIUS_DETAIL
           {
             vec3 dn = texture2D(uDetailNormal, wp2 * 0.5).xyz * 2.0 - 1.0;
@@ -282,6 +313,7 @@ export function createTerrain(ctx) {
       return -1;
     },
     update(dt, t) {
+      if (!baked) { bakeAlbedo(); if (!mesh.parent) scene.add(mesh); }
       if (mat.userData.shader) mat.userData.shader.uniforms.uTime.value = t;
       waterUniforms.uTime.value = t;
       if (ctx.lighting) { waterUniforms.uHorizon.value.copy(ctx.lighting.horizon); waterUniforms.uNight.value = ctx.time.night; water.material.uniforms.fogColor.value.copy(ctx.scene.fog.color); water.material.uniforms.fogDensity.value = ctx.scene.fog.density; }

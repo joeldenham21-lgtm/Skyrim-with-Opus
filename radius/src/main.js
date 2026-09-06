@@ -12,6 +12,7 @@ import { createSky } from './render/sky.js';
 import { createLighting } from './render/lighting.js';
 import { createPost } from './render/post.js';
 import { createVfx } from './render/vfx.js';
+import { createPerf } from './render/perf.js';
 import { createWorld } from './world/world.js';
 import { createStructures } from './world/structures.js';
 import { createProps } from './world/props.js';
@@ -82,6 +83,7 @@ function boot() {
   ctx.sky = createSky(ctx);
   ctx.lighting = createLighting(ctx);
   ctx.post = createPost(ctx);
+  ctx.perf = createPerf(ctx);
   ctx.vfx = createVfx(ctx);
   ctx.materials = safe('materials', () => createMaterials(ctx));
   ctx.world = createWorld(ctx);
@@ -116,7 +118,7 @@ function boot() {
   ctx.panels = safe('panels', () => createPanels(ctx));
   ctx.menus = safe('menus', () => createMenus(ctx));
 
-  window.addEventListener('resize', () => { r.resize(); ctx.camera.aspect = window.innerWidth / window.innerHeight; ctx.camera.updateProjectionMatrix(); ctx.post.resize(); });
+  window.addEventListener('resize', () => { r.resize(); ctx.camera.aspect = window.innerWidth / window.innerHeight; ctx.camera.updateProjectionMatrix(); ctx.post.resize(); ctx.perf.applyScale(); });
   ctx.events.on('canvasClick', () => { ctx.audio.resume(); if (ctx.mode === 'playing') ctx.input.lock(); });
   ctx.events.on('keydown', () => ctx.audio.resume());
   let wasLocked = false;
@@ -196,7 +198,8 @@ function step(name, fn) {
 }
 function loop(now) {
   requestAnimationFrame(loop);
-  let dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const rawMs = now - last;
+  let dt = Math.min(0.05, rawMs / 1000); last = now;
   if (dt <= 0) dt = 0.0001;
   ctx.frame++; ctx.elapsed += dt;
   fpsAcc += (now - lastReal) / 1000; lastReal = now; fpsN++; if (fpsAcc > 0.5) { fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
@@ -231,6 +234,7 @@ function loop(now) {
     step('vfx', () => ctx.vfx.update(dt, t)); step('post', () => ctx.post.update(dt, t)); step('audio', () => ctx.audio.update(dt));
     step('hud', () => ctx.hud.update(dt)); step('music', () => ctx.music.update(dt)); step('ambience', () => ctx.ambience.update(dt)); step('menus', () => ctx.menus.update(dt)); step('panels', () => ctx.panels.update(dt));
     step('materials', () => ctx.materials.update?.(dt, t));
+    step('perf', () => ctx.perf.update(dt, rawMs));
     ctx.renderer.info.reset();
     ctx.post.render();
   } catch (e) {

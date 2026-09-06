@@ -130,6 +130,8 @@ API: `count(id)`, `has(id,n)`, `add(id,n)`, `remove(id,n)`, `addAmmo(cal,n)`, `a
 - Loot piles: `ctx.loot.spawnPile(position, entries)` where entries are `[{ kind:'weapon'|'mag'|'gear'|'item', inst?, id, count }]`; the UI's loot panel transfers them.
 - Mimic loadouts: `enemies/loadout.js` `rollLoadout(className, tideLevel)` returns `{ weapon: WeaponInst, mags: [MagInst], vest, helmet, grenades, items }` built with inventory.makeWeapon/makeMag/makeGear; mimics use the weapon def for rpm/noise/damage and drop the instances.
 
+- `ctx.perf` (render/perf.js): dynamic resolution governor. `scale`, `frameMs`, `internalSize()`, `applyScale()` (call after any composer resize), `ensurePasses()` (keeps FXAA + CAS as the last two composer passes; a module that rebuilds `post.composer` must leave them or call `perf.ensurePasses()`), `setScale(s)`, `toggleOverlay()` (F3). Settings: `targetFps` (60|100|144), `resolutionScale` (0.5–1), `dynamicResolution` (bool). Half-resolution passes (bloom, AO) must size themselves from the composer's current size, not the drawing buffer.
+
 ## Conventions
 - **Never cache `ctx.state.data`** (or anything inside it) across frames: `game.start()` replaces the object. Read `ctx.state.data.x` when you need it.
 - ES modules, no TypeScript, no external deps beyond three. Prefer `const`, small pure helpers, early returns.
