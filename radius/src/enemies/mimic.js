@@ -574,7 +574,7 @@ class Mimic extends Enemy {
     // AI state
     this.target = null; this.waitT = 0; this.turnT = 0; this.searchT = 0; this.lookYaw = 0; this.lookT = 0; this.lookPitch = 0; this.lookAbs = this.yaw;
     this.lastVisT = -1e9; this.lastAlertT = -1e9; this.losT = -1e9; this.percT = 0;
-    this.burstLeft = 0; this.shotT = 0; this.cooldown = 1.0; this.repositionT = 8; this.hitsSince = 0; this.cover = null; this.aimT = 0; this.aiming = false;
+    this.burstLeft = 0; this.burstN = 0; this.shotT = 0; this.cooldown = 1.0; this.repositionT = 8; this.hitsSince = 0; this.cover = null; this.aimT = 0; this.aiming = false;
     this.reloadT = 0; this.reloadStage = 0; this.reloadPlan = null; this.dry = false; this.cycleT = 0;
     this.grenadeT = 0; this.grenadeTarget = new THREE.Vector3();
     this.radioT = rng.range(2, 8); this.glitchT = rng.range(2, 5); this.glitchLeft = 0;
@@ -659,14 +659,18 @@ class Mimic extends Enemy {
     const dl = Math.hypot(dx, dz); if (dl > 1e-4) { dx /= dl; dz /= dl; lat = clamp01(Math.abs(ox * dz - oz * dx) / this.radius); }
     return zoneFromHit(h01, lat);
   }
+  armorPieces() { return this.pieces; }
   damage(amount, info = {}) {
     if (!this.alive) return false;
     if (this.stalker && !this.provoked && (!info.source || info.source === 'player' || info.source === this.player)) this.provoked = true;
     if (info.kind === 'blast') { if (info.grenade && info.source && info.source.type === 'mimic') amount *= 0.35; if (this.loadout.helmet) amount *= 0.9; return super.damage(amount, info); }
     if (info.kind === 'melee' || info.kind === 'slash' || info.kind === 'shock') return super.damage(amount, info);
-    const zone = this.zoneOf(info);
+    // v2 ballistics hands over the round and where it landed (amount = base x falloff, no zone multiplier);
+    // older callers pass a finished amount with a headshot flag
+    const v2 = info.h01 != null;
+    const zone = v2 ? (info.zone || zoneFromHit(info.h01, info.lateral01 ?? 0.3)) : this.zoneOf(info);
     const given = info.ammo ? (typeof info.ammo === 'string' ? AMMO[info.ammo] : info.ammo) : null;
-    const headMult = info.headshot ? 1.8 : 1;
+    const headMult = !v2 && info.headshot ? 1.8 : 1;
     let a, mult = 1;
     if (given) { a = given; mult = amount > 0 && given.damage > 0 ? amount / (given.damage * headMult) : 1; }
     else a = { damage: amount / headMult, pen: info.pen ?? 3, kind: 'fmj' };
@@ -829,7 +833,7 @@ class Mimic extends Enemy {
     _dir.subVectors(_v3, muzzle).normalize();
     const spread = this.spreadDeg(first);
     const ammo = this.ammo, range = this.profile.kind === 'sniper' ? 160 : this.profile.kind === 'shotgun' ? 25 : 70;
-    if (ctx.ballistics && !ctx.ballistics.isStub) ctx.ballistics.shoot(muzzle, _dir, { source: 'enemy', damage: ammo.damage, ammo, ammoId: this.ammoId, shooter: this, spreadDeg: spread, pellets: ammo.pellets || 1, range, tracer: !this.suppressed || !!ammo.tracer, kind: 'bullet', weapon: this.weapon });
+    if (ctx.ballistics && !ctx.ballistics.isStub) ctx.ballistics.shoot(muzzle, _dir, { source: 'enemy', damage: ammo.damage, ammo, ammoId: this.ammoId, shooter: this, spreadDeg: spread, pellets: ammo.pellets || 1, range, cls: this.wdef.cls, tracer: this.suppressed ? false : undefined, kind: 'bullet', weapon: this.weapon, what: this.cdef.name });
     else for (let i = 0; i < (ammo.pellets || 1); i++) enemyShoot(ctx, this, muzzle, _dir, ammo.damage, spread + (ammo.spread || 0));
     consumeRound(this.weapon);
     if (!this.suppressed || Math.random() < 0.3) ctx.vfx.muzzleFlash(muzzle, _dir);
@@ -984,10 +988,12 @@ class Mimic extends Enemy {
 
     const prevX = this.position.x, prevZ = this.position.z;
     let headYaw = 0, headPitch = 0, aim = 0, aimPitch = 0, aimYaw = 0, speed = 0, track = false, crouch = 0;
-    // global state promotion
-    if (this.engaged && t - this.lastVisT < 6 && this.state !== 'engage' && this.state !== 'reload' && this.state !== 'grenade') this.setState('engage');
+    // global state promotion; a retreating or ambushing squad member stays in engage and holds its orders
+    const role = this.orders && this.squad ? this.orders.role : null;
+    const holdRole = role === 'ambush' || role === 'regroup';
+    if (holdRole && this.state !== 'engage' && this.state !== 'reload' && this.state !== 'grenade') this.setState('engage');
+    else if (this.engaged && t - this.lastVisT < 6 && this.state !== 'engage' && this.state !== 'reload' && this.state !== 'grenade' && this.state !== 'stalk') this.setState('engage');
     else if (!this.engaged && this.aware >= 0.4 && (this.state === 'patrol' || this.state === 'watch' || this.state === 'idle')) { this.setState('suspicious'); this.turnT = 1.2; this.target = null; if (!this.squad) this.sound('mimic_radio', { gain: 0.5, max: 70 }); this.radioT = rng.range(4, 9); }
-    const role = this.orders ? this.orders.role : null;
 
     switch (this.state) {
       case 'idle': {
@@ -1057,7 +1063,7 @@ class Mimic extends Enemy {
       case 'engage': {
         aim = 1; track = true;
         const ambush = role === 'ambush';
-        if ((t - this.lastVisT > 6 || !this.engaged) && !ambush) { this.setState('search'); this.target = this.lastSeenPlayer ? this.lastSeenPlayer.clone() : null; this.searchT = 0; this.waitT = 0; this.aiming = false; break; }
+        if ((t - this.lastVisT > 6 || !this.engaged) && !holdRole) { this.setState('search'); this.target = this.lastSeenPlayer ? this.lastSeenPlayer.clone() : null; this.searchT = 0; this.waitT = 0; this.aiming = false; break; }
         if (!this.squad && t - this.lastAlertT > 2) { this.lastAlertT = t; this.alertPack(); }
         // where to be
         if (this.squad) this.applyOrders();

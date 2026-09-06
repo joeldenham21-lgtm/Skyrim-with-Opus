@@ -176,7 +176,7 @@ const RaysMaskShader = {
     ${GLSL_ACES}
     uniform sampler2D tColor; uniform highp sampler2D tDepth; uniform vec2 uSun; uniform float uAspect, uFalloff; varying vec2 vUv;
     void main(){
-      float d = texture2D(tDeep(tDepth), vUv).x;
+      float d = texture2D(tDepth, vUv).x;
       // only cleared pixels are sky: the Anomaly at 1.5 km still reads below 1.0 in a 24-bit buffer and blocks the shafts
       float sky = step(0.999995, d);
       vec3 c = texture2D(tColor, vUv).rgb; float lum = luma(c);

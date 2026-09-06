@@ -214,7 +214,7 @@ export function createHands(ctx) {
   const dotTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 32; const g = c.getContext('2d'); const gr = g.createRadialGradient(16, 16, 0, 16, 16, 16); gr.addColorStop(0, 'rgba(255,120,100,1)'); gr.addColorStop(0.3, 'rgba(255,40,20,0.9)'); gr.addColorStop(1, 'rgba(255,20,10,0)'); g.fillStyle = gr; g.fillRect(0, 0, 32, 32); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
   const laserDot = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTex, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, fog: false }));
   laserDot.name = 'laserDot'; laserDot.visible = false; laserDot.renderOrder = 21; laserDot.frustumCulled = false;
-  let laserOn = false, lightOn = false, laserFrame = 0, laserDist = 30;
+  let laserOn = false, lightOn = false, laserFrame = 0, laserDist = 30, selectorK = 0;
   const muzzleDir = new THREE.Vector3(0, 0, -1), muzzlePos = new THREE.Vector3();
 
   function placeHand(hand, spec, mirror) {
@@ -281,7 +281,7 @@ export function createHands(ctx) {
         // the gloves ride inside the weapon group so they follow hip/ADS poses and every animation offset
         weapon.add(gloves.right); weapon.add(gloves.left);
         ud = weapon.userData;
-        for (const n of ['mag', 'slide', 'bolt', 'barrels', 'trigger', 'hammer', 'muzzle', 'eject', 'pump', 'cover', 'handle', 'optic']) { const o = weapon.getObjectByName(n); if (o) parts[n] = o; }
+        for (const n of ['mag', 'slide', 'bolt', 'barrels', 'trigger', 'hammer', 'muzzle', 'eject', 'pump', 'cover', 'handle', 'optic', 'lever', 'belt', 'bipod', 'selector']) { const o = weapon.getObjectByName(n); if (o) parts[n] = o; }
         parts.cycle = parts.slide || parts.bolt || parts.barrels || null;
         state.scoped = !!(ud.scoped ?? parts.optic);
         // ADS pose: through the optic's eye point when the mesh provides one, else the iron-sight pose
@@ -300,6 +300,8 @@ export function createHands(ctx) {
     playAnim(name, duration = 0.5) { animFn = ANIMS[name] || null; anim = animFn ? name : null; animT = 0; animDur = Math.max(0.01, duration); },
     stopAnim() { anim = null; animFn = null; resetOffsets(off); },
     setSlideLock(v) { state.lock = !!v; },
+    // fire selector lever position 0..1 (safe/first mode .. last mode)
+    setSelector(k) { selectorK = clamp01(k); },
     setLaser(v) { laserOn = !!v; if (!laserOn) { laser.visible = laserDot.visible = false; } else attachLaser(); },
     setLight(v) { lightOn = !!v; const L = ctx.lighting; if (!lightOn && L && L.weaponLight) L.weaponLight.target.position.set(0, 0, -8); },
     // impulse into the spring; sqrt(K) turns a velocity impulse into roughly that peak displacement
@@ -315,7 +317,7 @@ export function createHands(ctx) {
       const o = off;
       holder.position.copy(o.gunPos); holder.rotation.set(o.gunRot.x, o.gunRot.y, o.gunRot.z);
       const setBase = (p) => { if (!p || !p.userData.base) return; p.position.copy(p.userData.base.p); p.rotation.copy(p.userData.base.r); };
-      setBase(parts.mag); setBase(parts.slide); setBase(parts.bolt); setBase(parts.barrels); setBase(parts.trigger); setBase(parts.hammer); setBase(parts.pump); setBase(parts.cover); setBase(parts.handle);
+      setBase(parts.mag); setBase(parts.slide); setBase(parts.bolt); setBase(parts.barrels); setBase(parts.trigger); setBase(parts.hammer); setBase(parts.pump); setBase(parts.cover); setBase(parts.handle); setBase(parts.selector);
       if (parts.mag) { parts.mag.position.add(o.magPos); parts.mag.rotation.x += o.magRot.x; parts.mag.rotation.y += o.magRot.y; parts.mag.rotation.z += o.magRot.z; }
       const travel = ud.slideTravel || 0.03;
       let back = o.cycle; if (state.lock && anim !== 'chamber' && anim !== 'cycle' && anim !== 'jam' && anim !== 'unjam') back = Math.max(back, 0.85);
@@ -328,6 +330,7 @@ export function createHands(ctx) {
       if (parts.handle && kind !== 'mosin') parts.handle.position.z += travel * back;
       if (parts.pump) parts.pump.position.z += (ud.pumpTravel || 0.08) * o.pump;
       if (parts.cover) parts.cover.rotation.x += (ud.coverAngle || 1.2) * o.cover;
+      if (parts.selector) parts.selector.rotation.x += (ud.selectorTravel ?? -0.55) * selectorK;
       if (parts.trigger) parts.trigger.rotation.x -= 0.4 * o.trigger;
       if (parts.hammer) parts.hammer.rotation.x += 0.5 * o.hammer;
     },

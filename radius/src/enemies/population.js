@@ -127,7 +127,7 @@ export function createPopulation(ctx) {
     e.census = en;
     if (en.squadId != null && e.type === 'mimic') {
       let s = squadRefs.get(en.squadId);
-      if (!s || s.alive === 0 && !ctx.squads.list.includes(s)) { s = ctx.squads.form([e], poi); squadRefs.set(en.squadId, s); }
+      if (!s || (s.alive === 0 && !ctx.squads.list.includes(s))) { s = ctx.squads.form([e], poi); squadRefs.set(en.squadId, s); }
       else s.add(e);
     }
     return e;

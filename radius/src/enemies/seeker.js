@@ -170,6 +170,7 @@ class Seeker extends Enemy {
   }
   // armour: a class-6 suit over everything, resolved like any armour (AP gets through, ball does not), except the
   // lens (top 12 % of the capsule, from the front): x3 and straight through
+  armorPieces() { return this.pieces; }
   damage(amount, info = {}) {
     if (!this.alive) return false;
     const pt = info.point;
@@ -181,10 +182,11 @@ class Seeker extends Enemy {
     if (info.kind === 'blast') return super.damage(amount * 0.5, info);
     if (info.kind === 'melee' || info.kind === 'slash') return super.damage(amount * 0.2, info);
     // zone from the capsule; the shot's own ammunition when ballistics passes it, a rifle-class guess otherwise
-    const h01 = pt ? clamp01((pt.y - this.position.y) / this.height) : 0.6;
-    const zone = zoneFromHit(h01, 0.3);
+    const v2 = info.h01 != null;
+    const h01 = v2 ? info.h01 : pt ? clamp01((pt.y - this.position.y) / this.height) : 0.6;
+    const zone = info.zone || zoneFromHit(h01, info.lateral01 ?? 0.3);
     const given = info.ammo ? (typeof info.ammo === 'string' ? AMMO[info.ammo] : info.ammo) : null;
-    const headMult = info.headshot ? 1.8 : 1;
+    const headMult = !v2 && info.headshot ? 1.8 : 1;
     let a, mult = 1;
     if (given) { a = given; mult = amount > 0 && given.damage > 0 ? amount / (given.damage * headMult) : 1; }
     else a = { damage: amount / headMult, pen: info.pen ?? 3, kind: 'fmj' };
@@ -295,7 +297,7 @@ class Seeker extends Enemy {
     // a heavy gun walked onto you: full-power rifle rounds, but a wide, climbing cone; few of a burst land
     const spread = 9 + this.burstN * 0.25 + (this.moveSpeed > 0.4 ? 3 : 0) + (p.moving ? 1.5 : 0);
     const ammo = this.ammo;
-    if (ctx.ballistics && !ctx.ballistics.isStub) ctx.ballistics.shoot(muzzle, _dir, { source: 'enemy', damage: ammo.damage, ammo, ammoId: this.ammoId, shooter: this, spreadDeg: spread, pellets: 1, range: 90, tracer: true, kind: 'bullet', weapon: this.weapon });
+    if (ctx.ballistics && !ctx.ballistics.isStub) ctx.ballistics.shoot(muzzle, _dir, { source: 'enemy', damage: ammo.damage, ammo, ammoId: this.ammoId, shooter: this, spreadDeg: spread, pellets: 1, range: 90, cls: 'mg', kind: 'bullet', weapon: this.weapon, what: 'Seeker' });
     else enemyShoot(ctx, this, muzzle, _dir, ammo.damage, spread);
     consumeRound(this.weapon);
     this.burstN++;

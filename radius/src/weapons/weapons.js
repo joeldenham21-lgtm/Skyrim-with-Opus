@@ -30,6 +30,7 @@ const _mat = new THREE.Matrix4(), _sc = new THREE.Vector3(), _rq = new THREE.Qua
 
 export function createWeapons(ctx) {
   const { input, hands, inventory, hud, audio } = ctx;
+  gunmesh.setContext?.(ctx);
   const meshes = new Map();          // signature -> viewmodel group
   const meleeMeshes = new Map();
   let rec = null, view = null, slotName = null, fx = null, mesh = null, meshSig = null;
@@ -208,7 +209,7 @@ export function createWeapons(ctx) {
     state = rec && rec.jammed ? 'jammed' : 'idle'; stage = null; timer = 0; burstLeft = 0; zoomHigh = true;
     mesh = rec ? meshFor(rec) : meleeInst ? meleeMeshFor(meleeInst.id) : null; meshSig = rec ? signature(rec) : null;
     hands.setWeaponMesh(mesh);
-    if (mesh) { hands.playAnim('draw', 0.35); busy = 0.35; audio.play('weapon_draw', { gain: 0.6, rate: meleeInst ? 1.2 : 1 }); setLock(); applyLights(); }
+    if (mesh) { hands.playAnim('draw', 0.35); busy = 0.35; audio.play('weapon_draw', { gain: 0.6, rate: meleeInst ? 1.2 : 1 }); setLock(); applyLights(); syncSelector(); }
     refresh(true);
   }
   function beginHolster(next = null, nextSlot = null, nextMelee = null) {
@@ -511,10 +512,11 @@ export function createWeapons(ctx) {
     if (d.modes.length < 2) { audio.play('click', { gain: 0.35 }); return; }
     const i = d.modes.indexOf(mode());
     rec.fireMode = d.modes[(i + 1) % d.modes.length]; burstLeft = 0;
-    audio.play(snd('weapon_select', 'click'), { gain: 0.6 }); hands.playAnim('selector', 0.22);
+    audio.play(snd('weapon_select', 'click'), { gain: 0.6 }); hands.playAnim('selector', 0.22); syncSelector();
     refresh(true);
   }
   const zoomNow = () => (fx ? (fx.zoomLow && !zoomHigh ? fx.zoomLow : fx.zoom) : 1);
+  function syncSelector() { const d = def(); if (!d) { hands.setSelector(0); return; } const i = d.modes.indexOf(mode()); hands.setSelector(d.modes.length > 1 ? i / (d.modes.length - 1) : 0); }
   // ---- weapon light / laser (L) ----
   function toggleLight() {
     if (!rec || !fx) return;

@@ -233,6 +233,9 @@ function catOf(e) {
   return c;
 }
 const isGearEntry = (e) => e.uid != null && e.kind !== 'weapon' && e.kind !== 'mag';
+const GEAR_KINDS = new Set(['vest', 'helmet', 'backpack', 'rig', 'headgear', 'mask', 'melee']);
+// inventory.list() with ammunition stacks reported as kind 'ammo' (the catalogue's kind on a round is its bullet type)
+const kitList = (inv) => inv.list().map((e) => (AMMO[e.id] && e.uid == null ? Object.assign({}, e, { kind: 'ammo' }) : e));
 function entryWeight(e) {
   if (e.kind === 'weapon') return e.inst ? weaponWeight(e.inst) : weightOf(e.id);
   if (e.kind === 'mag') return e.inst ? magWeight(e.inst) : weightOf(e.id);
@@ -318,7 +321,7 @@ function inventoryPanel(ctx, api) {
   const dropBtn = (e) => (catOf(e) === 'mission' ? '' : act(`drop:${selKey(e)}`, AMMO[e.id] ? 'Drop all' : 'Drop'));
 
   function lists() {
-    const i = inv(), d = ctx.state.data, list = i.list();
+    const i = inv(), list = kitList(i);
     const by = {}; for (const e of list) (by[catOf(e)] = by[catOf(e)] || []).push(e);
     let html = '';
     // weapons
@@ -673,7 +676,7 @@ function lootPanel(ctx, api) {
     let sub = '';
     if (e.kind === 'weapon' && e.inst) sub = weaponSub(e.inst);
     else if (e.kind === 'mag' && e.inst) sub = magSub(e.inst);
-    else if (e.kind === 'gear' && e.inst) sub = gearSub(e.inst);
+    else if (e.inst && e.kind !== 'weapon' && e.kind !== 'mag') sub = gearSub(e.inst);
     else if (AMMO[e.id]) sub = `${calShort(AMMO[e.id].cal)} · damage ${AMMO[e.id].damage} · pen ${AMMO[e.id].pen}`;
     else sub = d?.desc || '';
     return [name, sub];
@@ -681,9 +684,10 @@ function lootPanel(ctx, api) {
   function take(pile, e, quiet = false) {
     const i = inv(); const w = entryWeight(e);
     if (!canCarry(w)) { if (!quiet) api.notice(`Load limit. ${def(e.id)?.name || e.id} weighs ${kg(w)}; ${kg(Math.max(0, i.capacity() * 1.5 - i.weight()))} left.`, true); return false; }
+    const gearLike = e.kind === 'gear' || (e.inst && e.kind !== 'weapon' && e.kind !== 'mag') || (e.kind === 'item' && GEAR_KINDS.has(def(e.id)?.kind));
     if (e.kind === 'weapon') i.addWeapon(e.inst || makeWeapon(e.id));
     else if (e.kind === 'mag') i.addMag(e.inst || makeMag(e.id));
-    else if (e.kind === 'gear') i.addGear(e.inst || makeGear(e.id));
+    else if (gearLike) { if (e.inst) i.addGear(e.inst); else for (let k = 0; k < (e.count || 1); k++) i.addGear(makeGear(e.id)); }
     else i.add(e.id, e.count || 1);
     const k = pile.entries.indexOf(e); if (k >= 0) pile.entries.splice(k, 1);
     return true;
@@ -693,7 +697,7 @@ function lootPanel(ctx, api) {
       const pile = pileOf(); const e = pile.entries[+idx]; if (!e) return false;
       if (!take(pile, e)) return false;
       const d = def(e.id); api.notice(`Taken: ${d?.name || e.id}${(e.count || 1) > 1 ? ` ×${e.count}` : ''}.`);
-      if (e.kind === 'weapon' || e.kind === 'gear') api.weaponsChanged(); pile.onChange?.(); api.refresh();
+      if (e.kind !== 'item' && !AMMO[e.id]) api.weaponsChanged(); pile.onChange?.(); api.refresh();
       return AMMO[e.id] ? 'pickup_ammo' : 'pickup_item';
     },
     takeall() {
@@ -718,7 +722,7 @@ function lootPanel(ctx, api) {
   function render() {
     const pile = pileOf(), i = inv(); const total = pile.entries.reduce((s, e) => s + entryWeight(e), 0);
     const left = pile.entries.length ? pile.entries.map((e, k) => { const [n, s] = entryLabel(e); const w = entryWeight(e); return `<div class="li" tabindex="0"><div class="n">${esc(n)}${(e.count || 1) > 1 ? `<span class="tag">×${e.count}</span>` : ''}<span class="sub">${esc(s)}</span></div><div class="num">${kg(w, w < 1 ? 2 : 1)}</div><div class="acts">${act(`take:${k}`, 'Take', { deny: !canCarry(w) })}</div></div>`; }).join('') : '<div class="empty">Nothing left.</div>';
-    const carried = i.list().filter((e) => catOf(e) !== 'mission');
+    const carried = kitList(i).filter((e) => catOf(e) !== 'mission');
     const right = carried.length ? carried.map((e) => { const d = def(e.id); const n = d?.full || d?.name || e.id; const s = e.kind === 'weapon' ? weaponSub(e.inst) : e.kind === 'mag' ? magSub(e.inst) : isGearEntry(e) ? gearSub(e.inst) : (d?.desc || ''); const worn = e.uid ? slotOfUid(i, e.uid) : null;
       return `<div class="li" tabindex="0"><div class="n">${esc(n)}${e.count > 1 ? `<span class="tag">×${e.count}</span>` : ''}${worn ? `<span class="tag">${DOLL_LABEL[worn] || worn}</span>` : ''}<span class="sub">${esc(s)}</span></div><div class="num">${kg(entryWeight(e), 2)}</div><div class="acts">${act(`put:${e.kind}:${e.id}:${e.uid || ''}`, 'Put')}</div></div>`; }).join('') : '<div class="empty">Nothing carried.</div>';
     const w = i.weight(), c = i.capacity();

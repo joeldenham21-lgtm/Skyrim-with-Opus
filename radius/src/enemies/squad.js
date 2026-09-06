@@ -79,7 +79,7 @@ export function createSquads(ctx) {
       this.lastKnown = new THREE.Vector3(); this.lastKnownT = -1e9; this.hasKnown = false;
       this.combatT = 0; this.roleT = 0; this.grenadeT = 0; this.radioT = rng.range(6, 14); this.reinforceCalled = false;
       this.retreat = new THREE.Vector3(); this.ambushT = 0; this.centroid = new THREE.Vector3();
-      this.initial = 0; this.moving = 0; this.baseCount = 0;
+      this.initial = 0; this.moving = 0; this.baseCount = 0; this.regrouped = false;
       for (const m of members) this.add(m);
       this.initial = this.members.length;
     }
@@ -130,11 +130,11 @@ export function createSquads(ctx) {
       // combat clock and end of contact
       if (this.inCombat) {
         this.combatT += dt;
-        if (awareMax < 0.15 && t - this.lastKnownT > 40) { this.state = 'idle'; this.combatT = 0; this.reinforceCalled = false; for (const m of this.members) if (m.orders) { m.orders.role = 'idle'; m.orders.hasTarget = false; m.orders.fire = false; } }
+        if (awareMax < 0.15 && t - this.lastKnownT > 40 && this.state !== 'ambush') { this.state = 'idle'; this.combatT = 0; this.reinforceCalled = false; this.regrouped = false; for (const m of this.members) if (m.orders) { m.orders.role = 'idle'; m.orders.hasTarget = false; m.orders.fire = false; } }
       }
       this.grenadeT = Math.max(0, this.grenadeT - dt);
       // regroup when the squad has lost half of what it started with (and there are still two to regroup)
-      if (this.state === 'combat' && this.initial >= 3 && alive * 2 <= this.initial && alive >= 1) this.beginRegroup();
+      if (this.state === 'combat' && !this.regrouped && this.initial >= 3 && alive * 2 <= this.initial && alive >= 1) this.beginRegroup();
       // roles every 3 s
       this.roleT -= dt;
       if (this.roleT <= 0) { this.roleT = ROLE_T; if (this.inCombat) this.assignRoles(alive); }
@@ -153,7 +153,7 @@ export function createSquads(ctx) {
       }
     }
     beginRegroup() {
-      this.state = 'regroup'; this.ambushT = 0; this.radioT = 0.2;
+      this.state = 'regroup'; this.regrouped = true; this.ambushT = 0; this.radioT = 0.2;
       // the farthest cover out of the player's view within reach of the squad
       const p = ctx.player.position;
       const c = bestCover(this.centroid, 70, (c, dm) => { const dp = Math.hypot(c.x - p.x, c.z - p.z); if (dp < 22) return null; if (inFrustum(c.x, c.y + 0.9, c.z, 60)) return null; return dp * 0.5 - dm * 0.15; }, false, 1.2);
