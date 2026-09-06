@@ -2,6 +2,11 @@
 // near the anomaly fields and, when it sees you, comes to touch you: faster and faster, the pulse and the chime
 // quickening, until it goes off against your chest. One round pops it. The most beautiful thing in the zone.
 //
+// v2: they keep company. Three to five of them turn in a ring around a centre, the chime louder and faster
+// for the chorus; inside twenty-five metres the ring breaks and they come at you from three sides, low, bobbing
+// behind the ground and the wrecks below your eye line, and rise together inside eight metres. Pop one and its
+// shards take the neighbours with it.
+//
 // Build: one analytic glass shell (a ShaderMaterial: fresnel reflection of the sky, a sun glint, the torch's
 // reflection at night, and the core seen through the glass by refracting the view ray into the sphere and
 // intersecting it with the core, per channel, so the core is lensed and colour-fringed the way a marble lenses
@@ -13,12 +18,14 @@ import { Enemy } from './common.js';
 import { GLSL_NOISE } from '../render/glsl.js';
 import { fogUniforms } from '../render/fog.js';
 import { glowTexture } from '../render/textures.js';
-import { clamp, clamp01, damp, lerp, TAU } from '../core/math.js';
+import { clamp, clamp01, damp, lerp, TAU, DEG } from '../core/math.js';
 
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _dir = new THREE.Vector3(), _camF = new THREE.Vector3();
 const PINK = new THREE.Color(0xff6fa8), WHITE = new THREE.Color(0xfff4f8);
 const R_HIT = 0.3, R_SHELL = 0.15, R_CORE = 0.056;
 const COS_TORCH_OUT = Math.cos(17 * Math.PI / 180), COS_TORCH_IN = Math.cos(9 * Math.PI / 180);
+const SIDES = [0, 75 * DEG, -75 * DEG];          // the three approach bearings, relative to the ring's side of the player
+const CHAIN_R = 3.5;
 
 // ---- shared geometry ----
 let shellGeo = null, glowGeo = null;
@@ -113,6 +120,42 @@ const GLOW_FRAG = /* glsl */`
   }`;
 function fogged(u) { return Object.assign(u, fogUniforms, THREE.UniformsUtils.clone(THREE.UniformsLib.fog)); }
 
+// ---- rings: a shared formation for fragments that live together ----
+const rings = new Map();
+let ringSeq = 0;
+function joinRing(f, opts) {
+  let ring = null;
+  if (opts.ring != null) ring = rings.get(opts.ring) || null;
+  if (!ring) {
+    for (const r of rings.values()) {
+      if (r.members.length >= 5 || r.poi !== f.poi) continue;
+      if (Math.hypot(r.centre.x - f.home.x, r.centre.z - f.home.z) < 14) { ring = r; break; }
+    }
+  }
+  if (!ring) {
+    ring = { id: opts.ring ?? ('r' + ringSeq++), poi: f.poi, centre: new THREE.Vector3(f.home.x, f.home.y, f.home.z), members: [], phase: rng.range(0, TAU), radius: rng.range(3.2, 4.6), dir: rng.chance(0.5) ? 1 : -1, speed: rng.range(0.28, 0.42), state: 'form', alive: 0, refreshT: 0, splitT: 0 };
+    rings.set(ring.id, ring);
+  }
+  ring.members.push(f); f.ring = ring;
+  // the centre is the mean of the members' homes
+  _v.set(0, 0, 0); for (const m of ring.members) _v.add(m.home); ring.centre.copy(_v.divideScalar(ring.members.length));
+  refreshRing(ring);
+  return ring;
+}
+function leaveRing(f) {
+  const r = f.ring; if (!r) return;
+  const i = r.members.indexOf(f); if (i >= 0) r.members.splice(i, 1);
+  f.ring = null;
+  if (r.members.length === 0) rings.delete(r.id); else refreshRing(r);
+}
+// count the living and hand out slots; the first living member leads
+function refreshRing(r) {
+  let n = 0; r.leader = null;
+  for (const m of r.members) { if (!m.alive) continue; m.slot = n++; if (!r.leader) r.leader = m; }
+  r.alive = n;
+  if (n === 0 && r.state === 'split') r.state = 'form';
+}
+
 let rng = null;
 class Fragment extends Enemy {
   constructor(ctx, position, opts = {}) {
@@ -144,6 +187,9 @@ class Fragment extends Enemy {
     this.vel = new THREE.Vector3(); this.spin = rng.range(0.25, 0.5) * (rng.chance(0.5) ? 1 : -1);
     this.pulsePhase = rng.range(0, 1); this.period = 1.8; this.pulse = 0;
     this.losT = 0; this.los = false; this.lostT = 0; this.chime = null; this.chimeState = ''; this.loopRetry = 0; this.approached = false;
+    // ---- company ----
+    this.ring = null; this.slot = 0; this.side = 0; this.chainT = 0; this.bobPhase = rng.range(0, TAU);
+    if (opts.ring !== false) joinRing(this, opts);
     this.deathDuration = 0.45; this.exploded = false;
     this.setState('orbit');
     this.syncVisuals(0, this.distanceToPlayer());
@@ -168,6 +214,7 @@ class Fragment extends Enemy {
     _v2.set(p.position.x, p.position.y + p.eyeHeight * 0.7, p.position.z);
     return this.ctx.world.lineOfSight(this.position, _v2) || this.ctx.world.lineOfSight(this.position, p.eye);
   }
+  inFormation() { return !!(this.ring && this.ring.alive >= 2 && this.ring.state === 'form'); }
   explode() {
     if (this.exploded || !this.alive) return;
     this.exploded = true;
@@ -178,36 +225,97 @@ class Fragment extends Enemy {
     this.hurtPlayer(40, 'shock');
     this.kill({ kind: 'shock', self: true });
   }
+  // the ring breaks: everyone still turning picks a side and goes low
+  splitRing() {
+    const r = this.ring; if (!r || r.state === 'split') return;
+    r.state = 'split'; r.splitT = 0;
+    refreshRing(r);
+    for (const m of r.members) { if (!m.alive || m.state !== 'orbit') continue; m.startFlank(); }
+  }
+  startFlank() {
+    this.side = SIDES[this.slot % 3];
+    this.setState('flank'); this.setEngaged(true); this.lostT = 0;
+    if (!this.approached) { this.approached = true; this.sound('fragment_approach', { gain: 0.9, max: 60, ref: 3, rate: 1 + this.slot * 0.04 }); }
+  }
   onDeath(info) {
     this.shell.visible = this.glow.visible = false;
     this.light.visible = true;
     this.lightPeak = this.light.intensity;
     this.setEngaged(false);
+    if (this.ring) refreshRing(this.ring);
     if (info?.self) { this.light.intensity = 40; this.lightPeak = 40; return; }
-    // shot: cold glass and a pink flash
+    // shot (or caught in a neighbour's shards): cold glass and a pink flash; the shards reach the next one
     this.ctx.vfx.shatter(this.position, [1.0, 0.72, 0.9]);
     this.ctx.vfx.light(this.position, 0xff9ad0, 18, 0.3, 9);
-    this.sound('fragment_pop', { gain: 0.9, max: 90, ref: 3 });
+    this.sound('fragment_pop', { gain: 0.9, max: 90, ref: 3, rate: info?.chain ? rng.range(1.05, 1.2) : 1 });
+    for (const e of this.ctx.enemies.list) {
+      if (e === this || e.type !== 'fragment' || !e.alive || e.chainT > 0) continue;
+      const d = e.position.distanceTo(this.position);
+      if (d < CHAIN_R) e.chainT = 0.08 + d * 0.06;
+    }
   }
   deathTick(dt) { const k = 1 - this.deathT / this.deathDuration; this.light.intensity = (this.lightPeak || 4) * k * k; }
-  onDispose() { this.shellMat.dispose(); this.glowMat.dispose(); }
+  onDispose() { this.shellMat.dispose(); this.glowMat.dispose(); leaveRing(this); }
 
   tick(dt) {
-    const ctx = this.ctx, p = this.player, w = ctx.world;
+    const ctx = this.ctx, p = this.player, w = ctx.world, t = this.time;
     const d = this.distanceToPlayer();
-    // line of sight, throttled
-    this.losT -= dt; if (this.losT <= 0) { this.losT = 0.15; this.los = d < 25 && this.playerVisible(); }
+    // a neighbour's shards on their way
+    if (this.chainT > 0) { this.chainT -= dt; if (this.chainT <= 0) { this.damage(1, { kind: 'blast', chain: true, point: this.position }); return; } }
+    // line of sight, throttled; a ring shares the look: only its leader casts while forming
+    const r = this.ring;
+    const leader = r && r.state === 'form' && r.alive >= 2 ? r.leader === this : true;
+    this.losT -= dt;
+    if (this.losT <= 0) {
+      this.losT = leader ? 0.15 : 0.5;
+      this.los = d < 25 && (leader ? this.playerVisible() : (r && r.leader ? r.leader.los : this.playerVisible()));
+    }
+    if (r && r.leader === this && this.state === 'orbit') { r.refreshT -= dt; if (r.refreshT <= 0) { r.refreshT = 0.5; refreshRing(r); } }
     switch (this.state) {
       case 'orbit': {
         this.orbitT += dt;
-        const ox = this.home.x + this.ax * Math.sin(this.wx * this.orbitT + this.p1), oz = this.home.z + this.az * Math.sin(this.wz * this.orbitT + this.p2);
-        const oy = w.getHeight(ox, oz) + lerp(1.2, 2.6, 0.5 + 0.5 * Math.sin(this.wy * this.orbitT + this.p3));
-        if (!w.pointInSolid(ox, oy, oz)) { this.position.x = damp(this.position.x, ox, 1.6, dt); this.position.y = damp(this.position.y, oy, 1.6, dt); this.position.z = damp(this.position.z, oz, 1.6, dt); }
-        else this.orbitT += dt * 3;
+        if (this.inFormation()) {
+          // the chorus: slots around the centre, turning together, breathing in and out
+          if (r.leader === this) r.phase += r.dir * r.speed * dt;
+          const a = r.phase + (this.slot / r.alive) * TAU, rad = r.radius * (1 + 0.12 * Math.sin(t * 0.35 + r.phase));
+          const ox = r.centre.x + Math.cos(a) * rad, oz = r.centre.z + Math.sin(a) * rad;
+          const oy = w.getHeight(ox, oz) + 1.7 + 0.35 * Math.sin(t * 0.9 + this.slot * 2.1);
+          if (!w.pointInSolid(ox, oy, oz)) { this.position.x = damp(this.position.x, ox, 2.2, dt); this.position.y = damp(this.position.y, oy, 2.2, dt); this.position.z = damp(this.position.z, oz, 2.2, dt); }
+          this.period = damp(this.period, 1.2, 2, dt);
+        } else {
+          const ox = this.home.x + this.ax * Math.sin(this.wx * this.orbitT + this.p1), oz = this.home.z + this.az * Math.sin(this.wz * this.orbitT + this.p2);
+          const oy = w.getHeight(ox, oz) + lerp(1.2, 2.6, 0.5 + 0.5 * Math.sin(this.wy * this.orbitT + this.p3));
+          if (!w.pointInSolid(ox, oy, oz)) { this.position.x = damp(this.position.x, ox, 1.6, dt); this.position.y = damp(this.position.y, oy, 1.6, dt); this.position.z = damp(this.position.z, oz, 1.6, dt); }
+          else this.orbitT += dt * 3;
+          this.period = damp(this.period, 1.8, 2, dt);
+        }
         this.vel.multiplyScalar(Math.exp(-dt * 2));
-        this.period = damp(this.period, 1.8, 2, dt);
         this.aware = damp(this.aware, d < 30 ? 0.35 : 0, 0.7, dt);
-        if (this.los) { this.setState('attracted'); this.setEngaged(true); this.lostT = 0; if (!this.approached) { this.approached = true; this.sound('fragment_approach', { gain: 0.9, max: 60, ref: 3 }); } }
+        if (this.los) {
+          if (r && r.alive >= 2) this.splitRing();
+          if (this.state === 'orbit') { this.setState('attracted'); this.setEngaged(true); this.lostT = 0; if (!this.approached) { this.approached = true; this.sound('fragment_approach', { gain: 0.9, max: 60, ref: 3 }); } }
+        }
+        break;
+      }
+      case 'flank': {
+        // come round to your side, low: a bob under the eye line, behind whatever the ground and the wrecks give
+        const b = Math.atan2(r ? r.centre.z - p.position.z : this.position.z - p.position.z, r ? r.centre.x - p.position.x : this.position.x - p.position.x) + this.side;
+        const fx = p.position.x + Math.cos(b) * 7.5, fz = p.position.z + Math.sin(b) * 7.5;
+        const gy = w.groundHeight(this.position.x, this.position.z, this.position.y).y;
+        const ty = gy + 0.55 + 0.25 * Math.sin(t * 3.1 + this.bobPhase);
+        _v3.set(fx, ty, fz);
+        _dir.subVectors(_v3, this.position); const dist = _dir.length() || 1; _dir.divideScalar(dist);
+        this.vel.addScaledVector(_dir, 3.2 * dt);
+        const along = this.vel.dot(_dir); _v.copy(this.vel).addScaledVector(_dir, -along); this.vel.addScaledVector(_v, -clamp01(dt * 2));
+        const sp = this.vel.length(); if (sp > 4.5) this.vel.multiplyScalar(4.5 / sp);
+        _v.copy(this.position).addScaledVector(this.vel, dt);
+        const floor = w.groundHeight(_v.x, _v.z, _v.y + 0.5).y + 0.35;
+        if (_v.y < floor) { _v.y = floor; this.vel.y = Math.max(0, this.vel.y); }
+        if (!w.pointInSolid(_v.x, _v.y, _v.z)) this.position.copy(_v);
+        else { this.vel.multiplyScalar(0.2); this.position.y += 0.8 * dt; }
+        this.period = damp(this.period, lerp(0.6, 1.4, clamp01((d - 8) / 17)), 4, dt);
+        // inside eight metres, or on station, or out of patience: up and in
+        if (d < 8 || dist < 1.5 || this.stateT > 12 || p.dead) { this.setState('attracted'); this.lostT = 0; }
         break;
       }
       case 'attracted': {
@@ -232,7 +340,11 @@ class Fragment extends Enemy {
         if (!this.approached) { this.approached = true; this.sound('fragment_approach', { gain: 0.9, max: 60, ref: 3 }); }
         // contact
         if (!p.dead && !p.inBase && (this.position.distanceTo(p.eye) < 0.75 || this.position.distanceTo(_v3) < 0.75)) { this.explode(); return; }
-        if (this.lostT > 3 || d > 40 || p.dead) { this.setState('orbit'); this.setEngaged(false); this.aware = 0.3; this.home.set(this.position.x, w.getHeight(this.position.x, this.position.z), this.position.z); this.orbitT = 0; this.p1 = 0; this.p2 = 0; this.p3 = -Math.PI / 2; this.approached = false; }
+        if (this.lostT > 3 || d > 40 || p.dead) {
+          this.setState('orbit'); this.setEngaged(false); this.aware = 0.3; this.home.set(this.position.x, w.getHeight(this.position.x, this.position.z), this.position.z); this.orbitT = 0; this.p1 = 0; this.p2 = 0; this.p3 = -Math.PI / 2; this.approached = false;
+          // the ring re-forms where the survivors are
+          if (r) { refreshRing(r); let all = true; for (const m of r.members) if (m.alive && m.state !== 'orbit') all = false; if (all) { r.state = 'form'; _v.set(0, 0, 0); let n = 0; for (const m of r.members) if (m.alive) { _v.add(m.position); n++; } if (n) { r.centre.copy(_v.divideScalar(n)); r.centre.y = w.getHeight(r.centre.x, r.centre.z); } } }
+        }
         break;
       }
     }
@@ -275,11 +387,13 @@ class Fragment extends Enemy {
     this.light.intensity = 2 + 3 * pulse;
     if (this.light.visible) { if (d > 44) this.light.visible = false; } else if (d < 36) this.light.visible = true;
     this.light.color.copy(PINK).lerp(WHITE, pulse * 0.35);
-    // the chime follows the pulse
+    // the chime follows the pulse; a ring of three or more sings louder and quicker
+    const chorus = this.ring && this.ring.alive >= 3 && this.state === 'orbit' && this.ring.state === 'form';
     if (!this.chime) { this.loopRetry -= dt; if (this.loopRetry <= 0) { this.loopRetry = 1; if (ctx.audio.ready) { this.chime = this.loopSound('fragment_chime', { gain: 0.35, max: 70, ref: 3 }); this.chimeState = ''; } } }
     if (this.chime) {
-      this.chime.set('rate', 1 / Math.max(0.05, this.period)); this.chime.set('pulse', pulse); this.chime.set('near', near);
-      if (this.chimeState !== this.state) { this.chimeState = this.state; this.chime.setGain(this.state === 'attracted' ? 0.9 : 0.4, 0.3); }
+      this.chime.set('rate', (1 / Math.max(0.05, this.period)) * (chorus ? 1.6 : 1)); this.chime.set('pulse', pulse); this.chime.set('near', chorus ? Math.max(near, 0.35) : near);
+      const key = this.state + (chorus ? '+' : '');
+      if (this.chimeState !== key) { this.chimeState = key; this.chime.setGain(this.state === 'attracted' ? 0.9 : this.state === 'flank' ? 0.6 : chorus ? 0.6 : 0.4, 0.3); }
     }
   }
 }
@@ -287,4 +401,6 @@ class Fragment extends Enemy {
 export function registerFragment(ctx) {
   rng = ctx.rng.fork(43);
   ctx.enemies.registerType('fragment', Fragment);
+  ctx.events.on('gameStart', () => rings.clear());
+  ctx.events.on('tide', () => rings.clear());
 }

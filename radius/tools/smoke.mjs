@@ -24,13 +24,16 @@ const outDir = resolve(root, opt('--out', `.smoke/${Date.now()}`));
 const seconds = +opt('--seconds', 6);
 const W = +opt('--w', 1280), H = +opt('--h', 720);
 const scenarioPath = opt('--scenario', null);
+const prebuilt = opt('--html', null);   // run an existing bundle instead of building
 const fast = !args.includes('--full');   // --full: production render settings (MSAA, full shadow map, device pixel ratio)
 mkdirSync(outDir, { recursive: true });
 
-const html = resolve(outDir, 'game.html');
-const b = spawnSync('node', [resolve(root, 'build.mjs'), '--out', html, '--no-minify'], { encoding: 'utf8' });
-if (b.status !== 0) { console.error('BUILD FAILED\n' + b.stdout + b.stderr); process.exit(1); }
-console.log(b.stdout.trim());
+const html = prebuilt ? resolve(prebuilt) : resolve(outDir, 'game.html');
+if (!prebuilt) {
+  const b = spawnSync('node', [resolve(root, 'build.mjs'), '--out', html, '--no-minify'], { encoding: 'utf8' });
+  if (b.status !== 0) { console.error('BUILD FAILED\n' + b.stdout + b.stderr); process.exit(1); }
+  console.log(b.stdout.trim());
+}
 
 const browser = await chromium.launch({
   args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-webgl',
