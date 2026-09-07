@@ -1,6 +1,6 @@
 {
  "kind": "leather",
- "tile_m": 0.5,
- "height_m": 0.0012,
+ "tile_m": 0.4,
+ "height_m": 0.004,
  "size": 2048
 }

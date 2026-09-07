@@ -2,7 +2,7 @@
  "concrete": {
   "kind": "concrete",
   "tile_m": 2.0,
-  "height_m": 0.03,
+  "height_m": 0.035,
   "size": 2048
  },
  "plaster": {
@@ -26,55 +26,55 @@
  "painted_metal": {
   "kind": "painted_metal",
   "tile_m": 1.0,
-  "height_m": 0.0025,
+  "height_m": 0.002,
   "size": 2048
  },
  "gunmetal": {
   "kind": "gunmetal",
-  "tile_m": 0.5,
-  "height_m": 0.0006,
+  "tile_m": 0.3,
+  "height_m": 0.0015,
   "size": 2048
  },
  "wood": {
   "kind": "wood",
   "tile_m": 2.0,
-  "height_m": 0.012,
+  "height_m": 0.014,
   "size": 2048
  },
  "logs": {
   "kind": "logs",
   "tile_m": 2.0,
-  "height_m": 0.08,
+  "height_m": 0.1,
   "size": 2048
  },
  "birch_bark": {
   "kind": "birch_bark",
   "tile_m": 1.0,
-  "height_m": 0.006,
+  "height_m": 0.012,
   "size": 2048
  },
  "pine_bark": {
   "kind": "pine_bark",
   "tile_m": 1.0,
-  "height_m": 0.03,
+  "height_m": 0.045,
   "size": 2048
  },
  "fabric": {
   "kind": "fabric",
-  "tile_m": 0.5,
-  "height_m": 0.0015,
+  "tile_m": 0.35,
+  "height_m": 0.004,
   "size": 2048
  },
  "leather": {
   "kind": "leather",
-  "tile_m": 0.5,
-  "height_m": 0.0012,
+  "tile_m": 0.4,
+  "height_m": 0.004,
   "size": 2048
  },
  "rubber": {
   "kind": "rubber",
   "tile_m": 0.5,
-  "height_m": 0.001,
+  "height_m": 0.003,
   "size": 2048
  },
  "mud": {
@@ -103,14 +103,14 @@
  },
  "roof_tile": {
   "kind": "roof_tile",
-  "tile_m": 2.0,
-  "height_m": 0.05,
+  "tile_m": 1.5,
+  "height_m": 0.035,
   "size": 2048
  },
  "roof_metal": {
   "kind": "roof_metal",
-  "tile_m": 2.0,
-  "height_m": 0.03,
+  "tile_m": 1.2,
+  "height_m": 0.02,
   "size": 2048
  },
  "grass": {
@@ -145,8 +145,8 @@
  },
  "tarp": {
   "kind": "tarp",
-  "tile_m": 1.0,
-  "height_m": 0.01,
+  "tile_m": 1.5,
+  "height_m": 0.02,
   "size": 2048
  },
  "paper": {
@@ -182,7 +182,7 @@
  "sheet_metal": {
   "kind": "sheet_metal",
   "tile_m": 1.0,
-  "height_m": 0.008,
+  "height_m": 0.002,
   "size": 2048
  },
  "roof_slate": {
@@ -206,7 +206,7 @@
  "canvas": {
   "kind": "canvas",
   "tile_m": 0.5,
-  "height_m": 0.002,
+  "height_m": 0.006,
   "size": 2048
  }
 }

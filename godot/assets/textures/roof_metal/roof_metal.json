@@ -1,6 +1,6 @@
 {
  "kind": "roof_metal",
- "tile_m": 2.0,
- "height_m": 0.03,
+ "tile_m": 1.2,
+ "height_m": 0.02,
  "size": 2048
 }

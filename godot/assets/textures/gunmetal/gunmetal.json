@@ -1,6 +1,6 @@
 {
  "kind": "gunmetal",
- "tile_m": 0.5,
- "height_m": 0.0006,
+ "tile_m": 0.3,
+ "height_m": 0.0015,
  "size": 2048
 }

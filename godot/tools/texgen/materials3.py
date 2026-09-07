@@ -56,9 +56,9 @@ def concrete(n, seed=100):
     plugged = N.smoothstep(0.35, 0.4, N.value_noise(n, 6, seed + 5))
 
     # --- surface porosity
-    bug = grit(n, seed + 6, density=0.10, sizes=(0.9, 3.4), soft=0.6)
-    bug = N.smoothstep(0.25, 0.8, bug) * N.smoothstep(0.35, 0.75, blotches(n, 5, seed + 7, threshold=0.4,
-                                                                          softness=0.25, warp_amt=40) + 0.25)
+    bug = grit(n, seed + 6, density=0.030, sizes=(0.7, 2.3), soft=0.5)
+    bug = N.smoothstep(0.30, 0.85, bug) * N.smoothstep(0.45, 0.95, blotches(n, 7, seed + 7, threshold=0.45,
+                                                                           softness=0.22, warp_amt=45) + 0.30)
     sandy = grit(n, seed + 8, density=0.5, sizes=(0.5, 1.4), soft=0.3)
 
     # --- spalling: hard-edged patches with aggregate showing through
@@ -145,7 +145,7 @@ def plaster(n, seed=200):
         cr.line(pts, float(r.uniform(0.5, 1.0)), width=max(2, int(w * 0.22)))
     trowel = N.blur(c.array(), 2.5)
     ridge = N.blur(cr.array(), 1.2)
-    sand = grit(n, seed + 2, density=0.55, sizes=(0.5, 1.9), soft=0.35)
+    sand = grit(n, seed + 2, density=0.30, sizes=(0.5, 1.5), soft=0.55) * 0.65
 
     # --- crazing: dense hairline network plus a few structural cracks
     craze = crack_mask(n, crack_lines(n, 26, seed + 3, length=(0.04, 0.16), wander=0.13, branch_p=0.5,
@@ -176,7 +176,7 @@ def plaster(n, seed=200):
 
     # --- colour
     base = tone(C("#c2bba9"), n, variation=0.07, seed=seed + 16, cells=3, hue=0.012, sat=0.045)
-    base = M.mul(base, 1.0 + trowel * 0.05 + ridge * 0.06 + grain * 0.08 + sand * 0.10)
+    base = M.mul(base, 1.0 + trowel * 0.06 + ridge * 0.07 + grain * 0.07 + sand * 0.05)
     yellow = blotches(n, 3, seed + 17, threshold=0.48, softness=0.3, warp_amt=45)
     base = M.mix(base, M.solid(n, C("#ab9d7e")), yellow * 0.45)
     wash = blotches(n, 2, seed + 18, threshold=0.5, softness=0.22, warp_amt=75)
@@ -210,7 +210,7 @@ def plaster(n, seed=200):
     base = M.mix(base, M.solid(n, C("#514e47")), st * 0.5)
     base = M.mul(base, 1.0 - M.cavity(m.height, 2.0) * 0.32)
     m.albedo = base
-    m.rough = 0.84 + sand * 0.08 - damp * 0.16 - wash * 0.04 + fall1 * 0.08 + mould * 0.05 + grain * 0.07
+    m.rough = 0.84 + sand * 0.05 - damp * 0.16 - wash * 0.04 + fall1 * 0.08 + mould * 0.05 + grain * 0.07
     m.micro_amt = (0.09, 0.012, 0.06)
     return m.finish()
 
@@ -228,17 +228,25 @@ def wood(n, seed=700):
     grain = rnd(seed + 2, n) - 0.5
     pw = n / planks
 
-    # --- grain: 7-14 growth rings across a 150 mm board, warped, latewood a sharp dark line
+    # --- grain: growth rings of unequal width across a 150 mm board. Each ring is a wide pale earlywood
+    # zone that darkens into a narrow, hard latewood line; ring widths and the latewood fraction vary.
     w1 = N.fbm(n, 4, 4, seed + 3, cells_y=9, min_res=256)
-    w2 = N.fbm(n, 16, 3, seed + 4, cells_y=40, min_res=512)
-    freq = 7.0 + pv[..., 0] * 7.0
-    phase = (u + w1 * 0.16 + w2 * 0.035 + pv[..., 1] * 5.0) * freq
-    saw = 0.5 + 0.5 * np.sin(phase * 2 * np.pi)
-    late = N.smoothstep(0.62, 0.95, saw)                      # narrow dark latewood band
-    early = N.smoothstep(0.05, 0.55, saw)
+    w2 = N.fbm(n, 14, 3, seed + 4, cells_y=36, min_res=512)
+    w3 = N.fbm(n, 2, 3, seed + 30, cells_y=220, min_res=1024)
+    freq = 6.0 + pv[..., 0] * 6.0
+    phase = (u + w1 * 0.20 + w2 * 0.045 + w3 * 0.010 + pv[..., 1] * 5.0) * freq
+    rid = np.floor(phase).astype(np.int32)
+    rf = phase - rid
+    rv = N.cell_random(np.abs(rid) % 512, 512, seed + 31, k=3)
+    lw = 0.10 + rv[..., 0] * 0.22                               # latewood fraction of this ring
+    edge = np.clip(0.020 + rv[..., 1] * 0.02, 0.01, 0.06)
+    late = N.smoothstep(1.0 - lw - edge, 1.0 - lw + edge, rf) * (1.0 - N.smoothstep(1.0 - edge, 1.0, rf))
+    late = np.clip(late + N.smoothstep(1.0 - edge * 0.6, 1.0, rf) * 0.55, 0, 1)
+    early = np.clip(rf / np.maximum(1.0 - lw, 0.2), 0, 1) ** 1.6   # earlywood darkens toward the ring edge
     fibre = N.fbm(n, 3, 3, seed + 5, cells_y=520, min_res=1024)
-    sawmark = 0.5 + 0.5 * np.sin((v * 240.0 + N.fbm(n, 6, 2, seed + 6, min_res=256) * 3.0) * 2 * np.pi)
-    sawmark = N.smoothstep(0.5, 1.0, sawmark) * N.smoothstep(0.3, 0.7, pv[..., 4])
+    fibre = fibre + N.fbm(n, 2, 2, seed + 32, cells_y=900, min_res=2048) * 0.6
+    sawmark = 0.5 + 0.5 * np.sin((v * 190.0 + N.fbm(n, 6, 2, seed + 6, min_res=256) * 3.0) * 2 * np.pi)
+    sawmark = N.smoothstep(0.55, 1.0, sawmark) * N.smoothstep(0.3, 0.7, pv[..., 4])
 
     # --- knots
     r = N.rng_for(seed + 7)
@@ -281,13 +289,14 @@ def wood(n, seed=700):
     # --- colour
     early_c = M.solid(n, C("#8a7157"))
     late_c = M.solid(n, C("#5a4634"))
-    fresh = M.mix(early_c, late_c, np.clip(late * 0.85 + saw * 0.3, 0, 1))
+    fresh = M.mix(early_c, late_c, np.clip(late * 0.80 + early * 0.35, 0, 1))
     fresh = M.hsv_shift(fresh, dh=(pv[..., 1] - 0.5) * 0.02, ds=(pv[..., 2] - 0.5) * 0.12, dv=(pv[..., 3] - 0.5) * 0.14)
-    grey = M.mix(M.solid(n, C("#918f86")), M.solid(n, C("#5f5d57")), np.clip(late * 0.9, 0, 1))
+    grey = M.mix(M.solid(n, C("#948f85")), M.solid(n, C("#5c5952")), np.clip(late * 0.85 + early * 0.25, 0, 1))
     col = M.mix(fresh, grey, silver)
     col = M.mul(col, 1.0 + fibre * 0.16 + grain * 0.14 + sawmark * 0.05)
     col = M.mix(col, M.solid(n, C("#33281d")), knot * 0.75)
-    col = M.mul(col, 1.0 - splits * 0.55 - checks * 0.25 - gap * 0.75)
+    col = M.mul(col, 1.0 - splits * 0.55 - checks * 0.25)
+    col = M.mix(col, M.solid(n, C("#181513")), np.clip(gap * 1.1, 0, 1) * 0.85)
     col = M.mix(col, M.solid(n, C("#3b3833")), nails * 0.85)
     col = M.mix(col, M.solid(n, C("#5e3b22")), nail_rust * 0.55)
     moss = blotches(n, 7, seed + 13, threshold=0.68, softness=0.1, warp_amt=30) * N.smoothstep(0.3, 0.9, N.uv(n)[1])
@@ -318,7 +327,12 @@ def logs(n, seed=800):
 
     grain = rnd(seed + 3, n) - 0.5
     along = N.fbm(n, 3, 4, seed + 4, cells_y=90, min_res=512)
-    fibre = N.fbm(n, 2, 3, seed + 5, cells_y=460, min_res=1024)
+    fibre = (N.fbm(n, 2, 3, seed + 5, cells_y=460, min_res=1024)
+             + N.fbm(n, 2, 2, seed + 25, cells_y=1100, min_res=2048) * 0.7)
+    # rings exposed on the hewn face: bands running with the log, tighter near the edges of the face
+    rphase = (tt * 9.0 + N.fbm(n, 5, 3, seed + 26, cells_y=40, min_res=512) * 1.4 + cv[..., 3] * 4.0)
+    rings = np.abs(np.sin(rphase * np.pi))
+    rings = N.smoothstep(0.55, 0.95, rings)
     hewn = N.fbm(n, 26, 3, seed + 6, cells_y=6, min_res=512)       # broad axe facets
     # checks: long radial splits running with the log
     checks = crack_mask(n, crack_lines(n, 22, seed + 7, length=(0.08, 0.55), wander=0.015, kink_every=(30, 90),
@@ -335,7 +349,7 @@ def logs(n, seed=800):
         knot = np.maximum(knot, 1.0 - N.smoothstep(0.6, 1.0, d))
 
     chink = joint * (0.6 + 0.4 * N.fbm(n, 40, 3, seed + 9, cells_y=6, min_res=512))
-    h = 0.30 + round_ * 0.62 + along * 0.03 + hewn * 0.025 + fibre * 0.015 + knot * 0.03
+    h = 0.30 + round_ * 0.62 + along * 0.03 + hewn * 0.025 + fibre * 0.020 + rings * 0.012 + knot * 0.03
     h -= joint * 0.55 + checks * 0.16
     h += chink * 0.12                                             # oakum/moss packed into the groove
     m.height = np.clip(h, 0, 1)
@@ -346,7 +360,7 @@ def logs(n, seed=800):
     base = M.hsv_shift(base, ds=(cv[..., 1] - 0.5) * 0.12, dv=(cv[..., 2] - 0.5) * 0.14)
     grey = M.mix(M.solid(n, C("#928f86")), M.solid(n, C("#63615a")), np.clip(fibre * 0.5 + 0.5, 0, 1))
     col = M.mix(base, grey, silver * 0.85)
-    col = M.mul(col, 1.0 + fibre * 0.18 + grain * 0.13 + hewn * 0.08)
+    col = M.mul(col, 1.0 + fibre * 0.20 + grain * 0.13 + hewn * 0.08 - rings * 0.16)
     col = M.mix(col, M.solid(n, C("#2f251c")), knot * 0.8)
     col = M.mul(col, 1.0 - checks * 0.55)
     # dark weathering under each joint, moss in it
@@ -380,10 +394,10 @@ def birch_bark(n, seed=900):
     # --- lenticels: dashes on horizontal rows, length varies a lot, some run into cracks
     c = Canvas(n, "F", 0.0)
     cw = Canvas(n, "F", 0.0)
-    rows = 46
+    rows = 78
     for i in range(rows):
         yy = (i + r.uniform(-0.35, 0.35)) * n / rows
-        cnt = int(r.uniform(3, 11))
+        cnt = int(r.uniform(5, 15))
         for k in range(cnt):
             x0 = r.uniform(0, n)
             ln = r.uniform(0.006, 0.10) * n * (1.0 + 2.5 * (r.random() < 0.10))
@@ -401,14 +415,14 @@ def birch_bark(n, seed=900):
     xx, yyc = N.coords(n)
     for i in range(4):
         cx, cy = r.uniform(0, n, 2)
-        rx = r.uniform(0.045, 0.10) * n
-        ry = rx * r.uniform(1.5, 3.0)
+        rx = r.uniform(0.030, 0.065) * n
+        ry = rx * r.uniform(1.6, 3.2)
         dx = N.wrapped_delta(xx, cx, n) / rx
         dy = N.wrapped_delta(yyc, cy, n) / ry
         d = np.sqrt(dx * dx + dy * dy) * (1.0 + 0.45 * np.sin(np.arctan2(dy, dx) * r.integers(3, 7) + r.uniform(0, 6)))
-        d = d + N.fbm(n, 12, 3, seed + 20 + i, min_res=256) * 0.55
-        scar = np.maximum(scar, 1.0 - N.smoothstep(0.75, 1.5, d))
-        scar_core = np.maximum(scar_core, 1.0 - N.smoothstep(0.25, 0.75, d))
+        d = d + N.fbm(n, 16, 4, seed + 20 + i, min_res=256) * 0.45
+        scar = np.maximum(scar, 1.0 - N.smoothstep(0.86, 1.06, d))
+        scar_core = np.maximum(scar_core, 1.0 - N.smoothstep(0.42, 0.62, d))
     scar_cracks = crack_mask(n, crack_lines(n, 30, seed + 3, length=(0.02, 0.09), wander=0.06, branch_p=0.3,
                                             direction=np.pi / 2, dir_spread=0.35), width=1.8, soft=0.4) * scar
 
@@ -453,12 +467,13 @@ def pine_bark(n, seed=1000):
     scale, scid, scedge, _ = stones(n, 55, seed + 6, jitter=1.0, aniso=1.4, round_=0.1, gap=0.12, warp_amt=6)
     scv = N.cell_random(scid, 55 * 55 * 2, seed + 7, k=2)
 
-    fissure = 1.0 - N.smoothstep(0.0, 0.42, plates)
-    subfis = (1.0 - N.smoothstep(0.0, 0.35, sub)) * (1 - fissure)
+    fissure = 1.0 - N.smoothstep(0.0, 0.13, plates)
+    fis_soft = 1.0 - N.smoothstep(0.0, 0.42, plates)
+    subfis = (1.0 - N.smoothstep(0.0, 0.12, sub)) * (1 - fissure)
     lift = np.clip(scedge * 1.6, 0, 1) * (1 - fissure) * (1 - subfis)
     fine = N.fbm(n, 140, 3, seed + 8, min_res=512)
 
-    h = (0.30 + plates * 0.50 + (pv[..., 0] - 0.5) * 0.14
+    h = (0.30 + N.smoothstep(0.0, 0.5, plates) * 0.50 + (pv[..., 0] - 0.5) * 0.14
          + sub * 0.13 * (1 - fissure) + (sv[..., 0] - 0.5) * 0.05
          + scale * 0.05 * (1 - fissure) + lift * 0.05
          + fine * 0.025 + grain * 0.012)
@@ -469,7 +484,8 @@ def pine_bark(n, seed=1000):
     outer = M.mix(M.solid(n, C("#5c4d40")), M.solid(n, C("#736152")), pv[..., 1])
     col = M.mix(outer, inner, np.clip(N.smoothstep(0.45, 0.95, sub) * 0.55 + lift * 0.6, 0, 1))
     col = M.mix(col, M.solid(n, C("#7d7368")), N.smoothstep(0.6, 1.0, scale) * 0.30)
-    col = M.mix(col, M.solid(n, C("#241c16")), fissure * 0.9)
+    col = M.mix(col, M.solid(n, C("#2b221b")), fis_soft * 0.55)
+    col = M.mix(col, M.solid(n, C("#17110d")), fissure * 0.95)
     col = M.mix(col, M.solid(n, C("#3a2e25")), subfis * 0.75)
     col = M.mul(col, 0.82 + fine * 0.25 + grain * 0.16 + scale * 0.12)
     grey = blotches(n, 5, seed + 9, threshold=0.5, softness=0.2, warp_amt=45)
@@ -480,4 +496,423 @@ def pine_bark(n, seed=1000):
     m.albedo = col
     m.rough = 0.92 - lichen * 0.06 + grain * 0.05 - fissure * 0.04
     m.micro_amt = (0.10, 0.012, 0.06)
+    return m.finish()
+
+
+# ============================================================== woven goods
+
+def _weave2(n, threads, seed, twill=0, yarn_var=0.35, fuzz=0.0):
+    """Woven cloth. Returns (height, over-mask, thread-id noise, along-yarn shading).
+
+    twill=0 gives plain weave (over/under 1-1), twill=k a k-step diagonal (3 = classic serge). Every yarn gets a
+    rounded cross-section, a slight width and tension jitter, and colour noise along its length.
+    """
+    tp = n / float(threads)
+    x, y = N.coords(n)
+    wob = N.fbm(n, 6, 3, seed + 1, min_res=256) * tp * 0.22
+    xi = (x + wob) / tp
+    yi = (y + np.roll(wob, n // 3, axis=1)) / tp
+    i = np.floor(xi).astype(np.int32)
+    j = np.floor(yi).astype(np.int32)
+    u = xi - i
+    v = yi - j
+    if twill <= 0:
+        over = ((i + j) % 2) == 0
+    else:
+        over = ((i + j) % (twill + 1)) < twill
+    warp_p = np.sin(np.pi * np.clip(u, 0, 1)) ** 0.65
+    weft_p = np.sin(np.pi * np.clip(v, 0, 1)) ** 0.65
+    ci = N.cell_random(np.abs(i) % 512, 512, seed + 2, k=2)
+    cj = N.cell_random(np.abs(j) % 512, 512, seed + 3, k=2)
+    tone_f = np.where(over, 0.82 + ci[..., 0] * yarn_var, 0.70 + cj[..., 0] * yarn_var)
+    along = np.where(over, N.fbm(n, 3, 3, seed + 4, cells_y=threads // 2, min_res=512),
+                     N.fbm(n, threads // 2, 3, seed + 5, cells_y=3, min_res=512))
+    h = np.where(over, 0.62 + warp_p * 0.38, 0.30 + weft_p * 0.34)
+    h = h + along * 0.06
+    if fuzz > 0:
+        h = N.blur(h, fuzz)
+    return h.astype(F32), over.astype(F32), tone_f.astype(F32), along.astype(F32)
+
+
+def fabric(n, seed=1100):
+    """Wool serge (uniform cloth): 2/1 twill with a visible diagonal, raised nap, pilling, threadbare patches,
+    a stitched seam and the dust that lives in wool."""
+    m = Mat(n, tile_m=0.35, height_m=0.004)
+    h, over, tf, along = _weave2(n, 150, seed, twill=2, yarn_var=0.30, fuzz=0.5)
+    grain = rnd(seed + 1, n) - 0.5
+    nap = sprinkle_lines(n, 5200, seed + 2, length=(3, 14), width=(1, 2), angle=None, soft=0.5)
+    fluff = N.blur(nap, 1.6)
+    worn = blotches(n, 4, seed + 3, threshold=0.60, softness=0.18, warp_amt=40)
+    pill = grit(n, seed + 4, density=0.05, sizes=(1.2, 3.0), soft=0.8) * (0.3 + worn)
+    seam_y = (np.abs(N.uv(n)[1] - 0.5) < 0.006).astype(F32)
+    stitch = seam_y * (0.5 + 0.5 * np.sin(N.uv(n)[0] * 2 * np.pi * 90.0))
+    stitch = N.smoothstep(0.45, 0.9, stitch)
+    h = h + fluff * 0.10 + pill * 0.25 - worn * 0.06 + grain * 0.03
+    h = np.clip(h + stitch * 0.35 + N.blur(seam_y, 6) * 0.15, 0, 1)
+    m.height = h
+
+    base = tone(C("#4e5344"), n, variation=0.08, seed=seed + 5, cells=3, hue=0.02, sat=0.06)
+    col = M.mul(base, 0.75 + tf * 0.45)
+    col = M.mul(col, 1.0 + along * 0.14 + grain * 0.10)
+    col = M.mix(col, M.solid(n, C("#6a6d5c")), np.clip(fluff * 1.4, 0, 1) * 0.35)
+    col = M.mix(col, M.solid(n, C("#7b7c6d")), worn * 0.35)
+    col = M.mix(col, M.solid(n, C("#3b3f34")), np.clip(1.0 - h, 0, 1) * 0.35)
+    dirt = blotches(n, 5, seed + 6, threshold=0.62, softness=0.2, warp_amt=45)
+    col = M.mul(col, 1.0 - dirt * 0.22)
+    salt = blotches(n, 9, seed + 7, threshold=0.75, softness=0.1, warp_amt=25)
+    col = M.mix(col, M.solid(n, C("#8d8b7e")), salt * 0.25)
+    col = M.mix(col, M.solid(n, C("#3a3a33")), stitch * 0.6)
+    col = M.mul(col, 1.0 - M.cavity(h, 1.6) * 0.35)
+    m.albedo = col
+    m.rough = 0.92 - worn * 0.06 + grain * 0.05 - fluff * 0.03
+    m.micro_amt = (0.09, 0.012, 0.05)
+    return m.finish()
+
+
+def canvas(n, seed=1150):
+    """Cotton duck: heavy plain weave, thick slubby yarns, a stitched hem, water stains, mildew and fraying."""
+    m = Mat(n, tile_m=0.5, height_m=0.006)
+    h, over, tf, along = _weave2(n, 84, seed, twill=0, yarn_var=0.42, fuzz=0.4)
+    grain = rnd(seed + 1, n) - 0.5
+    slub = N.fbm(n, 8, 3, seed + 2, cells_y=40, min_res=512)
+    hem = (np.abs(N.uv(n)[0] - 0.08) < 0.010).astype(F32) + (np.abs(N.uv(n)[0] - 0.92) < 0.010).astype(F32)
+    hem = N.blur(hem, 3)
+    stitch = N.smoothstep(0.5, 0.9, hem * (0.5 + 0.5 * np.sin(N.uv(n)[1] * 2 * np.pi * 110.0)))
+    fray = sprinkle_lines(n, 900, seed + 3, length=(4, 22), width=(1, 2), angle=0.0, spread=0.15, soft=0.4)
+    h = np.clip(h + slub * 0.06 + hem * 0.25 + stitch * 0.25 + fray * 0.05 + grain * 0.03, 0, 1)
+    m.height = h
+    base = tone(C("#8d8465"), n, variation=0.09, seed=seed + 4, cells=3, hue=0.015, sat=0.05)
+    col = M.mul(base, 0.72 + tf * 0.5)
+    col = M.mul(col, 1.0 + along * 0.16 + slub * 0.12 + grain * 0.1)
+    water = blotches(n, 3, seed + 5, threshold=0.55, softness=0.16, warp_amt=50)
+    rim = np.clip((N.blur(water, 12) - water) * 3.0, 0, 1)
+    col = M.mix(col, M.solid(n, C("#6f6852")), water * 0.4)
+    col = M.mix(col, M.solid(n, C("#514c3c")), rim * 0.5)
+    mildew = blotches(n, 26, seed + 6, threshold=0.72, softness=0.07) * (0.3 + water)
+    col = M.mix(col, M.solid(n, C("#3d4034")), mildew * 0.55)
+    col = M.mix(col, M.solid(n, C("#5c5747")), stitch * 0.5)
+    col = M.mul(col, 1.0 - M.cavity(h, 1.8) * 0.35)
+    m.albedo = col
+    m.rough = 0.93 + grain * 0.05 - water * 0.08
+    m.micro_amt = (0.09, 0.014, 0.05)
+    return m.finish()
+
+
+def tarp(n, seed=2500):
+    """Polyethylene tarpaulin over a load: coarse ribbon weave, deep folds, a reinforced hem with an eyelet row,
+    sun-bleached olive, mud splash at the bottom and a taped tear."""
+    m = Mat(n, tile_m=1.5, height_m=0.02)
+    hw, over, tf, along = _weave2(n, 110, seed, twill=0, yarn_var=0.25, fuzz=0.6)
+    grain = rnd(seed + 1, n) - 0.5
+    # folds: a few long creases plus general slack
+    fold = np.zeros((n, n), F32)
+    r = N.rng_for(seed + 2)
+    for i in range(7):
+        a = r.uniform(0, np.pi)
+        cx, cy = r.uniform(0, n, 2)
+        x, y = N.coords(n)
+        d = (N.wrapped_delta(x, cx, n) * np.cos(a) + N.wrapped_delta(y, cy, n) * np.sin(a))
+        w = r.uniform(20, 90)
+        fold += np.exp(-(d / w) ** 2) * r.uniform(-1, 1)
+    fold = fold / (np.abs(fold).max() + 1e-6)
+    slack = N.fbm(n, 4, 4, seed + 3, min_res=256)
+    creases = crack_mask(n, crack_lines(n, 9, seed + 4, length=(0.2, 0.8), wander=0.03, branch_p=0.15),
+                         width=3.0, soft=2.0)
+    hem = (N.uv(n)[1] > 0.955).astype(F32) + (N.uv(n)[1] < 0.045).astype(F32)
+    hem = N.blur(hem, 4)
+    eyelet, ering = holes_grid(n, 6, 1, radius_px=n * 0.011, seed=seed + 5, oy=0.028)
+    eyelet2, ering2 = holes_grid(n, 6, 1, radius_px=n * 0.011, seed=seed + 6, oy=0.972)
+    eye = np.clip(eyelet + eyelet2, 0, 1)
+    ring = np.clip(ering + ering2, 0, 1)
+    tear = crack_mask(n, crack_lines(n, 2, seed + 7, length=(0.06, 0.2), wander=0.1, branch_p=0.2), width=4.0, soft=0.6)
+    tape = blotches(n, 7, seed + 8, threshold=0.80, softness=0.02, warp_amt=6)
+    h = 0.55 + hw * 0.12 + fold * 0.16 + slack * 0.10 - creases * 0.08 + hem * 0.18 + tape * 0.05
+    h -= eye * 0.4 + tear * 0.3
+    h += ring * 0.15
+    m.height = np.clip(h, 0, 1)
+
+    base = tone(C("#5c6144"), n, variation=0.07, seed=seed + 9, cells=3, hue=0.02, sat=0.05)
+    col = M.mul(base, 0.80 + tf * 0.32)
+    bleach = N.smoothstep(-0.1, 0.5, fold) * blotches(n, 3, seed + 10, threshold=0.45, softness=0.25, warp_amt=40)
+    col = M.mix(col, M.solid(n, C("#7e8062")), bleach * 0.5)
+    col = M.mul(col, 1.0 - creases * 0.25 + slack * 0.10 + grain * 0.08)
+    mud = N.smoothstep(0.55, 1.0, N.uv(n)[1] + N.fbm(n, 8, 4, seed + 11, min_res=256) * 0.3)
+    splash = grit(n, seed + 12, density=0.25, sizes=(1.0, 4.5), soft=0.9) * mud
+    col = M.mix(col, M.solid(n, C("#4a4034")), np.clip(splash * 1.4, 0, 1) * 0.6)
+    col = M.mix(col, M.solid(n, C("#3d3f33")), hem * 0.3)
+    col = M.mix(col, M.solid(n, C("#6d6a62")), np.clip(ring, 0, 1) * 0.8)
+    col = M.mix(col, M.solid(n, C("#22241d")), eye * 0.9)
+    col = M.mix(col, M.solid(n, C("#4a4a44")), tape * 0.55)
+    col = M.mul(col, 1.0 - tear * 0.6)
+    col = M.mul(col, 1.0 - M.cavity(m.height, 2.0) * 0.3)
+    m.albedo = col
+    m.rough = 0.70 + hw * 0.08 - bleach * 0.05 + splash * 0.15 + grain * 0.05
+    m.micro_amt = (0.07, 0.010, 0.05)
+    return m.finish()
+
+
+def leather(n, seed=1200):
+    """Full-grain leather, hard used: pore grain, wrinkle furrows, scuffs down to the pale core, worn edges,
+    a stitched seam and a dark polished patina in the hollows."""
+    m = Mat(n, tile_m=0.4, height_m=0.004)
+    grain = rnd(seed + 1, n) - 0.5
+    # grain: fine cells with pores at the vertices
+    f1, f2, cid = N.worley(n, 240, seed + 2, jitter=1.0)
+    cell = N.smoothstep(0.0, 0.28, f2 - f1)
+    pores = grit(n, seed + 3, density=0.30, sizes=(0.6, 1.7), soft=0.3)
+    # wrinkles: two crossing families of soft furrows
+    w1 = N.fbm(n, 7, 4, seed + 4, cells_y=3, min_res=256)
+    w2 = N.fbm(n, 3, 4, seed + 5, cells_y=8, min_res=256)
+    furrow = np.abs(np.sin((w1 * 3.4 + w2 * 2.2) * np.pi))
+    furrow = 1.0 - N.smoothstep(0.0, 0.35, furrow)
+    crease = crack_mask(n, crack_lines(n, 18, seed + 6, length=(0.08, 0.5), wander=0.05, branch_p=0.25),
+                        width=2.2, soft=1.4)
+    scuff = sprinkle_lines(n, 420, seed + 7, length=(15, 130), width=(1, 3), soft=0.6, curve=0.4)
+    worn = blotches(n, 4, seed + 8, threshold=0.62, softness=0.15, warp_amt=45)
+    seam = (np.abs(N.uv(n)[0] - 0.5) < 0.004).astype(F32)
+    stitch = N.smoothstep(0.4, 0.9, N.blur(seam, 2) * (0.5 + 0.5 * np.sin(N.uv(n)[1] * 2 * np.pi * 42.0)))
+
+    h = (0.70 - cell * 0.06 - pores * 0.10 - furrow * 0.16 - crease * 0.10
+         + N.blur(1.0 - cell, 3) * 0.04 + grain * 0.02 - scuff * 0.03)
+    h = np.clip(h + stitch * 0.30 - N.blur(seam, 4) * 0.12, 0, 1)
+    m.height = h
+    base = tone(C("#43352a"), n, variation=0.10, seed=seed + 9, cells=3, hue=0.015, sat=0.06)
+    col = M.mul(base, 0.86 + (1.0 - cell) * 0.22 + grain * 0.10)
+    col = M.mix(col, M.solid(n, C("#241c16")), np.clip(furrow * 0.8 + crease * 0.7, 0, 1) * 0.6)
+    col = M.mix(col, M.solid(n, C("#7d6a55")), np.clip(scuff * 1.2, 0, 1) * 0.45)
+    col = M.mix(col, M.solid(n, C("#6b5945")), worn * 0.35)
+    col = M.mix(col, M.solid(n, C("#1c1713")), stitch * 0.5)
+    col = M.mul(col, 1.0 - M.cavity(h, 2.0) * 0.35)
+    m.albedo = col
+    m.rough = 0.62 + cell * 0.10 + furrow * 0.10 + worn * 0.14 - np.clip(scuff, 0, 1) * 0.10 + grain * 0.05
+    m.micro_amt = (0.07, 0.009, 0.05)
+    return m.finish()
+
+
+def rubber(n, seed=1300):
+    """Moulded rubber sheet: mould-grain pebbling, ozone crazing, a parting-line ridge, embedded grit and the
+    dull sheen rubber keeps where it has been rubbed."""
+    m = Mat(n, tile_m=0.5, height_m=0.003)
+    grain = rnd(seed + 1, n) - 0.5
+    pebble = N.worley(n, 260, seed + 2, jitter=1.0)[0]
+    pebble = N.smoothstep(0.05, 0.6, pebble)
+    craze = crack_mask(n, crack_lines(n, 40, seed + 3, length=(0.02, 0.12), wander=0.15, branch_p=0.5,
+                                      kink_every=(4, 14)), width=1.3, soft=0.3)
+    craze = np.maximum(craze, polygon_cracks(n, 60, seed + 4, width=1.0, soft=0.6, warp_amt=8)[0] * 0.6)
+    parting = (np.abs(N.uv(n)[1] - 0.32) < 0.0025).astype(F32)
+    parting = N.blur(parting, 1.5)
+    gritty = grit(n, seed + 5, density=0.12, sizes=(0.7, 2.2), soft=0.4)
+    scuffed = blotches(n, 5, seed + 6, threshold=0.6, softness=0.18, warp_amt=40)
+    h = np.clip(0.62 + pebble * 0.10 - craze * 0.10 + parting * 0.25 + gritty * 0.06 + grain * 0.03, 0, 1)
+    m.height = h
+    base = tone(C("#26262a"), n, variation=0.06, seed=seed + 7, cells=3, hue=0.01, sat=0.03)
+    col = M.mul(base, 0.85 + pebble * 0.25 + grain * 0.12)
+    col = M.mix(col, M.solid(n, C("#15151a")), craze * 0.7)
+    col = M.mix(col, M.solid(n, C("#4a4844")), np.clip(gritty * 1.3, 0, 1) * 0.4)
+    col = M.mix(col, M.solid(n, C("#3d3c3a")), scuffed * 0.3)
+    dust = blotches(n, 8, seed + 8, threshold=0.68, softness=0.15, warp_amt=30)
+    col = M.mix(col, M.solid(n, C("#5a564d")), dust * 0.22)
+    m.albedo = col
+    m.rough = 0.86 - scuffed * 0.16 + craze * 0.06 + gritty * 0.08 + grain * 0.05
+    m.micro_amt = (0.06, 0.008, 0.05)
+    return m.finish()
+
+
+# ============================================================== metals
+
+def painted_metal(n, seed=500):
+    """Painted steel (door, locker, machine housing): flat alkyd paint with orange-peel, chips down to primer
+    and to bare steel, rust creeping out of every chip, stencil marks and a grimy lower half."""
+    m = Mat(n, tile_m=1.0, height_m=0.002)
+    grain = rnd(seed + 1, n) - 0.5
+    peel = orange_peel(n, seed + 2, cells=300, amount=1.0)
+    dent = N.fbm(n, 9, 4, seed + 3, min_res=256)
+    scratches = scratch_set(n, seed + 4, groups=((320, (25, 220), (1, 2)), (40, (250, 900), (1, 3))))
+    chip1 = flake(n, seed + 5, coverage=0.16, cells=30, edge=0.02)          # paint gone -> primer
+    chip2 = flake(n, seed + 6, coverage=0.06, cells=30, edge=0.015) * chip1  # primer gone -> steel
+    edgewear = N.smoothstep(0.35, 0.9, N.blur(np.abs(N.uv(n)[0] - 0.5) * 2.0, 2)) * 0.0
+    rim = np.clip((N.blur(chip1, 3) - chip1) * 6, 0, 1)
+    rust_zone = np.clip(N.blur(chip2, 10) * 3.0 + np.clip(scratches - 0.6, 0, 1) * 1.5, 0, 1)
+    rust_zone = rust_zone * (0.35 + 0.65 * blotches(n, 6, seed + 7, threshold=0.4, softness=0.25, warp_amt=40))
+    rust_drip = stain_down(chip2 * (rnd(seed + 8, n) < 0.35), decay=0.990, seed=seed + 9, strength=0.9)
+    pit = grit(n, seed + 10, density=0.09, sizes=(0.6, 2.0), soft=0.35) * rust_zone
+
+    h = 0.66 + peel * 0.05 + dent * 0.05 - chip1 * 0.10 - chip2 * 0.08 - scratches * 0.05 + rim * 0.03 + pit * 0.08
+    m.height = np.clip(h, 0, 1)
+    paint = tone(C("#4f5a4b"), n, variation=0.06, seed=seed + 11, cells=3, hue=0.02, sat=0.05)
+    paint = M.mul(paint, 1.0 + peel * 0.10 + grain * 0.06)
+    fade = blotches(n, 3, seed + 12, threshold=0.45, softness=0.3, warp_amt=45)
+    paint = M.mix(paint, M.solid(n, C("#6b7466")), fade * 0.4)
+    col = M.mix(paint, M.solid(n, C("#7a5c46")), chip1 * 0.85)            # red-lead primer
+    col = M.mix(col, M.solid(n, C("#6d6f72")), chip2 * 0.9)               # bare steel
+    col = M.mix(col, M.solid(n, C("#8a8d8f")), np.clip(scratches * 1.2, 0, 1) * 0.55)
+    rustc, rustp = M.mix(M.solid(n, C("#6b3a1f")), M.solid(n, C("#8a4d24")), N.fbm(n, 60, 3, seed + 13, min_res=512) * 0.5 + 0.5), pit
+    col = M.mix(col, rustc, np.clip(rust_zone * 0.85 + rust_drip * 0.7, 0, 1))
+    # stencil: a number and a bar, painted on
+    c = Canvas(n, "F", 0.0)
+    from .draw import font as _font
+    f = _font(int(n * 0.16), bold=True, mono=True)
+    c.text((int(n * 0.10), int(n * 0.66)), "12", f, 1.0)
+    f2 = _font(int(n * 0.07), bold=True, mono=True)
+    c.text((int(n * 0.10), int(n * 0.50)), "OB-12", f2, 1.0)
+    sten = N.blur(c.array(), 1.0) * (1.0 - flake(n, seed + 14, coverage=0.45, cells=90, edge=0.06) * 0.85)
+    col = M.mix(col, M.solid(n, C("#c9c4b4")), np.clip(sten, 0, 1) * 0.8)
+    grime = N.smoothstep(0.35, 1.0, N.uv(n)[1] + N.fbm(n, 6, 4, seed + 15, min_res=256) * 0.35)
+    col = M.mul(col, 1.0 - grime * 0.20 - blotches(n, 4, seed + 16, threshold=0.62, softness=0.2) * 0.15)
+    col = M.mul(col, 1.0 - M.cavity(m.height, 1.5) * 0.25)
+    m.albedo = col
+    m.metal = np.clip(chip2 * 0.85 + np.clip(scratches - 0.5, 0, 1) * 0.5 - rust_zone * 0.6, 0, 1)
+    m.rough = (0.55 + peel * 0.10 + fade * 0.12 + rust_zone * 0.35 + pit * 0.1
+               - np.clip(scratches, 0, 1) * 0.20 + grain * 0.05)
+    m.micro_amt = (0.05, 0.006, 0.05)
+    return m.finish()
+
+
+def gunmetal(n, seed=600):
+    """Phosphated/blued steel: bead-blast micro texture, draw lines from the press, polished wear on the high
+    spots, oil film in the hollows and freckles of rust where the finish has gone."""
+    m = Mat(n, tile_m=0.3, height_m=0.0015)
+    grain = rnd(seed + 1, n) - 0.5
+    blast = grit(n, seed + 2, density=0.5, sizes=(0.5, 1.5), soft=0.3)
+    draw = N.fbm(n, 2, 3, seed + 3, cells_y=420, min_res=1024)               # fine drawing lines along one axis
+    tooling = 0.5 + 0.5 * np.sin((N.uv(n)[1] * 150.0 + N.fbm(n, 5, 2, seed + 4, min_res=256) * 4.0) * 2 * np.pi)
+    tooling = N.smoothstep(0.4, 1.0, tooling) * 0.5
+    scratches = scratch_set(n, seed + 5, groups=((260, (20, 160), (1, 2)), (30, (200, 800), (1, 2))))
+    wear = blotches(n, 4, seed + 6, threshold=0.58, softness=0.18, warp_amt=40)
+    freck = grit(n, seed + 7, density=0.05, sizes=(0.8, 2.6), soft=0.5) * blotches(n, 8, seed + 8, threshold=0.72,
+                                                                                   softness=0.12)
+    h = np.clip(0.70 + blast * 0.06 + draw * 0.03 + tooling * 0.02 - scratches * 0.05 - freck * 0.10 + grain * 0.03, 0, 1)
+    m.height = h
+    base = tone(C("#33363a"), n, variation=0.05, seed=seed + 9, cells=3, hue=0.01, sat=0.03)
+    col = M.mul(base, 0.86 + blast * 0.22 + draw * 0.10 + grain * 0.10)
+    col = M.mix(col, M.solid(n, C("#7f858a")), wear * 0.35)
+    col = M.mix(col, M.solid(n, C("#9aa0a4")), np.clip(scratches * 1.2, 0, 1) * 0.6)
+    col = M.mix(col, M.solid(n, C("#5e3a22")), np.clip(freck * 1.4, 0, 1) * 0.65)
+    oil = blotches(n, 6, seed + 10, threshold=0.6, softness=0.2, warp_amt=35)
+    col = M.mul(col, 1.0 - oil * 0.12)
+    m.albedo = col
+    m.metal = np.clip(0.95 - freck * 0.5, 0, 1)
+    m.rough = np.clip(0.42 + blast * 0.16 + freck * 0.35 - wear * 0.20 - np.clip(scratches, 0, 1) * 0.15
+                      - oil * 0.08 + grain * 0.05, 0.08, 1.0)
+    m.micro_amt = (0.05, 0.006, 0.05)
+    return m.finish()
+
+
+def sheet_metal(n, seed=2900):
+    """Hot-dip galvanised sheet: spangle crystals, roller marks, dents, scratches with rust starting in them,
+    and the chalky white corrosion galvanising gets outdoors."""
+    m = Mat(n, tile_m=1.0, height_m=0.002)
+    grain = rnd(seed + 1, n) - 0.5
+    f1, f2, cid = N.worley(n, 55, seed + 2, jitter=1.0)
+    spangle_v = N.cell_random(cid, 55 * 55, seed + 3, k=2)
+    facet = N.smoothstep(0.0, 0.18, f2 - f1)
+    roller = 0.5 + 0.5 * np.sin((N.uv(n)[0] * 110.0 + N.fbm(n, 4, 2, seed + 4, min_res=256) * 3.0) * 2 * np.pi)
+    dent = N.fbm(n, 12, 4, seed + 5, min_res=256)
+    scratches = scratch_set(n, seed + 6, groups=((280, (30, 260), (1, 2)), (26, (300, 1000), (1, 3))))
+    white = blotches(n, 5, seed + 7, threshold=0.6, softness=0.2, warp_amt=45)
+    rust = np.clip(N.blur(np.clip(scratches - 0.55, 0, 1), 6) * 3.5, 0, 1) * blotches(n, 4, seed + 8, threshold=0.45,
+                                                                                     softness=0.25, warp_amt=40)
+    h = np.clip(0.70 + facet * 0.03 + roller * 0.012 + dent * 0.05 - scratches * 0.04 + grain * 0.03, 0, 1)
+    m.height = h
+    base = tone(C("#8e9296"), n, variation=0.05, seed=seed + 9, cells=3, hue=0.01, sat=0.02)
+    col = M.mul(base, 0.82 + spangle_v[..., 0] * 0.30 + facet * 0.12 + grain * 0.10 + roller * 0.05)
+    col = M.mix(col, M.solid(n, C("#c3c4bf")), white * 0.45)
+    col = M.mix(col, M.solid(n, C("#b9bec2")), np.clip(scratches * 1.2, 0, 1) * 0.5)
+    col = M.mix(col, M.solid(n, C("#7a4526")), rust * 0.8)
+    grime = blotches(n, 3, seed + 10, threshold=0.6, softness=0.25, warp_amt=50)
+    col = M.mul(col, 1.0 - grime * 0.18)
+    m.albedo = col
+    m.metal = np.clip(0.9 - rust * 0.6 - white * 0.35, 0, 1)
+    m.rough = np.clip(0.38 + white * 0.35 + rust * 0.4 + facet * 0.06 - np.clip(scratches, 0, 1) * 0.12 + grain * 0.05,
+                      0.1, 1.0)
+    m.micro_amt = (0.05, 0.006, 0.05)
+    return m.finish()
+
+
+def roof_metal(n, seed=1800):
+    """Corrugated galvanised roofing: 76 mm profile, ridge screws with washers, rust blooming from the fixings
+    and the sheet laps, moss in the valleys, dents from feet."""
+    m = Mat(n, tile_m=1.2, height_m=0.02)
+    grain = rnd(seed + 1, n) - 0.5
+    x, y = N.uv(n)
+    waves = 16
+    prof = np.cos(x * 2 * np.pi * waves)
+    corr = prof * 0.5 + 0.5
+    crest = N.smoothstep(0.72, 1.0, corr)
+    valley = N.smoothstep(0.28, 0.0, corr)
+    lap = N.smoothstep(0.0, 0.02, np.abs(((y * 2.0) % 1.0) - 0.5) * -1.0 + 0.5) * 0.0
+    lap_line = (np.abs(((y + 0.25) % 0.5) - 0.25) < 0.006).astype(F32)
+    lap_line = N.blur(lap_line, 2)
+    dent = N.fbm(n, 10, 4, seed + 2, min_res=256)
+    screws, sring = holes_grid(n, waves // 2, 4, radius_px=n * 0.006, seed=seed + 3, ox=0.25, jitter_px=2)
+    screws = screws * crest
+    sring = sring * crest
+    scratches = scratch_set(n, seed + 4, groups=((200, (40, 300), (1, 2)),))
+    rust_src = np.clip(sring * 1.5 + lap_line * 0.8 + valley * 0.35 + np.clip(scratches - 0.6, 0, 1), 0, 1)
+    rust = np.clip(N.blur(rust_src, 5) * 2.2, 0, 1) * (0.3 + 0.7 * blotches(n, 5, seed + 5, threshold=0.42,
+                                                                           softness=0.25, warp_amt=45))
+    rust = np.clip(rust + flake(n, seed + 6, coverage=0.22, cells=14, edge=0.03) * blotches(n, 3, seed + 7,
+                                                                                           threshold=0.55,
+                                                                                           softness=0.2) * 0.9, 0, 1)
+    streak = stain_down(np.clip(sring + lap_line * 0.6, 0, 1) * (rnd(seed + 8, n) < 0.5), decay=0.992,
+                        seed=seed + 9, strength=1.0)
+    pit = grit(n, seed + 10, density=0.10, sizes=(0.7, 2.4), soft=0.4) * rust
+    moss = blotches(n, 9, seed + 11, threshold=0.62, softness=0.1, warp_amt=25) * valley
+    h = 0.5 + corr * 0.42 + dent * 0.04 + lap_line * 0.06 - screws * 0.25 + sring * 0.06 - pit * 0.10 + grain * 0.02
+    m.height = np.clip(h, 0, 1)
+    base = tone(C("#9a9d9c"), n, variation=0.06, seed=seed + 12, cells=3, hue=0.01, sat=0.03)
+    col = M.mul(base, 0.80 + crest * 0.22 - valley * 0.10 + grain * 0.10)
+    col = M.mix(col, M.solid(n, C("#c0c1bb")), blotches(n, 6, seed + 13, threshold=0.6, softness=0.2) * 0.35)
+    rustc = M.mix(M.solid(n, C("#6a3a20")), M.solid(n, C("#95552a")), N.fbm(n, 70, 3, seed + 14, min_res=512) * 0.5 + 0.5)
+    col = M.mix(col, rustc, np.clip(rust * 0.95, 0, 1))
+    col = M.mix(col, M.solid(n, C("#5e3a22")), np.clip(streak * 0.9, 0, 1) * 0.65)
+    col = M.mix(col, M.solid(n, C("#454b3a")), moss * 0.6)
+    col = M.mix(col, M.solid(n, C("#55585a")), screws * 0.8)
+    col = M.mul(col, 1.0 - M.cavity(m.height, 2.5) * 0.3)
+    m.albedo = col
+    m.metal = np.clip(0.9 - rust * 0.75 - moss, 0, 1)
+    m.rough = np.clip(0.42 + rust * 0.45 + moss * 0.3 + grain * 0.05 - crest * 0.05, 0.12, 1.0)
+    m.micro_amt = (0.06, 0.008, 0.05)
+    return m.finish()
+
+
+def roof_tile(n, seed=1750):
+    """Soviet shifer: asbestos-cement corrugated sheet, 150 mm wave, cement-grey with fibre bloom, algae and
+    moss in the troughs, chipped edges, nail holes and long dirt streaks down the fall."""
+    m = Mat(n, tile_m=1.5, height_m=0.035)
+    grain = rnd(seed + 1, n) - 0.5
+    x, y = N.uv(n)
+    waves = 10
+    corr = np.cos(x * 2 * np.pi * waves) * 0.5 + 0.5
+    corr = corr ** 1.15
+    crest = N.smoothstep(0.7, 1.0, corr)
+    valley = N.smoothstep(0.3, 0.0, corr)
+    lap = (np.abs(((y + 0.5) % 1.0) - 0.5) < 0.010).astype(F32)
+    lap = N.blur(lap, 2.5)
+    fibre = N.fbm(n, 40, 3, seed + 2, cells_y=140, min_res=512)
+    sandy = grit(n, seed + 3, density=0.45, sizes=(0.5, 1.7), soft=0.35)
+    chip = flake(n, seed + 4, coverage=0.10, cells=40, edge=0.02) * (crest * 0.6 + 0.4)
+    crack = crack_mask(n, crack_lines(n, 5, seed + 5, length=(0.05, 0.35), wander=0.06, branch_p=0.25,
+                                      direction=np.pi / 2, dir_spread=0.5), width=2.0, soft=0.4)
+    nails, nring = holes_grid(n, waves // 2, 3, radius_px=n * 0.005, seed=seed + 6, ox=0.25)
+    nails = nails * crest
+    h = 0.46 + corr * 0.48 + fibre * 0.02 + sandy * 0.01 - chip * 0.10 - crack * 0.12 - nails * 0.2 + grain * 0.02
+    m.height = np.clip(h, 0, 1)
+    base = tone(C("#8d8d87"), n, variation=0.07, seed=seed + 7, cells=3, hue=0.01, sat=0.03)
+    col = M.mul(base, 0.82 + crest * 0.18 - valley * 0.08 + fibre * 0.10 + sandy * 0.10 + grain * 0.10)
+    dirt = stain_down((valley * (rnd(seed + 8, n) < 0.05)).astype(F32), decay=0.996, seed=seed + 9, strength=1.0)
+    col = M.mix(col, M.solid(n, C("#55564f")), np.clip(dirt * 1.2, 0, 1) * 0.55)
+    algae = blotches(n, 7, seed + 10, threshold=0.55, softness=0.15, warp_amt=35) * (valley * 0.8 + 0.35)
+    col = M.mix(col, M.solid(n, C("#4d5540")), algae * 0.6)
+    moss = blotches(n, 22, seed + 11, threshold=0.74, softness=0.06, warp_amt=18) * algae
+    col = M.mix(col, M.solid(n, C("#5c6a3f")), moss * 0.75)
+    col = M.mix(col, M.solid(n, C("#a8a79d")), chip * 0.6)
+    col = M.mul(col, 1.0 - crack * 0.45 - lap * 0.2)
+    col = M.mix(col, M.solid(n, C("#4a4a46")), nails * 0.8)
+    rust_n = stain_down(nails * (rnd(seed + 12, n) < 0.5), decay=0.988, seed=seed + 13, strength=0.8)
+    col = M.mix(col, M.solid(n, C("#6b3f24")), rust_n * 0.6)
+    col = M.mul(col, 1.0 - M.cavity(m.height, 3.0) * 0.3)
+    m.albedo = col
+    m.rough = 0.90 + sandy * 0.05 + moss * 0.05 - dirt * 0.06 + grain * 0.05
+    m.micro_amt = (0.08, 0.010, 0.06)
     return m.finish()

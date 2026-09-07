@@ -1,6 +1,6 @@
 {
  "kind": "concrete",
  "tile_m": 2.0,
- "height_m": 0.03,
+ "height_m": 0.035,
  "size": 2048
 }
