@@ -12,7 +12,7 @@ dest_files=["res://.godot/imported/drizzle.ogg-30d282ac49bff95a7e57a78e6c4447e5.
 
 [params]
 
-loop=false
+loop=true
 loop_offset=0
 bpm=0
 beat_count=0

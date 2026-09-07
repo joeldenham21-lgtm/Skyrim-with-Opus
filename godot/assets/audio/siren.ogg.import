@@ -12,7 +12,7 @@ dest_files=["res://.godot/imported/siren.ogg-6dc4912ca7f3547f0f311e421a53442c.og
 
 [params]
 
-loop=false
+loop=true
 loop_offset=0
 bpm=0
 beat_count=0

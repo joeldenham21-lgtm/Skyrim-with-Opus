@@ -12,7 +12,7 @@ dest_files=["res://.godot/imported/seeker_whine.ogg-ad202389bc9f00a8a65c90aa0ae1
 
 [params]
 
-loop=false
+loop=true
 loop_offset=0
 bpm=0
 beat_count=0

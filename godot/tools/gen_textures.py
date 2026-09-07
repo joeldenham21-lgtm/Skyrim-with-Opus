@@ -25,11 +25,16 @@ PREVIEW_DIR = os.environ.get("TEXGEN_PREVIEW", os.path.join(ROOT, ".shots", "tex
 
 from texgen import materials as MATS  # noqa: E402
 from texgen import materials2 as MATS2  # noqa: E402
+from texgen import materials3 as MATS3  # noqa: E402
 from texgen import maps as M  # noqa: E402
 
-for _name in dir(MATS2):
-    if not _name.startswith("_") and callable(getattr(MATS2, _name)) and not hasattr(MATS, _name):
-        setattr(MATS, _name, getattr(MATS2, _name))
+# Dispatch: materials3 (rewrites) wins over materials2 which wins over materials.
+for _mod in (MATS2, MATS3):
+    for _name in dir(_mod):
+        if _name.startswith("_") or not callable(getattr(_mod, _name)):
+            continue
+        if _mod is MATS3 or not hasattr(MATS, _name):
+            setattr(MATS, _name, getattr(_mod, _name))
 
 KINDS = [k for k in [
     "concrete", "plaster", "brick", "rust", "painted_metal", "gunmetal", "wood", "logs", "birch_bark", "pine_bark",

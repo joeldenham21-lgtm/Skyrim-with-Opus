@@ -293,7 +293,7 @@ func _build_far() -> void:
 	var m := StandardMaterial3D.new()
 	m.vertex_color_use_as_albedo = true
 	m.roughness = 1.0
-	m.specular = 0.15
+	m.metallic_specular = 0.15
 	m.cull_mode = BaseMaterial3D.CULL_BACK
 	far_mesh.material_override = m
 	far_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

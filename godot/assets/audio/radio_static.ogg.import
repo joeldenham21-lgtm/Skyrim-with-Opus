@@ -12,7 +12,7 @@ dest_files=["res://.godot/imported/radio_static.ogg-60a3afe52c14b4fa2a8cd624d0fe
 
 [params]
 
-loop=false
+loop=true
 loop_offset=0
 bpm=0
 beat_count=0

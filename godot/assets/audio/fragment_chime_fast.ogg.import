@@ -12,7 +12,7 @@ dest_files=["res://.godot/imported/fragment_chime_fast.ogg-72598c239b4880d8547a6
 
 [params]
 
-loop=false
+loop=true
 loop_offset=0
 bpm=0
 beat_count=0

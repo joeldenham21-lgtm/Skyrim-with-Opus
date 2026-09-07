@@ -12,7 +12,7 @@ dest_files=["res://.godot/imported/arc_hum.ogg-b0de6afacf57a1022e02c285af895063.
 
 [params]
 
-loop=false
+loop=true
 loop_offset=0
 bpm=0
 beat_count=0

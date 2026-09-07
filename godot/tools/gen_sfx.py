@@ -88,6 +88,34 @@ def render_one(job):
             "peak_db": round(dsp.to_db(np.max(np.abs(x)) * g), 2), "ms": int((time.time() - t0) * 1000), "regain": g}
 
 
+def fix_loop_imports(out_dir: str, written: dict) -> int:
+    """Godot's Ogg importer defaults to loop=false, so a looping bed restarts silent at the end of its buffer instead of
+    wrapping. Every sound registered with loop=True gets loop=true written into its .ogg.import [params]; Godot keeps
+    existing [params] across re-imports, so this survives. Returns how many files were changed."""
+    changed = 0
+    for name, files in written.items():
+        e = catalog.REG.get(name)
+        if e is None or not e.loop:
+            continue
+        for f in files:
+            ip = os.path.join(out_dir, f + ".import")
+            if not os.path.exists(ip):
+                # not imported yet: leave a minimal stub, Godot fills in uid/path on the next --import
+                with open(ip, "w") as fh:
+                    fh.write('[remap]\n\nimporter="oggvorbisstr"\ntype="AudioStreamOggVorbis"\n\n[deps]\n\n'
+                             'source_file="res://assets/audio/%s"\n\n[params]\n\nloop=true\nloop_offset=0\nbpm=0\n'
+                             'beat_count=0\nbar_beats=4\n' % f)
+                changed += 1
+                continue
+            txt = open(ip).read()
+            if "loop=true" in txt:
+                continue
+            if "loop=false" in txt:
+                open(ip, "w").write(txt.replace("loop=false", "loop=true", 1))
+                changed += 1
+    return changed
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--only", default=None, help="comma list of name prefixes")
@@ -147,6 +175,9 @@ def main():
                 shutil.copyfile(os.path.join(a.out, f), os.path.join(a.out, dst))
                 files.append(dst)
             written[al] = files
+    nloop = fix_loop_imports(a.out, written)
+    if nloop:
+        print("[gen_sfx] loop=true written into %d .import files (re-run --import for Godot to pick them up)" % nloop, flush=True)
     if not a.only:
         man = catalog.manifest(written, not a.no_alias_copies)
         man["generated_seconds"] = round(time.time() - t0, 1)

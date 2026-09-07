@@ -12,7 +12,7 @@ dest_files=["res://.godot/imported/heat_roar.ogg-b3e66cd8af1ba0818b67b57494f71a6
 
 [params]
 
-loop=false
+loop=true
 loop_offset=0
 bpm=0
 beat_count=0

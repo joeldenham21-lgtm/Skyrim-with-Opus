@@ -12,7 +12,7 @@ dest_files=["res://.godot/imported/radius_hum.ogg-90784aeaee452fa6ee1adc9a4ccc8e
 
 [params]
 
-loop=false
+loop=true
 loop_offset=0
 bpm=0
 beat_count=0

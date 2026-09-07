@@ -28,6 +28,7 @@ const KEYS := [
 const BETA_R := Vector3(5.8e-6, 13.5e-6, 33.1e-6)
 const BETA_M := 2.1e-5
 const VOL_ALBEDO := Color(0.72, 0.76, 0.80)
+const FAR_PLANE := 3200.0
 
 # public state
 var weather: String:
@@ -83,6 +84,7 @@ var _tide_t := 0.0
 var _rng := RandomNumberGenerator.new()
 var _placed_fog := false
 var _ground_median := 5.0
+var _far_warned := false
 
 func _ready() -> void:
 	_rng.seed = 91
@@ -306,6 +308,12 @@ func _on_world_ready() -> void:
 	var half := float(Data.map.get("SIZE", 640)) * 0.5
 	var gy: float = Game.world.get_height(clampf(cx, -half + 4.0, half - 4.0), clampf(cz, -half + 4.0, half - 4.0)) if Game.world else 0.0
 	_column.setup_ground(gy)
+
+## Re-scan the terrain: the World may install a Terrain after the Sky (the verification scenarios do), and the fog
+## volumes and the Column's footing are both derived from the ground.
+func refresh_terrain() -> void:
+	_placed_fog = false
+	_on_world_ready()
 
 ## Low areas: sample the height on a 16 m grid, take the local minima below the median, size each volume by the
 ## number of connected cells within ~2 m of the minimum. The marsh POI always gets a wide, low volume.
@@ -575,8 +583,15 @@ func _update(dt: float) -> void:
 	# ---- precipitation, lens, landmarks
 	_update_precipitation(dt)
 	var cam := get_viewport().get_camera_3d()
-	if cam: _lens.global_position = cam.global_position
-	_column.update(night, horizon_color, sun_dir, tide, lightning, t, sun_energy_clear, exposure, fog_level)
+	if cam:
+		_lens.global_position = cam.global_position
+		# the far landmarks stand 1.5-2.5 km out; a short far plane would slice them
+		if cam.far < FAR_PLANE:
+			if not _far_warned: _far_warned = true; print("[sky] raising camera far %.0f -> %.0f for the far landmarks" % [cam.far, FAR_PLANE])
+			cam.far = FAR_PLANE
+	# aerial perspective for the landmarks: extinction per metre, tied to the same distance fog the engine uses
+	var ap_density := 0.00016 + float(P.get("dist", 0.002)) * 0.17 + fog_level * 0.0012
+	_column.update(night, horizon_color, sun_dir, tide, lightning, t, sun_energy_clear, exposure, fog_level, sun_color, ap_density)
 
 ## Height fog is anchored to the terrain's median level: the marsh and the hollows below it sit in it, the plateaus
 ## and the ridge rise out of it.
@@ -593,16 +608,20 @@ func _update_precipitation(dt: float) -> void:
 	var light := smoothstep(0.02, 0.4, rain) * (1.0 - heavy * 0.6)
 	var tint := horizon_color * 1.15 + Color(0.06, 0.06, 0.07)
 	tint = tint.lerp(Color.WHITE, lightning)
+	# how much specular the sky puts on the drops: bright by day, almost nothing at night
+	var bright := clampf(0.18 + horizon_color.get_luminance() * 3.2 + lightning, 0.10, 1.8)
 	_rain.amount_ratio = heavy; _rain.emitting = heavy > 0.001
 	_drizzle.amount_ratio = light; _drizzle.emitting = light > 0.001
 	if heavy > 0.001:
 		_rain.global_position = cp + Vector3(-fall.x, 0.0, -fall.z) * 10.0 + Vector3(0.0, 10.0, 0.0)
 		_rain_pm.direction = fall
 		_rain_mat.set_shader_parameter("fall_dir", fall); _rain_mat.set_shader_parameter("tint", tint)
+		_rain_mat.set_shader_parameter("bright", bright)
 	if light > 0.001:
 		_drizzle.global_position = cp + Vector3(-fall_slow.x, 0.0, -fall_slow.z) * 5.0 + Vector3(0.0, 6.0, 0.0)
 		_drizzle_pm.direction = fall_slow
 		_drizzle_mat.set_shader_parameter("fall_dir", fall_slow); _drizzle_mat.set_shader_parameter("tint", tint)
+		_drizzle_mat.set_shader_parameter("bright", bright)
 	# splashes
 	var splash_amt := smoothstep(0.1, 1.0, rain)
 	_splash.amount_ratio = splash_amt; _splash.emitting = splash_amt > 0.001
@@ -629,3 +648,4 @@ func _update_precipitation(dt: float) -> void:
 		_lens_mat.set_shader_parameter("amount", _lens_amount)
 		_lens_mat.set_shader_parameter("t", Game.elapsed)
 		_lens_mat.set_shader_parameter("aspect", vs.x / maxf(vs.y, 1.0))
+		_lens_mat.set_shader_parameter("tint", tint)

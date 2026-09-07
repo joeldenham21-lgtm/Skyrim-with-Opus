@@ -12,7 +12,7 @@ dest_files=["res://.godot/imported/artifact_hum_pearl.ogg-ae1d7e4c317b2b79368cca
 
 [params]
 
-loop=false
+loop=true
 loop_offset=0
 bpm=0
 beat_count=0

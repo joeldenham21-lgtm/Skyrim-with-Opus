@@ -12,7 +12,7 @@ dest_files=["res://.godot/imported/artifact_hum_organic.ogg-6fb9baf00a1aa847a52f
 
 [params]
 
-loop=false
+loop=true
 loop_offset=0
 bpm=0
 beat_count=0

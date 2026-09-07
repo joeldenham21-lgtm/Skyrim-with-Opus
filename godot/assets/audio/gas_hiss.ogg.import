@@ -12,7 +12,7 @@ dest_files=["res://.godot/imported/gas_hiss.ogg-408d5e64f3d9bd5d60296366a0e74f65
 
 [params]
 
-loop=false
+loop=true
 loop_offset=0
 bpm=0
 beat_count=0

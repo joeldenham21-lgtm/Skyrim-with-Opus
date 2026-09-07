@@ -26,7 +26,7 @@ func run() -> void:
 	for i in 5000: Game.world.get_surface(randf_range(-600, 600), randf_range(-600, 600))
 	print("[smoke] 5k get_surface in %.1f ms" % ((Time.get_ticks_usec() - t0) / 1000.0))
 	# a physics probe: does the collider agree with get_height?
-	var space := Game.player.get_world_3d().direct_space_state
+	var space: PhysicsDirectSpaceState3D = Game.player.get_world_3d().direct_space_state
 	var bad := 0
 	var maxerr := 0.0
 	for i in 200:
@@ -34,7 +34,7 @@ func run() -> void:
 		var hq: float = Game.world.get_height(x, z)
 		var q := PhysicsRayQueryParameters3D.create(Vector3(x, hq + 60.0, z), Vector3(x, hq - 60.0, z))
 		q.collision_mask = 1
-		var r := space.intersect_ray(q)
+		var r: Dictionary = space.intersect_ray(q)
 		if r.is_empty(): bad += 1
 		else: maxerr = maxf(maxerr, absf(r.position.y - hq))
 	print("[smoke] collider: %d/200 misses, max |dy| %.3f m" % [bad, maxerr])

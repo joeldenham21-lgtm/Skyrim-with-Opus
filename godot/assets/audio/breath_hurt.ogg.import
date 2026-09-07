@@ -12,7 +12,7 @@ dest_files=["res://.godot/imported/breath_hurt.ogg-d95cd56c89f08e084e4d504c65976
 
 [params]
 
-loop=false
+loop=true
 loop_offset=0
 bpm=0
 beat_count=0
