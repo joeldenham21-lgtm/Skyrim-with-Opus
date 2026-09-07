@@ -79,10 +79,14 @@ def analyse(path: str) -> dict:
             if band.max() > band.max() - 60:  # ignore bands that are pure floor
                 stds.append(float(np.std(band)))
         move = float(np.mean(stds)) if stds else 0.0
-    if len(mag) > 4:
-        k = int(np.argmax(mag))
-        near = mag[max(0, k - 2): k + 3]
-        tonal = float(np.sum(near ** 2) / (np.sum(mag ** 2) + 1e-18))
+        # tonality on a 1/3-octave log-frequency grid: the share of power in the single loudest band. A linear-frequency
+        # peak share is useless here (a gunshot puts most of its power in the bottom bin and reads as "a sine"); on log
+        # bands a reference sine measures 0.97, white noise 0.17, a shotgun report 0.70.
+        oct3 = np.geomspace(60.0, min(16000.0, sr / 2 - 1), 33)
+        oi = [int(np.searchsorted(ff, e)) for e in oct3]
+        P = (S ** 2).mean(axis=0)
+        Bp = np.array([P[max(oi[k], 1):max(oi[k + 1], oi[k] + 1)].sum() for k in range(32)])
+        tonal = float(Bp.max() / (Bp.sum() + 1e-18))
     # crest factor, and how much energy sits in the first 50 ms (transient) vs the rest
     crest = float(peak / (rms + 1e-9))
     head = mono[: int(sr * 0.05)]
@@ -195,8 +199,8 @@ def run(audio_dir: str, only: str = None, sheet: str = None, cols: int = 8, repo
         if a["flatness"] > 0.45 and a["duration"] > 0.3 and a["movement_db"] < 3.0:
             problems.append((f, "static noise band: flatness %.2f, only %.1f dB of movement" % (a["flatness"], a["movement_db"])))
         # a bare oscillator: nearly all the energy in one partial and no transient of its own
-        if a["tonal_ratio"] > 0.85 and a["duration"] > 0.3 and a["transient_ratio"] < 0.5:
-            problems.append((f, "bare tone: %.0f%% of energy in one partial" % (100 * a["tonal_ratio"])))
+        if a["tonal_ratio"] > 0.85 and a["duration"] > 0.3:
+            problems.append((f, "bare tone: %.0f%% of the power in one 1/3-octave band (a sine reads 0.97)" % (100 * a["tonal_ratio"])))
         if a["duration"] > 0.25 and a["movement_db"] < 1.2:
             problems.append((f, "no movement (%.1f dB) — static texture" % a["movement_db"]))
     total = sum(a["bytes"] for a in rep.values())
