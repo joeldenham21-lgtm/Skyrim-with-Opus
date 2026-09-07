@@ -16,7 +16,7 @@ extends Node3D
 
 const DIR := "res://assets/terrain/"
 const CACHE := "res://assets/cache/"
-const CACHE_VERSION := "t1"
+const CACHE_VERSION := "t2"
 const CHUNK := 160.0
 const LOD_CELLS := [1.0, 2.0, 4.0, 8.0]
 const LOD_SKIRT := [1.5, 3.0, 6.0, 14.0]
@@ -355,6 +355,26 @@ func _make_far_mesh() -> ArrayMesh:
 			var a := j * gw + i
 			idx.append(a); idx.append(a + 1); idx.append(a + gw)
 			idx.append(a + 1); idx.append(a + gw + 1); idx.append(a + gw)
+	# an outer rampart of hills from the 2 km edge out to 3.8 km, so the horizon is land rising into the haze
+	# instead of a razor-straight cut-off
+	var ring := PackedInt32Array()
+	for i in gw: ring.append(i)
+	for j in range(1, gw): ring.append(j * gw + (gw - 1))
+	for i in range(gw - 2, -1, -1): ring.append((gw - 1) * gw + i)
+	for j in range(gw - 2, -1, -1): ring.append(j * gw)
+	var outer := PackedInt32Array()
+	var oscale := 3800.0 / fhalf
+	for ri in ring:
+		var p := verts[ri]
+		var nz := sin(p.x * 0.0021 + 1.7) * cos(p.z * 0.0017 - 0.4) * 0.5 + sin((p.x + p.z) * 0.0009) * 0.5
+		var rise := 26.0 + 34.0 * (0.5 + 0.5 * nz)
+		verts.append(Vector3(p.x * oscale, p.y + rise, p.z * oscale))
+		nrm.append(Vector3(0.0, 1.0, 0.0))
+		cols.append(Color(0.105, 0.117, 0.122).lerp(Color(0.16, 0.16, 0.15), 0.5 + 0.5 * nz))
+		outer.append(verts.size() - 1)
+	for s2 in range(ring.size() - 1):
+		idx.append(ring[s2]); idx.append(outer[s2]); idx.append(ring[s2 + 1])
+		idx.append(ring[s2 + 1]); idx.append(outer[s2]); idx.append(outer[s2 + 1])
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
 	arr[Mesh.ARRAY_VERTEX] = verts
@@ -396,6 +416,8 @@ func _update_lods(force: bool) -> void:
 		if force or lod != c.lod:
 			c.lod = lod
 			c.mi.mesh = lod_meshes[lod]
+			# only the near chunks feed the shadow atlas (the sun's shadow range is ~250 m)
+			c.mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if lod <= 1 else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 func _update_weather(dt: float) -> void:
 	var w := "overcast"

@@ -2,7 +2,7 @@
 """RADIUS — offline sound-effect synthesis. Renders every registered sound (tools/sfxgen/recipes_*.py) to
 assets/audio/<name>[_N].ogg, writes assets/audio/sfx_manifest.json and runs the report (sfx_report.json + spectrogram
 contact sheet). Deterministic: the RNG seed is derived from the name and variant index, so a re-run reproduces every
-file bit for bit.
+file bit for bit (the Ogg bitstream serial is pinned too, so re-running leaves the asset folder untouched).
 
   python3 tools/gen_sfx.py                      # everything (4 processes, ~1 min incl. the report)
   python3 tools/gen_sfx.py --only fire_ak       # names starting with a prefix (comma list)
@@ -22,7 +22,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import numpy as np  # noqa: E402
 import soundfile as sf  # noqa: E402
-from sfxgen import dsp, synth, catalog, report  # noqa: E402
+from sfxgen import dsp, synth, catalog, report, oggser  # noqa: E402
 
 ROOT = os.path.dirname(HERE)
 AUDIO_DIR = os.path.join(ROOT, "assets", "audio")
@@ -84,6 +84,9 @@ def render_one(job):
     fname = "%s.ogg" % name if nvar == 1 else "%s_%d.ogg" % (name, i + 1)
     path = os.path.join(out_dir, fname)
     g = write_ogg(path, x)
+    # libvorbisenc stamps a random Ogg bitstream serial, so identical audio still writes different bytes and every
+    # regeneration churns all 1600 files in git. Pin the serial to the file name; the audio is untouched.
+    oggser.stamp(path, seed_for(fname, 0) & 0xFFFFFFFF)
     return {"name": name, "i": i, "file": fname, "seconds": round(len(x) / dsp.SR, 3), "bytes": os.path.getsize(path),
             "peak_db": round(dsp.to_db(np.max(np.abs(x)) * g), 2), "ms": int((time.time() - t0) * 1000), "regain": g}
 

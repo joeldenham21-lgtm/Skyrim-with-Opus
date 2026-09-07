@@ -208,11 +208,17 @@ sl_r = bbox_slices(river_dense, 260.0, HALF, N)
 gx = X[sl_r].ravel(); gz = Z[sl_r].ravel()
 d_r, s_r, side_r, idx_r = river.query(gx, gz)
 prof = {k: np.interp(s_r, knots_s, K[k]) for k in K}
-curv = river.curv[idx_r]
-inner = (side_r * curv) > 0.0                       # inside of the bend: gentle point bar
+# inside of the bend -> point bar. A hard boolean here makes polygonal sand patches, so the curvature is
+# smoothed along the channel, normalised, jittered with noise and turned into a soft 0..1 field.
+curv_sm = gaussian_filter1d(river.curv, 14.0, mode='nearest')
+curv = curv_sm[idx_r]
+curv_ref = np.percentile(np.abs(curv_sm), 65) + 1e-9
+inner = smoothstep(-0.55, 0.75, side_r * curv / curv_ref
+                   + 1.7 * (fbm(gx * 0.016, gz * 0.016, 3, seed=SEED + 92) - 0.5)
+                   + 0.8 * (fbm(gx * 0.06, gz * 0.06, 2, seed=SEED + 93) - 0.5))
 u_ch = d_r / (prof['wch'] * 0.5)
 bed = prof['surf'] - prof['dep'] * np.clip(1.0 - u_ch ** 2, 0.0, 1.0)
-bank_w = (2.5 + prof['wch'] * 0.25) * np.where(inner, 2.4, 0.8)
+bank_w = (2.5 + prof['wch'] * 0.25) * (0.8 + 1.7 * inner)
 d_bank = d_r - prof['wch'] * 0.5
 bank_t = smoothstep(0.0, 1.0, np.clip(d_bank / bank_w, 0.0, 1.0))
 fp_h = prof['surf'] + prof['bank']
@@ -258,7 +264,7 @@ river_s = np.zeros_like(h); river_s[sl_r] = s_r.reshape(h[sl_r].shape)
 river_surf = np.full_like(h, np.nan); river_surf[sl_r] = prof['surf'].reshape(h[sl_r].shape)
 river_wch = np.zeros_like(h); river_wch[sl_r] = prof['wch'].reshape(h[sl_r].shape)
 river_bankw = np.zeros_like(h); river_bankw[sl_r] = bank_w.reshape(h[sl_r].shape)
-river_inner = np.zeros_like(h); river_inner[sl_r] = inner.astype(np.float64).reshape(h[sl_r].shape)
+river_inner = np.zeros_like(h); river_inner[sl_r] = inner.reshape(h[sl_r].shape)
 river_tx = np.zeros_like(h); river_tz = np.zeros_like(h)
 river_tx[sl_r] = river.tangent[idx_r, 0].reshape(h[sl_r].shape); river_tz[sl_r] = river.tangent[idx_r, 1].reshape(h[sl_r].shape)
 river_val = np.zeros_like(h); river_val[sl_r] = (in_val & (wv > 0.5)).reshape(h[sl_r].shape)
@@ -310,12 +316,20 @@ lake_rho = rho
 cp = poi('field_c')
 crater_rng = np.random.default_rng(SEED + 23)
 crater_field = np.zeros_like(h)
-for k in range(11):
-    a = crater_rng.uniform(0, 2 * np.pi); rr = crater_rng.uniform(4.0, 36.0)
+for k in range(17):
+    a = crater_rng.uniform(0, 2 * np.pi); rr = crater_rng.uniform(3.0, 40.0) * (1.0 if k < 11 else 1.35)
     cx = cp['x'] + np.cos(a) * rr; cz = cp['z'] + np.sin(a) * rr
-    cr = crater_rng.uniform(5.0, 13.0); dep = 0.38 * cr; rim = 0.13 * cr
-    rr2 = dist(X, Z, cx, cz) / cr
-    crater_field += np.where(rr2 < 1.0, -dep * (1.0 - rr2 ** 2), 0.0) + rim * np.exp(-((rr2 - 1.0) / 0.22) ** 2)
+    cr = crater_rng.uniform(5.0, 13.0) if k < 11 else crater_rng.uniform(1.8, 4.0)   # the rest are secondaries
+    dep = 0.36 * cr; rim = 0.13 * cr
+    th = np.arctan2(Z - cz, X - cx)
+    p1, p2, p3 = crater_rng.uniform(0, 6.28, 3)
+    lobed = cr * (1.0 + 0.20 * np.sin(2 * th + p1) + 0.13 * np.sin(3 * th + p2) + 0.07 * np.sin(5 * th + p3))
+    lobed *= 1.0 + 0.10 * fbm(X * 0.09, Z * 0.09, 2, seed=SEED + 80 + k)
+    rr2 = dist(X, Z, cx, cz) / lobed
+    crater_field += np.where(rr2 < 1.0, -dep * (1.0 - rr2 ** 2) ** 1.15, 0.0)
+    crater_field += rim * np.exp(-((rr2 - 1.0) / 0.26) ** 2) * (0.75 + 0.5 * np.sin(4 * th + p2))
+    # ejecta: a thin apron thrown further on one side
+    crater_field += 0.35 * rim * np.exp(-((rr2 - 1.55) / 0.5) ** 2) * np.clip(np.cos(th - p1), 0.0, 1.0) ** 2
 craters_pending = crater_field       # stamped after erosion (crisp rims)
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -573,18 +587,28 @@ DAM_INFO = dict(x=float(dam_c[0]), z=float(dam_c[1]), dx=float(dam_t[0]), dz=flo
 # --- marsh works: peat cuttings and drainage ditches --------------------------------------------------------------
 check('before stamps: marsh works'); log('stamps: marsh works')
 peat_mask = np.zeros_like(h)
-for row in range(3):
-    for col in range(4):
-        cx = -22 + col * 22 + (row % 2) * 6; cz = 158 + row * 13
-        m = (np.abs(X - cx) < 8.0) & (np.abs(Z - cz) < 2.8)
-        edge = np.maximum(np.abs(X - cx) - 8.0, np.abs(Z - cz) - 2.8)
-        w = 1.0 - smoothstep(-0.5, 1.2, edge)
-        pit = np.minimum(h, -2.3 + 0.15 * fbm(X * 0.3, Z * 0.3, 2, seed=SEED + 27))
+peat_rng = np.random.default_rng(SEED + 71)
+PEAT_ANG = np.deg2rad(17.0)
+pca, psa = np.cos(PEAT_ANG), np.sin(PEAT_ANG)
+for field_i, (px0, pz0, nstrip) in enumerate([(-14.0, 170.0, 7), (26.0, 196.0, 5)]):
+    pu = (X - px0) * pca + (Z - pz0) * psa            # along the cutting
+    pw = -(X - px0) * psa + (Z - pz0) * pca           # across the cuttings
+    pu = pu + 1.6 * fbm(X * 0.05, Z * 0.05, 2, seed=SEED + 72)
+    for k in range(nstrip):
+        off = (k - (nstrip - 1) * 0.5) * 7.6
+        half_len = peat_rng.uniform(19.0, 31.0)
+        centre = peat_rng.uniform(-6.0, 6.0)
+        wid = peat_rng.uniform(2.0, 2.7)
+        edge = np.maximum(np.abs(pw - off) - wid, np.abs(pu - centre) - half_len)
+        w = 1.0 - smoothstep(-0.4, 0.9, edge)
+        depth = -2.35 - 0.25 * peat_rng.uniform(0.0, 1.0)
+        pit = np.minimum(h, depth + 0.14 * fbm(X * 0.3, Z * 0.3, 2, seed=SEED + 27 + k))
         h = lerp(h, pit, w * (river_d > river_wch * 0.5 + 4.0))
         peat_mask = np.maximum(peat_mask, w)
-        # the dug bank beside the pit
-        bank = (np.abs(X - cx) < 9.5) & (np.abs(Z - cz - 4.6) < 1.6)
-        h = np.where(bank & (river_d > river_wch * 0.5 + 4.0), np.maximum(h, -0.25), h)
+        # spoil baulk on one side of the trench (cut turf stacked to dry)
+        bedge = np.maximum(np.abs(pw - off - wid - 1.5) - 1.1, np.abs(pu - centre) - half_len * 0.85)
+        bw = 1.0 - smoothstep(-0.3, 0.8, bedge)
+        h = np.where((bw > 0.5) & (river_d > river_wch * 0.5 + 4.0), np.maximum(h, -0.15 + 0.35 * bw), h)
 DITCHES = [[[-135, 105], [-78, 125]], [[-140, 140], [-70, 160]], [[-130, 175], [-70, 195]], [[-120, 210], [-78, 225]],
            [[5, 120], [-38, 135]], [[12, 176], [-32, 186]], [[2, 210], [-46, 220]], [[-95, 235], [-60, 250]]]
 ditch_d = np.full_like(h, 1e9)
@@ -715,11 +739,11 @@ w_gravel += 0.7 * (d_dirt < road_hw * 0.55) * (d_dirt < 1e8) + 0.35 * (d_dirt < 
 w_gravel += 0.6 * (np.abs(d_asph - road_hw) < 1.0) * (d_asph < 1e8)          # asphalt verge
 w_gravel += 0.7 * ((quarry_in > 0) & (~water_mask)) * (1.0 - quarry_face) + 0.6 * ((q_in > -40) & (q_in <= 0)) * smoothstep(0.2, 0.6, micro + 0.5)
 w_gravel += 0.75 * talus_zone * (1.0 - smoothstep(0.35, 0.6, micro + 0.5)) + 0.5 * (dam_mask > 0) * (dam_crest_mask == 0)
-w_gravel += 0.5 * (river_inner > 0.5) * (d_river_ch < river_bankw) * (~water_mask) * (river_s < ctrl_s[12])
+w_gravel += 0.5 * smoothstep(0.45, 0.8, river_inner) * (d_river_ch < river_bankw) * (~water_mask) * (river_s < ctrl_s[12])
 w_gravel = np.clip(w_gravel, 0.0, 1.0)
 w_road = np.clip((1.0 - smoothstep(road_hw - 0.4, road_hw + 0.2, d_asph)) * (d_asph < 1e8) + (d_conc < 0.5), 0.0, 1.0)
 w_sand = np.zeros_like(h)
-w_sand += 0.9 * (river_inner > 0.5) * (d_river_ch < river_bankw * 1.1) * (~water_mask) * (river_s >= ctrl_s[5])
+w_sand += 0.95 * smoothstep(0.42, 0.85, river_inner) * smoothstep(river_bankw * 1.25, river_bankw * 0.5, d_river_ch) * (~water_mask) * (river_s >= ctrl_s[5])
 w_sand += 0.4 * (d_river_ch < river_bankw * 0.6) * (~water_mask) * (river_s >= ctrl_s[5])
 w_sand += 0.85 * smoothstep(1.1, 0.96, lake_rho) * (lake_rho >= 0.9) * (~water_mask)
 w_sand += 0.9 * (dist(X, Z, LANDING['x'], LANDING['z']) < 14)
@@ -835,7 +859,7 @@ grass_d *= (1.0 - 0.5 * strips)
 grass_d = np.clip(grass_d * (0.75 + 0.25 * smoothstep(-0.4, 0.4, micro)) * (1.0 - 0.5 * mud) * (1.0 - 0.3 * smoothstep(0.35, 0.6, marsh_mask)), 0.0, 1.0)
 grass_d = np.where(marsh_mask > 0.3, np.maximum(grass_d, 0.85 * (~water_mask)), grass_d)
 clutter = np.zeros_like(h)
-clutter += 0.7 * smoothstep(0.3, 0.8, tree_d) + 0.85 * talus_zone + 0.5 * (river_inner > 0.5) * (d_river_ch < river_bankw + 2) * (~water_mask)
+clutter += 0.7 * smoothstep(0.3, 0.8, tree_d) + 0.85 * talus_zone + 0.5 * river_inner * (d_river_ch < river_bankw + 2) * (~water_mask)
 clutter += 0.65 * (quarry_in > -10) * (~water_mask) + 0.35 * (road_any_d > road_hw + 0.5) * (road_any_d < road_hw + 6.0)
 clutter += 0.45 * (crater_field < -0.3) + 0.5 * (dam_mask > 0) + 0.3 * rock
 for p in MAP['POIS']:

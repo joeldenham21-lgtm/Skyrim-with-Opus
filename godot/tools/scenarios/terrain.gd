@@ -19,7 +19,7 @@ func _report(name: String) -> void:
 func _view(name: String, x: float, z: float, eye: float, yaw_deg: float, pitch_deg: float, hour: float = 11.0) -> void:
 	set_hour(hour)
 	_at(x, z, eye, yaw_deg, pitch_deg)
-	await frames(12)
+	await frames(6)
 	await shot(name)
 	_report(name)
 

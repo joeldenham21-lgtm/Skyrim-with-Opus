@@ -537,15 +537,15 @@ def _weave2(n, threads, seed, twill=0, yarn_var=0.35, fuzz=0.0):
 def fabric(n, seed=1100):
     """Wool serge (uniform cloth): 2/1 twill with a visible diagonal, raised nap, pilling, threadbare patches,
     a stitched seam and the dust that lives in wool."""
-    m = Mat(n, tile_m=0.35, height_m=0.004)
-    h, over, tf, along = _weave2(n, 150, seed, twill=2, yarn_var=0.30, fuzz=0.5)
+    m = Mat(n, tile_m=0.20, height_m=0.003)
+    h, over, tf, along = _weave2(n, 420, seed, twill=2, yarn_var=0.30, fuzz=0.7)
     grain = rnd(seed + 1, n) - 0.5
-    nap = sprinkle_lines(n, 5200, seed + 2, length=(3, 14), width=(1, 2), angle=None, soft=0.5)
+    nap = sprinkle_lines(n, 9000, seed + 2, length=(4, 20), width=(1, 2), angle=None, soft=0.6)
     fluff = N.blur(nap, 1.6)
     worn = blotches(n, 4, seed + 3, threshold=0.60, softness=0.18, warp_amt=40)
     pill = grit(n, seed + 4, density=0.05, sizes=(1.2, 3.0), soft=0.8) * (0.3 + worn)
     seam_y = (np.abs(N.uv(n)[1] - 0.5) < 0.006).astype(F32)
-    stitch = seam_y * (0.5 + 0.5 * np.sin(N.uv(n)[0] * 2 * np.pi * 90.0))
+    stitch = seam_y * (0.5 + 0.5 * np.sin(N.uv(n)[0] * 2 * np.pi * 40.0))
     stitch = N.smoothstep(0.45, 0.9, stitch)
     h = h + fluff * 0.10 + pill * 0.25 - worn * 0.06 + grain * 0.03
     h = np.clip(h + stitch * 0.35 + N.blur(seam_y, 6) * 0.15, 0, 1)
@@ -571,8 +571,8 @@ def fabric(n, seed=1100):
 
 def canvas(n, seed=1150):
     """Cotton duck: heavy plain weave, thick slubby yarns, a stitched hem, water stains, mildew and fraying."""
-    m = Mat(n, tile_m=0.5, height_m=0.006)
-    h, over, tf, along = _weave2(n, 84, seed, twill=0, yarn_var=0.42, fuzz=0.4)
+    m = Mat(n, tile_m=0.25, height_m=0.004)
+    h, over, tf, along = _weave2(n, 190, seed, twill=0, yarn_var=0.42, fuzz=0.6)
     grain = rnd(seed + 1, n) - 0.5
     slub = N.fbm(n, 8, 3, seed + 2, cells_y=40, min_res=512)
     hem = (np.abs(N.uv(n)[0] - 0.08) < 0.010).astype(F32) + (np.abs(N.uv(n)[0] - 0.92) < 0.010).astype(F32)
@@ -601,8 +601,8 @@ def canvas(n, seed=1150):
 def tarp(n, seed=2500):
     """Polyethylene tarpaulin over a load: coarse ribbon weave, deep folds, a reinforced hem with an eyelet row,
     sun-bleached olive, mud splash at the bottom and a taped tear."""
-    m = Mat(n, tile_m=1.5, height_m=0.02)
-    hw, over, tf, along = _weave2(n, 110, seed, twill=0, yarn_var=0.25, fuzz=0.6)
+    m = Mat(n, tile_m=0.7, height_m=0.010)
+    hw, over, tf, along = _weave2(n, 230, seed, twill=0, yarn_var=0.22, fuzz=0.8)
     grain = rnd(seed + 1, n) - 0.5
     # folds: a few long creases plus general slack
     fold = np.zeros((n, n), F32)
@@ -626,13 +626,13 @@ def tarp(n, seed=2500):
     ring = np.clip(ering + ering2, 0, 1)
     tear = crack_mask(n, crack_lines(n, 2, seed + 7, length=(0.06, 0.2), wander=0.1, branch_p=0.2), width=4.0, soft=0.6)
     tape = blotches(n, 7, seed + 8, threshold=0.80, softness=0.02, warp_amt=6)
-    h = 0.55 + hw * 0.12 + fold * 0.16 + slack * 0.10 - creases * 0.08 + hem * 0.18 + tape * 0.05
+    h = 0.55 + hw * 0.20 + fold * 0.16 + slack * 0.10 - creases * 0.08 + hem * 0.18 + tape * 0.05
     h -= eye * 0.4 + tear * 0.3
     h += ring * 0.15
     m.height = np.clip(h, 0, 1)
 
     base = tone(C("#5c6144"), n, variation=0.07, seed=seed + 9, cells=3, hue=0.02, sat=0.05)
-    col = M.mul(base, 0.80 + tf * 0.32)
+    col = M.mul(base, 0.78 + tf * 0.38)
     bleach = N.smoothstep(-0.1, 0.5, fold) * blotches(n, 3, seed + 10, threshold=0.45, softness=0.25, warp_amt=40)
     col = M.mix(col, M.solid(n, C("#7e8062")), bleach * 0.5)
     col = M.mul(col, 1.0 - creases * 0.25 + slack * 0.10 + grain * 0.08)
@@ -665,8 +665,9 @@ def leather(n, seed=1200):
     w2 = N.fbm(n, 3, 4, seed + 5, cells_y=8, min_res=256)
     furrow = np.abs(np.sin((w1 * 3.4 + w2 * 2.2) * np.pi))
     furrow = 1.0 - N.smoothstep(0.0, 0.35, furrow)
-    crease = crack_mask(n, crack_lines(n, 18, seed + 6, length=(0.08, 0.5), wander=0.05, branch_p=0.25),
-                        width=2.2, soft=1.4)
+    crease = crack_mask(n, crack_lines(n, 14, seed + 6, length=(0.10, 0.55), wander=0.06, branch_p=0.2),
+                        width=9.0, soft=6.0)
+    crease = np.clip(crease * 1.3, 0, 1)
     scuff = sprinkle_lines(n, 420, seed + 7, length=(15, 130), width=(1, 3), soft=0.6, curve=0.4)
     worn = blotches(n, 4, seed + 8, threshold=0.62, softness=0.15, warp_amt=45)
     seam = (np.abs(N.uv(n)[0] - 0.5) < 0.004).astype(F32)
@@ -678,7 +679,7 @@ def leather(n, seed=1200):
     m.height = h
     base = tone(C("#43352a"), n, variation=0.10, seed=seed + 9, cells=3, hue=0.015, sat=0.06)
     col = M.mul(base, 0.86 + (1.0 - cell) * 0.22 + grain * 0.10)
-    col = M.mix(col, M.solid(n, C("#241c16")), np.clip(furrow * 0.8 + crease * 0.7, 0, 1) * 0.6)
+    col = M.mix(col, M.solid(n, C("#2b211a")), np.clip(furrow * 0.85 + crease * 0.55, 0, 1) * 0.5)
     col = M.mix(col, M.solid(n, C("#7d6a55")), np.clip(scuff * 1.2, 0, 1) * 0.45)
     col = M.mix(col, M.solid(n, C("#6b5945")), worn * 0.35)
     col = M.mix(col, M.solid(n, C("#1c1713")), stitch * 0.5)
@@ -728,8 +729,8 @@ def painted_metal(n, seed=500):
     peel = orange_peel(n, seed + 2, cells=300, amount=1.0)
     dent = N.fbm(n, 9, 4, seed + 3, min_res=256)
     scratches = scratch_set(n, seed + 4, groups=((320, (25, 220), (1, 2)), (40, (250, 900), (1, 3))))
-    chip1 = flake(n, seed + 5, coverage=0.16, cells=30, edge=0.02)          # paint gone -> primer
-    chip2 = flake(n, seed + 6, coverage=0.06, cells=30, edge=0.015) * chip1  # primer gone -> steel
+    chip1 = flake(n, seed + 5, coverage=0.20, cells=22, edge=0.010)          # paint gone -> primer
+    chip2 = flake(n, seed + 6, coverage=0.09, cells=22, edge=0.008) * chip1  # primer gone -> steel
     edgewear = N.smoothstep(0.35, 0.9, N.blur(np.abs(N.uv(n)[0] - 0.5) * 2.0, 2)) * 0.0
     rim = np.clip((N.blur(chip1, 3) - chip1) * 6, 0, 1)
     rust_zone = np.clip(N.blur(chip2, 10) * 3.0 + np.clip(scratches - 0.6, 0, 1) * 1.5, 0, 1)
@@ -737,7 +738,7 @@ def painted_metal(n, seed=500):
     rust_drip = stain_down(chip2 * (rnd(seed + 8, n) < 0.35), decay=0.990, seed=seed + 9, strength=0.9)
     pit = grit(n, seed + 10, density=0.09, sizes=(0.6, 2.0), soft=0.35) * rust_zone
 
-    h = 0.66 + peel * 0.05 + dent * 0.05 - chip1 * 0.10 - chip2 * 0.08 - scratches * 0.05 + rim * 0.03 + pit * 0.08
+    h = 0.66 + peel * 0.05 + dent * 0.05 - chip1 * 0.16 - chip2 * 0.10 - scratches * 0.05 + rim * 0.03 + pit * 0.08
     m.height = np.clip(h, 0, 1)
     paint = tone(C("#4f5a4b"), n, variation=0.06, seed=seed + 11, cells=3, hue=0.02, sat=0.05)
     paint = M.mul(paint, 1.0 + peel * 0.10 + grain * 0.06)
@@ -803,9 +804,9 @@ def sheet_metal(n, seed=2900):
     and the chalky white corrosion galvanising gets outdoors."""
     m = Mat(n, tile_m=1.0, height_m=0.002)
     grain = rnd(seed + 1, n) - 0.5
-    f1, f2, cid = N.worley(n, 55, seed + 2, jitter=1.0)
-    spangle_v = N.cell_random(cid, 55 * 55, seed + 3, k=2)
-    facet = N.smoothstep(0.0, 0.18, f2 - f1)
+    f1, f2, cid = N.worley(n, 130, seed + 2, jitter=1.0)
+    spangle_v = N.cell_random(cid, 130 * 130, seed + 3, k=2)
+    facet = N.smoothstep(0.0, 0.10, f2 - f1)
     roller = 0.5 + 0.5 * np.sin((N.uv(n)[0] * 110.0 + N.fbm(n, 4, 2, seed + 4, min_res=256) * 3.0) * 2 * np.pi)
     dent = N.fbm(n, 12, 4, seed + 5, min_res=256)
     scratches = scratch_set(n, seed + 6, groups=((280, (30, 260), (1, 2)), (26, (300, 1000), (1, 3))))
@@ -815,7 +816,7 @@ def sheet_metal(n, seed=2900):
     h = np.clip(0.70 + facet * 0.03 + roller * 0.012 + dent * 0.05 - scratches * 0.04 + grain * 0.03, 0, 1)
     m.height = h
     base = tone(C("#8e9296"), n, variation=0.05, seed=seed + 9, cells=3, hue=0.01, sat=0.02)
-    col = M.mul(base, 0.82 + spangle_v[..., 0] * 0.30 + facet * 0.12 + grain * 0.10 + roller * 0.05)
+    col = M.mul(base, 0.93 + spangle_v[..., 0] * 0.10 + facet * 0.05 + grain * 0.10 + roller * 0.05)
     col = M.mix(col, M.solid(n, C("#c3c4bf")), white * 0.45)
     col = M.mix(col, M.solid(n, C("#b9bec2")), np.clip(scratches * 1.2, 0, 1) * 0.5)
     col = M.mix(col, M.solid(n, C("#7a4526")), rust * 0.8)
@@ -915,4 +916,403 @@ def roof_tile(n, seed=1750):
     m.albedo = col
     m.rough = 0.90 + sandy * 0.05 + moss * 0.05 - dirt * 0.06 + grain * 0.05
     m.micro_amt = (0.08, 0.010, 0.06)
+    return m.finish()
+
+
+# ============================================================== stone, ground cover, interiors
+
+def brick(n, seed=300):
+    """Soviet red clay brick, 250x65x120 in running bond: struck mortar with sand and voids, sand-faced bricks
+    with pits and frog marks, chipped arrises, over-fired headers, salt bloom and soot."""
+    m = Mat(n, tile_m=1.0, height_m=0.020)
+    grain = rnd(seed + 1, n) - 0.5
+    bid, u, v, edged, mortar, dxe, dye = running_bond(n, 4, 15, mortar=0.13, seed=seed + 2, jitter_px=n * 0.0015)
+    bv = N.cell_random(bid, 4 * 18, seed + 3, k=5)
+    face = 1.0 - mortar
+
+    # brick face: sand-struck, pitted, slightly hollow in the middle
+    pits = grit(n, seed + 4, density=0.10, sizes=(0.8, 3.0), soft=0.5)
+    sandface = grit(n, seed + 5, density=0.45, sizes=(0.5, 1.6), soft=0.3)
+    dish = np.clip(1.0 - ((u - 0.5) ** 2 + (v - 0.5) ** 2) * 3.0, 0, 1)
+    chip = flake(n, seed + 6, coverage=0.35, cells=90, edge=0.05) * N.smoothstep(0.08, 0.0, np.minimum(dxe, dye) / n * 30.0)
+    crackb = crack_mask(n, crack_lines(n, 10, seed + 7, length=(0.02, 0.10), wander=0.1, branch_p=0.2),
+                        width=1.4, soft=0.35) * face
+
+    # mortar: pressed back, sandy, with voids and tool furrows
+    msand = grit(n, seed + 8, density=0.6, sizes=(0.7, 2.6), soft=0.4)
+    mvoid = grit(n, seed + 9, density=0.05, sizes=(1.0, 3.6), soft=0.5)
+    mfur = N.fbm(n, 90, 3, seed + 10, min_res=512)
+
+    h = (0.72 + (bv[..., 0] - 0.5) * 0.06 + dish * 0.03 + sandface * 0.012 - pits * 0.10
+         - chip * 0.16 - crackb * 0.10) * face
+    h += (0.50 + msand * 0.05 + mfur * 0.03 - mvoid * 0.12) * mortar
+    h -= N.smoothstep(0.0, 0.02, np.minimum(dxe, dye) / n) * 0.0
+    m.height = np.clip(h, 0, 1)
+
+    # colour: three firing families plus salmon and over-fired headers
+    c1 = M.solid(n, C("#8a4a35"))
+    c2 = M.solid(n, C("#6d3a2c"))
+    c3 = M.solid(n, C("#a3684a"))
+    dark = M.solid(n, C("#4a3630"))
+    col = M.mix(c1, c2, bv[..., 1])
+    col = M.mix(col, c3, N.smoothstep(0.6, 1.0, bv[..., 2]))
+    col = M.mix(col, dark, N.smoothstep(0.86, 0.98, bv[..., 3]))
+    col = M.hsv_shift(col, dh=(bv[..., 4] - 0.5) * 0.012, ds=(bv[..., 1] - 0.5) * 0.10, dv=(bv[..., 0] - 0.5) * 0.12)
+    col = M.mul(col, 0.88 + sandface * 0.22 + grain * 0.12 + N.fbm(n, 100, 3, seed + 11, min_res=512) * 0.16)
+    col = M.mix(col, M.solid(n, C("#5a3328")), np.clip(pits * 1.2, 0, 1) * 0.55)
+    col = M.mix(col, M.solid(n, C("#b08b6d")), chip * 0.6)
+    mortar_c = M.mul(M.solid(n, C("#8e8878")), 0.82 + msand * 0.3 + mfur * 0.15 + grain * 0.15)
+    mortar_c = M.mix(mortar_c, M.solid(n, C("#5f5b51")), np.clip(mvoid * 1.3, 0, 1) * 0.6)
+    col = M.mix(col, mortar_c, mortar)
+    salt = N.smoothstep(0.45, 0.9, N.blur(mortar, 8) * (N.fbm(n, 14, 4, seed + 12, min_res=256) * 0.5 + 0.55))
+    salt = salt * blotches(n, 4, seed + 13, threshold=0.5, softness=0.25, warp_amt=40)
+    col = M.mix(col, M.solid(n, C("#c3bdad")), salt * 0.5)
+    stain = stain_down((np.clip(mortar * (rnd(seed + 14, n) < 0.05), 0, 1)), decay=0.994, seed=seed + 15, strength=0.8)
+    col = M.mix(col, M.solid(n, C("#4a423a")), stain * 0.45)
+    soot = blotches(n, 2, seed + 16, threshold=0.6, softness=0.3, warp_amt=60)
+    col = M.mul(col, 1.0 - soot * 0.25)
+    algae = blotches(n, 10, seed + 17, threshold=0.72, softness=0.08, warp_amt=25) * N.smoothstep(0.4, 1.0, N.uv(n)[1])
+    col = M.mix(col, M.solid(n, C("#4c5340")), algae * 0.45)
+    col = M.mul(col, 1.0 - M.cavity(m.height, 2.0) * 0.45)
+    m.albedo = col
+    m.rough = 0.88 + sandface * 0.06 + mortar * 0.06 - stain * 0.08 + grain * 0.06
+    m.micro_amt = (0.09, 0.012, 0.06)
+    return m.finish()
+
+
+def rock(n, seed=2200):
+    """Grey gneiss outcrop: mineral speckle at millimetre scale, foliation banding, conchoidal fracture faces
+    with sharp steps, map lichen with dark rims, moss and grit in the joints."""
+    m = Mat(n, tile_m=2.0, height_m=0.14)
+    grain = rnd(seed + 1, n) - 0.5
+    # fracture blocks
+    f1, f2, cid = N.worley(n, 7, seed + 2, jitter=1.0)
+    bv = N.cell_random(cid, 49, seed + 3, k=4)
+    joint = 1.0 - N.smoothstep(0.0, 0.045, f2 - f1)
+    face_tilt = N.fbm(n, 12, 4, seed + 4, min_res=256)
+    step = (bv[..., 0] - 0.5) * 0.30
+    # foliation: banding that runs through the whole rock at one angle
+    ang = 0.6
+    x, y = N.uv(n)
+    band = np.sin((x * np.cos(ang) + y * np.sin(ang)) * 2 * np.pi * 9.0 + N.fbm(n, 5, 4, seed + 5, min_res=256) * 5.0)
+    band = N.smoothstep(-0.2, 0.6, band)
+    # mineral grains
+    q1 = N.worley(n, 340, seed + 6, jitter=1.0)[0]
+    q2 = N.worley(n, 700, seed + 7, jitter=1.0)[0]
+    quartz = N.smoothstep(0.35, 0.8, 1.0 - q1)
+    mica = N.smoothstep(0.55, 0.95, 1.0 - q2) * band
+    rough_face = N.fbm(n, 220, 3, seed + 8, min_res=512)
+    cracks = crack_mask(n, crack_lines(n, 8, seed + 9, length=(0.1, 0.6), wander=0.08, branch_p=0.35),
+                        width=2.6, soft=0.5)
+    h = (0.55 + face_tilt * 0.22 + step * 0.5 * (1 - joint) + band * 0.03
+         + rough_face * 0.04 + quartz * 0.02 - mica * 0.01 + grain * 0.012)
+    h -= joint * 0.42 + cracks * 0.18
+    m.height = np.clip(h, 0, 1)
+
+    base = M.mix(M.solid(n, C("#6a6a67")), M.solid(n, C("#565754")), band)
+    base = M.hsv_shift(base, ds=(bv[..., 1] - 0.5) * 0.05, dv=(bv[..., 2] - 0.5) * 0.16)
+    col = M.mix(base, M.solid(n, C("#a9a69c")), quartz * 0.55)
+    col = M.mix(col, M.solid(n, C("#2f302e")), mica * 0.55)
+    col = M.mul(col, 0.88 + rough_face * 0.22 + grain * 0.14)
+    col = M.mul(col, 1.0 - joint * 0.45 - cracks * 0.4)
+    wet = N.smoothstep(0.3, 0.9, N.blur(joint, 12))
+    col = M.mul(col, 1.0 - wet * 0.22)
+    # lichen: pale green-grey crusts with a dark margin, plus orange crustose spots
+    lich = blotches(n, 16, seed + 10, threshold=0.62, softness=0.05, warp_amt=22)
+    lich_rim = np.clip((N.blur(lich, 4) - lich) * 6, 0, 1)
+    col = M.mix(col, M.solid(n, C("#9aa38a")), lich * 0.6)
+    col = M.mix(col, M.solid(n, C("#4c5145")), lich_rim * 0.5)
+    orange = blotches(n, 40, seed + 11, threshold=0.80, softness=0.05, warp_amt=10)
+    col = M.mix(col, M.solid(n, C("#8a7340")), orange * 0.45)
+    moss = blotches(n, 8, seed + 12, threshold=0.6, softness=0.1, warp_amt=30) * N.smoothstep(0.2, 0.8, N.blur(joint, 8))
+    col = M.mix(col, M.solid(n, C("#465038")), moss * 0.65)
+    col = M.mul(col, 1.0 - M.cavity(m.height, 3.0) * 0.4)
+    m.albedo = col
+    m.rough = 0.86 + rough_face * 0.06 - quartz * 0.10 - mica * 0.15 + moss * 0.08 + grain * 0.05
+    m.micro_amt = (0.09, 0.010, 0.06)
+    return m.finish()
+
+
+def moss(n, seed=2400):
+    """Sphagnum and feather moss: thousands of short shoots in clumps, wet dark hollows, dead brown patches
+    and the litter that shows between them."""
+    from .common import draw_strokes, composite_strokes, gauss_bumps
+    m = Mat(n, tile_m=1.0, height_m=0.03)
+    grain = rnd(seed + 1, n) - 0.5
+    clump = gauss_bumps(n, seed + 2, 220, sigma=n * 0.012, amp=(0.4, 1.0))
+    clump = N.norm01(clump)
+    hollow = N.smoothstep(0.55, 0.0, clump)
+    soil = M.mix(M.solid(n, C("#3a3128")), M.solid(n, C("#2a241d")), N.fbm(n, 40, 4, seed + 3, min_res=512) * 0.5 + 0.5)
+    base_col = M.mix(soil, M.solid(n, C("#37402c")), 0.35)
+    greens = [C("#49582f"), C("#5c6c39"), C("#3d4a28"), C("#6f7a45"), C("#8a8b52")]
+    browns = [C("#6a5a35"), C("#7d6a3f"), C("#4e4327")]
+    dead = blotches(n, 5, seed + 4, threshold=0.62, softness=0.15, warp_amt=35)
+    rgb1, cov1, h1 = draw_strokes(n, seed + 5, 9000, length=(6, 16), width=(1.6, 3.4),
+                                  colors=greens, shade=(0.55, 1.15), tip_light=0.45, height=(0.2, 1.0),
+                                  ss=2, segments=3, taper=0.6)
+    rgb2, cov2, h2 = draw_strokes(n, seed + 6, 5000, length=(4, 11), width=(1.4, 2.8),
+                                  colors=browns, shade=(0.6, 1.1), tip_light=0.3, height=(0.15, 0.8),
+                                  ss=2, segments=3, taper=0.6)
+    col = composite_strokes(base_col, rgb1, cov1)
+    col = composite_strokes(col, rgb2 * (dead[..., None] * 0.8 + 0.2), cov2 * (dead * 0.8 + 0.2))
+    shoots = np.maximum(h1, h2 * 0.8)
+    h = 0.35 + clump * 0.45 + shoots * 0.22 - hollow * 0.10 + grain * 0.02
+    m.height = np.clip(h, 0, 1)
+    col = M.mul(col, 0.72 + clump * 0.5)
+    col = M.mul(col, 1.0 - hollow * 0.35)
+    wet = blotches(n, 4, seed + 7, threshold=0.62, softness=0.2, warp_amt=40) * hollow
+    col = M.mul(col, 1.0 - wet * 0.3)
+    col = M.mix(col, M.solid(n, C("#7c7a4a")), N.smoothstep(0.5, 1.0, clump) * 0.18)
+    m.albedo = col
+    m.rough = 0.95 - wet * 0.35 + grain * 0.04
+    m.micro_amt = (0.10, 0.010, 0.05)
+    return m.finish()
+
+
+def bone(n, seed=3300):
+    """Weathered cortical bone: longitudinal striations, nutrient foramina, sun-checked cracks, soil staining
+    in the crevices and a patch where the cortex has broken to show trabecular structure."""
+    m = Mat(n, tile_m=0.4, height_m=0.004)
+    grain = rnd(seed + 1, n) - 0.5
+    stri = N.fbm(n, 3, 3, seed + 2, cells_y=260, min_res=1024)
+    stri2 = N.fbm(n, 2, 2, seed + 3, cells_y=700, min_res=2048)
+    foram = grit(n, seed + 4, density=0.03, sizes=(0.8, 2.6), soft=0.4)
+    checks = crack_mask(n, crack_lines(n, 26, seed + 5, length=(0.04, 0.30), wander=0.03, branch_p=0.2,
+                                       direction=0.0, dir_spread=0.10), width=1.6, soft=0.35)
+    micro_c = crack_mask(n, crack_lines(n, 60, seed + 6, length=(0.01, 0.05), wander=0.06, direction=0.0,
+                                        dir_spread=0.2), width=1.0, soft=0.25)
+    broken = flake(n, seed + 7, coverage=0.10, cells=6, edge=0.012)
+    tra1 = N.worley(n, 90, seed + 8, jitter=1.0)[0]
+    tra2 = N.worley(n, 180, seed + 9, jitter=1.0)[0]
+    trab = np.clip(N.smoothstep(0.05, 0.35, tra1) * 0.6 + N.smoothstep(0.05, 0.3, tra2) * 0.5, 0, 1)
+    h = 0.74 + stri * 0.03 + stri2 * 0.02 - foram * 0.14 - checks * 0.10 - micro_c * 0.05 + grain * 0.02
+    h = np.where(broken > 0.5, 0.52 + trab * 0.22, h)
+    m.height = np.clip(h, 0, 1)
+    base = tone(C("#cfc7b1"), n, variation=0.06, seed=seed + 10, cells=3, hue=0.01, sat=0.04)
+    col = M.mul(base, 0.9 + stri * 0.14 + stri2 * 0.10 + grain * 0.10)
+    col = M.mix(col, M.solid(n, C("#a89a80")), N.smoothstep(0.3, 0.9, N.blur(checks, 4)) * 0.4)
+    col = M.mul(col, 1.0 - checks * 0.35 - micro_c * 0.2 - foram * 0.5)
+    col = M.mix(col, M.mul(M.solid(n, C("#b7ac92")), 0.75 + trab * 0.5), broken)
+    soilst = blotches(n, 4, seed + 11, threshold=0.55, softness=0.2, warp_amt=45)
+    col = M.mix(col, M.solid(n, C("#6f5f43")), soilst * 0.45)
+    green = blotches(n, 14, seed + 12, threshold=0.76, softness=0.08) * soilst
+    col = M.mix(col, M.solid(n, C("#5d6247")), green * 0.4)
+    col = M.mul(col, 1.0 - M.cavity(m.height, 2.0) * 0.35)
+    m.albedo = col
+    m.rough = 0.72 + checks * 0.12 + broken * 0.18 + soilst * 0.08 + grain * 0.05
+    m.micro_amt = (0.07, 0.008, 0.05)
+    return m.finish()
+
+
+def glass(n, seed=2700):
+    """Dirty window glass seen from inside: dust film thickest at the edges, rain runnels that washed clean
+    lines through it, spatter, greasy smears, a taped crack and the odd fly."""
+    m = Mat(n, tile_m=1.0, height_m=0.0006)
+    grain = rnd(seed + 1, n) - 0.5
+    x, y = N.uv(n)
+    edge = np.clip(1.0 - np.minimum(np.minimum(x, 1 - x), np.minimum(y, 1 - y)) * 7.0, 0, 1)
+    dust = np.clip(N.fbm(n, 6, 5, seed + 2, min_res=256) * 0.5 + 0.5, 0, 1)
+    dust = np.clip(dust * 0.7 + edge * 0.6, 0, 1)
+    runnel = stain_down((rnd(seed + 3, n) < 0.0016).astype(F32), decay=0.9975, seed=seed + 4, strength=1.0)
+    runnel = np.clip(runnel * 1.6, 0, 1)
+    dust = np.clip(dust - runnel * 0.85, 0, 1)
+    spatter = grit(n, seed + 5, density=0.05, sizes=(0.8, 3.4), soft=0.5)
+    smear = sprinkle_lines(n, 90, seed + 6, length=(80, 500), width=(6, 26), soft=6.0, curve=0.8)
+    crack = crack_mask(n, crack_lines(n, 2, seed + 7, length=(0.2, 0.6), wander=0.02, branch_p=0.55,
+                                      kink_every=(40, 140), kink=(0.4, 1.2)), width=1.6, soft=0.4)
+    tape = ((np.abs(N.wrapped_delta(x, 0.62, 1.0)) < 0.035) & (np.abs(N.wrapped_delta(y, 0.5, 1.0)) < 0.30)).astype(F32)
+    tape = N.blur(tape, 1.5)
+    h = np.clip(0.5 + dust * 0.10 + spatter * 0.25 + tape * 0.5 - crack * 0.3 + grain * 0.02, 0, 1)
+    m.height = h
+    base = M.solid(n, C("#c6ccd0"))
+    col = M.mul(base, 0.88 + grain * 0.05)
+    col = M.mix(col, M.solid(n, C("#a7a396")), np.clip(dust, 0, 1) * 0.55)
+    col = M.mix(col, M.solid(n, C("#dfe3e2")), np.clip(runnel, 0, 1) * 0.35)
+    col = M.mix(col, M.solid(n, C("#9d9686")), np.clip(spatter * 1.3, 0, 1) * 0.5)
+    col = M.mix(col, M.solid(n, C("#b8b6ac")), np.clip(smear, 0, 1) * 0.28)
+    col = M.mix(col, M.solid(n, C("#e8e6dc")), crack * 0.7)
+    col = M.mix(col, M.solid(n, C("#b3a687")), tape * 0.7)
+    m.albedo = col
+    m.rough = np.clip(0.06 + dust * 0.55 + spatter * 0.3 + smear * 0.12 + tape * 0.4 + grain * 0.03, 0.03, 1.0)
+    m.micro_amt = (0.03, 0.004, 0.04)
+    return m.finish()
+
+
+def paper(n, seed=2600):
+    """Cheap Soviet office paper: pulp fibres, foxing, a hard fold, coffee rings, rust-stained staple holes
+    and the grey of forty years in a damp drawer."""
+    m = Mat(n, tile_m=0.30, height_m=0.0008)
+    grain = rnd(seed + 1, n) - 0.5
+    fib = sprinkle_lines(n, 6000, seed + 2, length=(6, 40), width=(1, 2), soft=0.5, curve=0.5)
+    fib2 = sprinkle_lines(n, 2500, seed + 3, length=(20, 90), width=(1, 2), angle=0.2, spread=0.5, soft=0.7)
+    lumps = N.fbm(n, 60, 4, seed + 4, min_res=512)
+    fold_y = 0.5 + N.fbm(n, 3, 2, seed + 5, min_res=256) * 0.02
+    fold = np.exp(-((N.uv(n)[1] - fold_y) * 260.0) ** 2)
+    fold2 = np.exp(-((N.uv(n)[0] - 0.33) * 200.0) ** 2) * 0.6
+    crease = np.clip(fold + fold2, 0, 1)
+    foxing = grit(n, seed + 6, density=0.05, sizes=(0.9, 4.0), soft=1.1)
+    ring = np.zeros((n, n), F32)
+    r = N.rng_for(seed + 7)
+    xx, yy = N.coords(n)
+    for i in range(3):
+        cx, cy = r.uniform(0, n, 2)
+        rad = r.uniform(0.08, 0.20) * n
+        d = np.sqrt(N.wrapped_delta(xx, cx, n) ** 2 + N.wrapped_delta(yy, cy, n) ** 2) / rad
+        d = d + N.fbm(n, 20, 3, seed + 30 + i, min_res=256) * 0.25
+        ring = np.maximum(ring, (1.0 - N.smoothstep(0.85, 1.05, d)) * 0.35 +
+                          np.exp(-((d - 0.95) * 12.0) ** 2) * 0.9)
+    staple, sring = holes_grid(n, 1, 1, radius_px=max(2.0, n * 0.0035), seed=seed + 8, ox=0.12, oy=0.10)
+    h = np.clip(0.6 + fib * 0.06 + fib2 * 0.04 + lumps * 0.05 + crease * 0.35 - staple * 0.4 + grain * 0.03, 0, 1)
+    m.height = h
+    base = tone(C("#cec6ac"), n, variation=0.05, seed=seed + 9, cells=3, hue=0.01, sat=0.03)
+    col = M.mul(base, 0.92 + fib * 0.10 + fib2 * 0.06 + lumps * 0.08 + grain * 0.08)
+    col = M.mix(col, M.solid(n, C("#a9926a")), np.clip(foxing * 1.4, 0, 1) * 0.45)
+    col = M.mix(col, M.solid(n, C("#a08a5f")), np.clip(ring, 0, 1) * 0.5)
+    col = M.mul(col, 1.0 - crease * 0.10)
+    col = M.mix(col, M.solid(n, C("#e0dac6")), np.clip(crease * 1.2, 0, 1) * 0.25)
+    edge = np.clip(1.0 - np.minimum(np.minimum(N.uv(n)[0], 1 - N.uv(n)[0]),
+                                    np.minimum(N.uv(n)[1], 1 - N.uv(n)[1])) * 9.0, 0, 1)
+    col = M.mul(col, 1.0 - edge * 0.14)
+    col = M.mix(col, M.solid(n, C("#6d4f31")), np.clip(sring, 0, 1) * 0.6)
+    col = M.mix(col, M.solid(n, C("#2c2823")), staple * 0.8)
+    m.albedo = col
+    m.rough = 0.90 + fib * 0.05 - crease * 0.05 + grain * 0.05
+    m.micro_amt = (0.06, 0.006, 0.05)
+    return m.finish()
+
+
+def linoleum(n, seed=3100):
+    """Soviet institutional lino: marbled brown-red field printed on a backing, a seam every run, traffic paths
+    where the pattern has been walked off, scratches, curled cracked edges and dirt in every scratch."""
+    m = Mat(n, tile_m=2.0, height_m=0.0025)
+    grain = rnd(seed + 1, n) - 0.5
+    # marbling: two warped tone fields plus fleck
+    w1 = N.fbm(n, 5, 5, seed + 2, min_res=256)
+    w2 = N.fbm(n, 22, 4, seed + 3, min_res=512)
+    marb = N.smoothstep(-0.25, 0.35, w1 + w2 * 0.35)
+    fleck = grit(n, seed + 4, density=0.28, sizes=(0.7, 2.6), soft=0.35)
+    seam = (np.abs(N.wrapped_delta(N.uv(n)[0], 0.5, 1.0)) < 0.0025).astype(F32)
+    seam = N.blur(seam, 1.6)
+    path = blotches(n, 3, seed + 5, threshold=0.5, softness=0.28, warp_amt=50)
+    scratches = scratch_set(n, seed + 6, groups=((520, (20, 200), (1, 2)), (60, (300, 1200), (1, 2))))
+    craze = crack_mask(n, crack_lines(n, 14, seed + 7, length=(0.03, 0.18), wander=0.12, branch_p=0.4),
+                       width=1.3, soft=0.3) * N.smoothstep(0.2, 0.8, N.blur(seam, 20) * 6 + path * 0.4)
+    curl = N.smoothstep(0.4, 1.0, N.blur(seam, 12) * 8.0)
+    h = np.clip(0.66 + marb * 0.010 + fleck * 0.02 - scratches * 0.05 - craze * 0.12 - seam * 0.25
+                + curl * 0.06 + grain * 0.02, 0, 1)
+    m.height = h
+    c_dark = M.solid(n, C("#5e3a2e"))
+    c_mid = M.solid(n, C("#8a5b42"))
+    c_light = M.solid(n, C("#a8846a"))
+    col = M.mix(c_dark, c_mid, marb)
+    col = M.mix(col, c_light, N.smoothstep(0.62, 1.0, marb + w2 * 0.2))
+    col = M.mix(col, M.solid(n, C("#c9b39c")), np.clip(fleck * 1.2, 0, 1) * 0.35)
+    col = M.mul(col, 0.9 + grain * 0.12)
+    col = M.mix(col, M.solid(n, C("#7d6a5c")), path * 0.45)            # walked-off pattern
+    col = M.mix(col, M.solid(n, C("#b9a893")), np.clip(scratches * 1.2, 0, 1) * 0.35)
+    col = M.mul(col, 1.0 - craze * 0.45 - seam * 0.45)
+    dirt = np.clip(N.blur(scratches, 3) * 0.6 + M.cavity(h, 2.0) * 1.2, 0, 1)
+    col = M.mul(col, 1.0 - dirt * 0.25)
+    grime = blotches(n, 4, seed + 8, threshold=0.6, softness=0.22, warp_amt=45)
+    col = M.mul(col, 1.0 - grime * 0.18)
+    m.albedo = col
+    m.rough = np.clip(0.42 + path * 0.30 + craze * 0.2 + np.clip(scratches, 0, 1) * 0.15 + grime * 0.1 + grain * 0.05,
+                      0.1, 1.0)
+    m.micro_amt = (0.05, 0.005, 0.05)
+    return m.finish()
+
+
+def wallpaper(n, seed=3000):
+    """Papered room, thirty years on: a small printed repeat on a cream ground, drop seams every 530 mm,
+    damp tide marks, bubbles, and a corner peeled back to the plaster."""
+    m = Mat(n, tile_m=1.06, height_m=0.0015)
+    grain = rnd(seed + 1, n) - 0.5
+    x, y = N.uv(n)
+    # printed repeat: a stylised four-petal motif on a grid with a half-drop
+    cells_x, cells_y = 8, 10
+    gx = x * cells_x
+    gy = y * cells_y + np.floor(gx) * 0.5
+    fx = gx - np.floor(gx) - 0.5
+    fy = gy - np.floor(gy) - 0.5
+    rr = np.sqrt(fx * fx + fy * fy)
+    th = np.arctan2(fy, fx)
+    petal = 0.20 + 0.10 * np.cos(th * 4.0)
+    motif = 1.0 - N.smoothstep(petal - 0.02, petal + 0.02, rr)
+    dot = 1.0 - N.smoothstep(0.05, 0.07, rr)
+    stem = 1.0 - N.smoothstep(0.010, 0.016, np.abs(fy - 0.32) + np.abs(fx) * 0.2)
+    print_mask = np.clip(motif * 0.85 + dot * 0.5 + stem * 0.4, 0, 1)
+    # paper structure
+    fib = sprinkle_lines(n, 4000, seed + 2, length=(8, 40), width=(1, 2), soft=0.6, curve=0.4)
+    emboss = N.fbm(n, 120, 3, seed + 3, min_res=512)
+    seam = (np.abs(N.wrapped_delta(x, 0.5, 1.0)) < 0.004).astype(F32)
+    seam = N.blur(seam, 2.0)
+    bubble = blotches(n, 9, seed + 4, threshold=0.72, softness=0.10, warp_amt=25)
+    tear = flake(n, seed + 5, coverage=0.10, cells=5, edge=0.008)
+    tear = tear * N.smoothstep(0.3, 0.9, np.clip(N.blur(seam, 18) * 6.0 + blotches(n, 3, seed + 6, threshold=0.6,
+                                                                                  softness=0.15), 0, 1))
+    rim = np.clip((N.blur(tear, 3) - tear) * 6, 0, 1)
+    plaster_c = M.mul(M.solid(n, C("#a89f8c")), 0.85 + N.fbm(n, 70, 3, seed + 7, min_res=512) * 0.3 + grain * 0.15)
+    h = np.clip(0.66 + fib * 0.05 + emboss * 0.03 + print_mask * 0.02 + bubble * 0.12 + seam * 0.10
+                - tear * 0.35 + rim * 0.1 + grain * 0.02, 0, 1)
+    m.height = h
+    ground = tone(C("#cfc4ab"), n, variation=0.05, seed=seed + 8, cells=3, hue=0.01, sat=0.03)
+    ink1 = M.solid(n, C("#8d9a86"))
+    ink2 = M.solid(n, C("#a8836f"))
+    col = M.mix(ground, ink1, np.clip(motif, 0, 1) * 0.55)
+    col = M.mix(col, ink2, np.clip(dot + stem, 0, 1) * 0.5)
+    col = M.mul(col, 0.94 + fib * 0.08 + emboss * 0.06 + grain * 0.08)
+    fade = blotches(n, 3, seed + 9, threshold=0.45, softness=0.3, warp_amt=40)
+    col = M.mix(col, M.solid(n, C("#c8c1b2")), fade * 0.35)
+    damp = N.smoothstep(0.55, 1.0, y + N.fbm(n, 5, 4, seed + 10, min_res=256) * 0.3)
+    damp = np.clip(damp + blotches(n, 4, seed + 11, threshold=0.7, softness=0.12, warp_amt=50) * 0.7, 0, 1)
+    damp_rim = np.clip((N.blur(damp, 14) - damp) * 3.0, 0, 1)
+    col = M.mix(col, M.solid(n, C("#9a8f75")), damp * 0.45)
+    col = M.mix(col, M.solid(n, C("#7d6f56")), damp_rim * 0.5)
+    mould = blotches(n, 40, seed + 12, threshold=0.74, softness=0.06) * damp
+    col = M.mix(col, M.solid(n, C("#3a3a32")), mould * 0.6)
+    col = M.mix(col, plaster_c, tear)
+    col = M.mul(col, 1.0 - seam * 0.18)
+    col = M.mul(col, 1.0 - M.cavity(h, 2.0) * 0.2)
+    m.albedo = col
+    m.rough = 0.86 + damp * 0.06 + tear * 0.06 + grain * 0.05
+    m.micro_amt = (0.06, 0.006, 0.05)
+    return m.finish()
+
+
+def rust(n, seed=400):
+    """Steel that has been left out: islands of the old paint, exfoliating scale in layers, deep pitting,
+    a bloom of fresh orange where water sits and streaks below every edge."""
+    m = Mat(n, tile_m=1.0, height_m=0.004)
+    grain = rnd(seed + 1, n) - 0.5
+    paint = flake(n, seed + 2, coverage=0.34, cells=13, edge=0.012)
+    paint_rim = np.clip((N.blur(paint, 3) - paint) * 6, 0, 1)
+    scale1 = flake(n, seed + 3, coverage=0.55, cells=26, edge=0.02) * (1 - paint)
+    scale2 = flake(n, seed + 4, coverage=0.35, cells=55, edge=0.02) * scale1
+    pit = grit(n, seed + 5, density=0.14, sizes=(0.7, 3.0), soft=0.4) * (1 - paint)
+    deep = grit(n, seed + 6, density=0.03, sizes=(1.5, 5.0), soft=0.6) * (1 - paint)
+    fresh = blotches(n, 5, seed + 7, threshold=0.5, softness=0.18, warp_amt=45) * (1 - paint)
+    dark = blotches(n, 8, seed + 8, threshold=0.55, softness=0.15, warp_amt=30)
+    streak = stain_down(np.clip(paint_rim + deep * 0.6, 0, 1) * (rnd(seed + 9, n) < 0.35), decay=0.991,
+                        seed=seed + 10, strength=0.9)
+    h = (0.62 + paint * 0.10 + scale1 * 0.07 + scale2 * 0.06 - pit * 0.16 - deep * 0.26
+         + paint_rim * 0.04 + grain * 0.03)
+    m.height = np.clip(h, 0, 1)
+    paint_c = tone(C("#5a6353"), n, variation=0.07, seed=seed + 11, cells=3, hue=0.02, sat=0.05)
+    r_dark = M.solid(n, C("#3a2114"))
+    r_mid = M.solid(n, C("#6d3d1e"))
+    r_br = M.solid(n, C("#9a5a26"))
+    r_or = M.solid(n, C("#b06a2c"))
+    rc = M.mix(r_dark, r_mid, N.smoothstep(0.2, 0.8, scale1))
+    rc = M.mix(rc, r_br, N.smoothstep(0.35, 0.95, scale2))
+    rc = M.mix(rc, r_or, fresh * 0.75)
+    rc = M.mix(rc, r_dark, np.clip(dark * 0.7 + deep * 1.2, 0, 1) * 0.7)
+    rc = M.mul(rc, 0.85 + N.fbm(n, 80, 3, seed + 12, min_res=512) * 0.30 + grain * 0.16 + pit * 0.12)
+    col = M.mix(rc, paint_c, paint)
+    col = M.mix(col, M.solid(n, C("#7d858d")), paint_rim * (1 - paint) * 0.25)
+    col = M.mix(col, M.solid(n, C("#7a4a22")), np.clip(streak, 0, 1) * 0.6)
+    col = M.mul(col, 1.0 - M.cavity(m.height, 2.0) * 0.4)
+    m.albedo = col
+    m.metal = np.clip(paint * 0.15 + (1 - paint) * 0.35 - fresh * 0.2, 0, 1)
+    m.rough = np.clip(0.72 + (1 - paint) * 0.18 + pit * 0.1 - paint * 0.15 + grain * 0.06, 0.2, 1.0)
+    m.micro_amt = (0.09, 0.010, 0.06)
     return m.finish()
