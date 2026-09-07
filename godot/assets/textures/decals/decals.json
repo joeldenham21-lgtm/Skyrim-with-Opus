@@ -1,0 +1,759 @@
+{
+ "note": "Projected decals. albedo carries alpha; place with Godot Decal nodes (albedo_mix 1.0 unless the entry says otherwise). size_m is the suggested projector width/height in metres; vertical entries hang on walls, ground entries lie flat.",
+ "decals": [
+  {
+   "name": "bullet_concrete",
+   "albedo": "decals/bullet_concrete_albedo.webp",
+   "size_px": [
+    512,
+    512
+   ],
+   "normal": "decals/bullet_concrete_normal.webp",
+   "orm": "decals/bullet_concrete_orm.webp",
+   "size_m": [
+    0.3,
+    0.3
+   ],
+   "surface": "concrete",
+   "kind": "impact",
+   "depth_m": 0.06,
+   "normal_fade": 0.9
+  },
+  {
+   "name": "bullet_wood",
+   "albedo": "decals/bullet_wood_albedo.webp",
+   "size_px": [
+    512,
+    512
+   ],
+   "normal": "decals/bullet_wood_normal.webp",
+   "orm": "decals/bullet_wood_orm.webp",
+   "size_m": [
+    0.28,
+    0.28
+   ],
+   "surface": "wood",
+   "kind": "impact",
+   "depth_m": 0.06,
+   "normal_fade": 0.9
+  },
+  {
+   "name": "bullet_metal",
+   "albedo": "decals/bullet_metal_albedo.webp",
+   "size_px": [
+    512,
+    512
+   ],
+   "normal": "decals/bullet_metal_normal.webp",
+   "orm": "decals/bullet_metal_orm.webp",
+   "size_m": [
+    0.24,
+    0.24
+   ],
+   "surface": "metal",
+   "kind": "impact",
+   "depth_m": 0.06,
+   "normal_fade": 0.9
+  },
+  {
+   "name": "bullet_dirt",
+   "albedo": "decals/bullet_dirt_albedo.webp",
+   "size_px": [
+    512,
+    512
+   ],
+   "normal": "decals/bullet_dirt_normal.webp",
+   "orm": "decals/bullet_dirt_orm.webp",
+   "size_m": [
+    0.34,
+    0.34
+   ],
+   "surface": "dirt",
+   "kind": "impact",
+   "depth_m": 0.06,
+   "normal_fade": 0.9
+  },
+  {
+   "name": "blood_splat_a",
+   "albedo": "decals/blood_splat_a_albedo.webp",
+   "size_px": [
+    768,
+    768
+   ],
+   "normal": "decals/blood_splat_a_normal.webp",
+   "orm": "decals/blood_splat_a_orm.webp",
+   "size_m": [
+    1.1,
+    1.1
+   ],
+   "kind": "fluid",
+   "albedo_mix": 1.0
+  },
+  {
+   "name": "blood_splat_b",
+   "albedo": "decals/blood_splat_b_albedo.webp",
+   "size_px": [
+    768,
+    768
+   ],
+   "normal": "decals/blood_splat_b_normal.webp",
+   "orm": "decals/blood_splat_b_orm.webp",
+   "size_m": [
+    1.6,
+    1.6
+   ],
+   "kind": "fluid",
+   "albedo_mix": 1.0
+  },
+  {
+   "name": "blood_splat_c",
+   "albedo": "decals/blood_splat_c_albedo.webp",
+   "size_px": [
+    768,
+    768
+   ],
+   "normal": "decals/blood_splat_c_normal.webp",
+   "orm": "decals/blood_splat_c_orm.webp",
+   "size_m": [
+    2.1,
+    2.1
+   ],
+   "kind": "fluid",
+   "albedo_mix": 1.0
+  },
+  {
+   "name": "blood_drip_a",
+   "albedo": "decals/blood_drip_a_albedo.webp",
+   "size_px": [
+    384,
+    768
+   ],
+   "normal": "decals/blood_drip_a_normal.webp",
+   "orm": "decals/blood_drip_a_orm.webp",
+   "size_m": [
+    0.5,
+    1.0
+   ],
+   "kind": "fluid",
+   "vertical": true
+  },
+  {
+   "name": "blood_drip_b",
+   "albedo": "decals/blood_drip_b_albedo.webp",
+   "size_px": [
+    384,
+    768
+   ],
+   "normal": "decals/blood_drip_b_normal.webp",
+   "orm": "decals/blood_drip_b_orm.webp",
+   "size_m": [
+    0.5,
+    1.0
+   ],
+   "kind": "fluid",
+   "vertical": true
+  },
+  {
+   "name": "puddle_a",
+   "albedo": "decals/puddle_a_albedo.webp",
+   "size_px": [
+    1024,
+    1024
+   ],
+   "normal": "decals/puddle_a_normal.webp",
+   "orm": "decals/puddle_a_orm.webp",
+   "size_m": [
+    2.6,
+    2.6
+   ],
+   "kind": "fluid",
+   "ground": true
+  },
+  {
+   "name": "puddle_b",
+   "albedo": "decals/puddle_b_albedo.webp",
+   "size_px": [
+    1024,
+    1024
+   ],
+   "normal": "decals/puddle_b_normal.webp",
+   "orm": "decals/puddle_b_orm.webp",
+   "size_m": [
+    2.6,
+    2.6
+   ],
+   "kind": "fluid",
+   "ground": true
+  },
+  {
+   "name": "oil_a",
+   "albedo": "decals/oil_a_albedo.webp",
+   "size_px": [
+    512,
+    512
+   ],
+   "normal": "decals/oil_a_normal.webp",
+   "orm": "decals/oil_a_orm.webp",
+   "size_m": [
+    1.4,
+    1.4
+   ],
+   "kind": "fluid",
+   "ground": true
+  },
+  {
+   "name": "oil_b",
+   "albedo": "decals/oil_b_albedo.webp",
+   "size_px": [
+    512,
+    512
+   ],
+   "normal": "decals/oil_b_normal.webp",
+   "orm": "decals/oil_b_orm.webp",
+   "size_m": [
+    1.4,
+    1.4
+   ],
+   "kind": "fluid",
+   "ground": true
+  },
+  {
+   "name": "scorch_a",
+   "albedo": "decals/scorch_a_albedo.webp",
+   "size_px": [
+    768,
+    768
+   ],
+   "normal": "decals/scorch_a_normal.webp",
+   "orm": "decals/scorch_a_orm.webp",
+   "size_m": [
+    2.2,
+    2.2
+   ],
+   "kind": "burn"
+  },
+  {
+   "name": "scorch_b",
+   "albedo": "decals/scorch_b_albedo.webp",
+   "size_px": [
+    768,
+    768
+   ],
+   "normal": "decals/scorch_b_normal.webp",
+   "orm": "decals/scorch_b_orm.webp",
+   "size_m": [
+    2.2,
+    2.2
+   ],
+   "kind": "burn"
+  },
+  {
+   "name": "rust_streak_a",
+   "albedo": "decals/rust_streak_a_albedo.webp",
+   "size_px": [
+    384,
+    768
+   ],
+   "normal": "decals/rust_streak_a_normal.webp",
+   "orm": "decals/rust_streak_a_orm.webp",
+   "size_m": [
+    0.6,
+    1.4
+   ],
+   "kind": "stain",
+   "vertical": true
+  },
+  {
+   "name": "rust_streak_b",
+   "albedo": "decals/rust_streak_b_albedo.webp",
+   "size_px": [
+    384,
+    768
+   ],
+   "normal": "decals/rust_streak_b_normal.webp",
+   "orm": "decals/rust_streak_b_orm.webp",
+   "size_m": [
+    0.6,
+    1.4
+   ],
+   "kind": "stain",
+   "vertical": true
+  },
+  {
+   "name": "rust_streak_c",
+   "albedo": "decals/rust_streak_c_albedo.webp",
+   "size_px": [
+    384,
+    768
+   ],
+   "normal": "decals/rust_streak_c_normal.webp",
+   "orm": "decals/rust_streak_c_orm.webp",
+   "size_m": [
+    0.6,
+    1.4
+   ],
+   "kind": "stain",
+   "vertical": true
+  },
+  {
+   "name": "moss_a",
+   "albedo": "decals/moss_a_albedo.webp",
+   "size_px": [
+    768,
+    768
+   ],
+   "normal": "decals/moss_a_normal.webp",
+   "orm": "decals/moss_a_orm.webp",
+   "size_m": [
+    1.6,
+    1.6
+   ],
+   "kind": "growth"
+  },
+  {
+   "name": "moss_b",
+   "albedo": "decals/moss_b_albedo.webp",
+   "size_px": [
+    768,
+    768
+   ],
+   "normal": "decals/moss_b_normal.webp",
+   "orm": "decals/moss_b_orm.webp",
+   "size_m": [
+    1.6,
+    1.6
+   ],
+   "kind": "growth"
+  },
+  {
+   "name": "moss_c",
+   "albedo": "decals/moss_c_albedo.webp",
+   "size_px": [
+    768,
+    768
+   ],
+   "normal": "decals/moss_c_normal.webp",
+   "orm": "decals/moss_c_orm.webp",
+   "size_m": [
+    1.6,
+    1.6
+   ],
+   "kind": "growth"
+  },
+  {
+   "name": "crack_a",
+   "albedo": "decals/crack_a_albedo.webp",
+   "size_px": [
+    1024,
+    1024
+   ],
+   "normal": "decals/crack_a_normal.webp",
+   "orm": "decals/crack_a_orm.webp",
+   "size_m": [
+    2.4,
+    2.4
+   ],
+   "kind": "damage"
+  },
+  {
+   "name": "crack_b",
+   "albedo": "decals/crack_b_albedo.webp",
+   "size_px": [
+    1024,
+    1024
+   ],
+   "normal": "decals/crack_b_normal.webp",
+   "orm": "decals/crack_b_orm.webp",
+   "size_m": [
+    2.4,
+    2.4
+   ],
+   "kind": "damage"
+  },
+  {
+   "name": "crack_c",
+   "albedo": "decals/crack_c_albedo.webp",
+   "size_px": [
+    1024,
+    1024
+   ],
+   "normal": "decals/crack_c_normal.webp",
+   "orm": "decals/crack_c_orm.webp",
+   "size_m": [
+    2.4,
+    2.4
+   ],
+   "kind": "damage"
+  },
+  {
+   "name": "tyre_block",
+   "albedo": "decals/tyre_block_albedo.webp",
+   "size_px": [
+    320,
+    1024
+   ],
+   "normal": "decals/tyre_block_normal.webp",
+   "orm": "decals/tyre_block_orm.webp",
+   "size_m": [
+    0.24,
+    0.8
+   ],
+   "kind": "track",
+   "tiles_along_v": true
+  },
+  {
+   "name": "tyre_bar",
+   "albedo": "decals/tyre_bar_albedo.webp",
+   "size_px": [
+    320,
+    1024
+   ],
+   "normal": "decals/tyre_bar_normal.webp",
+   "orm": "decals/tyre_bar_orm.webp",
+   "size_m": [
+    0.24,
+    0.8
+   ],
+   "kind": "track",
+   "tiles_along_v": true
+  },
+  {
+   "name": "footprint_r",
+   "albedo": "decals/footprint_r_albedo.webp",
+   "size_px": [
+    320,
+    640
+   ],
+   "normal": "decals/footprint_r_normal.webp",
+   "orm": "decals/footprint_r_orm.webp",
+   "size_m": [
+    0.13,
+    0.29
+   ],
+   "kind": "track",
+   "surface": "mud"
+  },
+  {
+   "name": "footprint_l",
+   "albedo": "decals/footprint_l_albedo.webp",
+   "size_px": [
+    320,
+    640
+   ],
+   "normal": "decals/footprint_l_normal.webp",
+   "orm": "decals/footprint_l_orm.webp",
+   "size_m": [
+    0.13,
+    0.29
+   ],
+   "kind": "track",
+   "surface": "mud"
+  },
+  {
+   "name": "poster_a",
+   "albedo": "decals/poster_a_albedo.webp",
+   "size_px": [
+    768,
+    1024
+   ],
+   "normal": "decals/poster_a_normal.webp",
+   "orm": "decals/poster_a_orm.webp",
+   "size_m": [
+    0.6,
+    0.8
+   ],
+   "kind": "signage",
+   "albedo_mix": 1.0
+  },
+  {
+   "name": "poster_b",
+   "albedo": "decals/poster_b_albedo.webp",
+   "size_px": [
+    768,
+    1024
+   ],
+   "normal": "decals/poster_b_normal.webp",
+   "orm": "decals/poster_b_orm.webp",
+   "size_m": [
+    0.6,
+    0.8
+   ],
+   "kind": "signage",
+   "albedo_mix": 1.0
+  },
+  {
+   "name": "poster_c",
+   "albedo": "decals/poster_c_albedo.webp",
+   "size_px": [
+    768,
+    1024
+   ],
+   "normal": "decals/poster_c_normal.webp",
+   "orm": "decals/poster_c_orm.webp",
+   "size_m": [
+    0.6,
+    0.8
+   ],
+   "kind": "signage",
+   "albedo_mix": 1.0
+  },
+  {
+   "name": "stencil_sheet",
+   "albedo": "decals/stencil_sheet_albedo.webp",
+   "size_px": [
+    1024,
+    1024
+   ],
+   "normal": "decals/stencil_sheet_normal.webp",
+   "orm": "decals/stencil_sheet_orm.webp",
+   "size_m": [
+    1.0,
+    1.0
+   ],
+   "kind": "signage",
+   "atlas": [
+    {
+     "label": "0",
+     "px": [
+      0,
+      0,
+      256,
+      256
+     ],
+     "uv": [
+      0.0,
+      0.0,
+      0.25,
+      0.25
+     ]
+    },
+    {
+     "label": "1",
+     "px": [
+      256,
+      0,
+      256,
+      256
+     ],
+     "uv": [
+      0.25,
+      0.0,
+      0.5,
+      0.25
+     ]
+    },
+    {
+     "label": "2",
+     "px": [
+      512,
+      0,
+      256,
+      256
+     ],
+     "uv": [
+      0.5,
+      0.0,
+      0.75,
+      0.25
+     ]
+    },
+    {
+     "label": "3",
+     "px": [
+      768,
+      0,
+      256,
+      256
+     ],
+     "uv": [
+      0.75,
+      0.0,
+      1.0,
+      0.25
+     ]
+    },
+    {
+     "label": "4",
+     "px": [
+      0,
+      256,
+      256,
+      256
+     ],
+     "uv": [
+      0.0,
+      0.25,
+      0.25,
+      0.5
+     ]
+    },
+    {
+     "label": "5",
+     "px": [
+      256,
+      256,
+      256,
+      256
+     ],
+     "uv": [
+      0.25,
+      0.25,
+      0.5,
+      0.5
+     ]
+    },
+    {
+     "label": "6",
+     "px": [
+      512,
+      256,
+      256,
+      256
+     ],
+     "uv": [
+      0.5,
+      0.25,
+      0.75,
+      0.5
+     ]
+    },
+    {
+     "label": "7",
+     "px": [
+      768,
+      256,
+      256,
+      256
+     ],
+     "uv": [
+      0.75,
+      0.25,
+      1.0,
+      0.5
+     ]
+    },
+    {
+     "label": "8",
+     "px": [
+      0,
+      512,
+      256,
+      256
+     ],
+     "uv": [
+      0.0,
+      0.5,
+      0.25,
+      0.75
+     ]
+    },
+    {
+     "label": "9",
+     "px": [
+      256,
+      512,
+      256,
+      256
+     ],
+     "uv": [
+      0.25,
+      0.5,
+      0.5,
+      0.75
+     ]
+    },
+    {
+     "label": "OB",
+     "px": [
+      512,
+      512,
+      256,
+      256
+     ],
+     "uv": [
+      0.5,
+      0.5,
+      0.75,
+      0.75
+     ]
+    },
+    {
+     "label": "12",
+     "px": [
+      768,
+      512,
+      256,
+      256
+     ],
+     "uv": [
+      0.75,
+      0.5,
+      1.0,
+      0.75
+     ]
+    },
+    {
+     "label": "\u0412\u0425\u041e\u0414",
+     "px": [
+      0,
+      768,
+      256,
+      256
+     ],
+     "uv": [
+      0.0,
+      0.75,
+      0.25,
+      1.0
+     ]
+    },
+    {
+     "label": "\u0426\u0415\u0425",
+     "px": [
+      256,
+      768,
+      256,
+      256
+     ],
+     "uv": [
+      0.25,
+      0.75,
+      0.5,
+      1.0
+     ]
+    },
+    {
+     "label": "\u041d-2",
+     "px": [
+      512,
+      768,
+      256,
+      256
+     ],
+     "uv": [
+      0.5,
+      0.75,
+      0.75,
+      1.0
+     ]
+    },
+    {
+     "label": "47",
+     "px": [
+      768,
+      768,
+      256,
+      256
+     ],
+     "uv": [
+      0.75,
+      0.75,
+      1.0,
+      1.0
+     ]
+    }
+   ],
+   "note": "4x4 cells; use one cell per decal via the uv rect"
+  }
+ ]
+}

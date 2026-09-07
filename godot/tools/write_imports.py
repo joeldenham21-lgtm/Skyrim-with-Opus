@@ -117,12 +117,20 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_UN)
         except Exception:
             pass
-        ctex = glob.glob(os.path.join(ROOT, ".godot", "imported", "*.ctex"))
-        names = {os.path.basename(f) for f in files}
-        have = [c for c in ctex if os.path.basename(c).split("-")[0] in names or any(os.path.basename(c).startswith(nm + "-") for nm in names)]
+        # each source file must have exactly its own <basename>-<md5 of res path>.ctex
+        imported = os.path.join(ROOT, ".godot", "imported")
+        have, missing, total = 0, [], 0
+        for f in files:
+            res = res_path(f)
+            ct = os.path.join(imported, "%s-%s.ctex" % (os.path.basename(f), md5_of_res(res)))
+            if os.path.exists(ct):
+                have += 1
+                total += os.path.getsize(ct)
+            else:
+                missing.append(os.path.basename(f))
         print(f"[imports] godot --import took {dt:.1f}s ({dt / max(1, len(files)):.2f}s per texture); "
-              f"{len(have)}/{len(files)} .ctex present in .godot/imported (exit {r.returncode})")
-        missing = [nm for nm in sorted(names) if not any(os.path.basename(c).startswith(nm + "-") for c in ctex)]
+              f"{have}/{len(files)} .ctex present in .godot/imported, {total / 1048576:.1f} MB VRAM-compressed "
+              f"(exit {r.returncode})")
         if missing:
             print("[imports] missing:", ", ".join(missing[:20]), "..." if len(missing) > 20 else "")
         err = [ln for ln in (r.stdout + r.stderr).splitlines() if "ERROR" in ln or "error" in ln.lower()]

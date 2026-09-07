@@ -54,15 +54,17 @@ func _neutral_env() -> void:
 	sun.rotation_degrees = Vector3(-38.0, 145.0, 0.0)
 	Game.world.get_parent().add_child(sun)
 
-func _view(name: String, x: float, z: float, eye: float, yaw_deg: float, pitch_deg: float) -> void:
+func _view(name: String, x: float, z: float, eye: float, tx: float, tz: float, pitch_deg: float = -4.0) -> void:
+	## stand at (x, z) with the eye `eye` m above the ground and look toward (tx, tz).
 	var y: float = Game.world.get_height(x, z) + eye
 	Game.player.teleport(x, z, y - 0.1)
-	Game.player.set_look(deg_to_rad(yaw_deg), deg_to_rad(pitch_deg))
+	var yaw := atan2(-(tx - x), -(tz - z))
+	Game.player.set_look(yaw, deg_to_rad(pitch_deg))
 	Game.player.lock_movement(true)
 	await frames(6)
 	await shot(name)
 	var s := stats()
-	print("[stats] %-14s draws %5d prims %8d pos %s" % [name, s.draw_calls, s.primitives, s.pos])
+	print("[stats] %-18s draws %5d prims %8d pos %s" % [name, s.draw_calls, s.primitives, s.pos])
 
 func run() -> void:
 	await start()
@@ -73,17 +75,21 @@ func run() -> void:
 	var w: Node = Game.world.get_node_or_null("Water")
 	if w and w.has_method("info"): print("[water] ", w.info())
 	set_hour(12.0)
-	await _view("solo-ground-1m", 20, 250, 1.0, 30.0, -42.0)
-	await _view("solo-vanno-north", 0, 300, 1.7, 0.0, -3.0)
-	await _view("solo-marsh", -30, 175, 1.7, 200.0, -6.0)
-	await _view("solo-river", -95, -20, 1.7, 160.0, -8.0)
-	await _view("solo-escarpment", 10, -240, 1.7, 0.0, 5.0)
-	await _view("solo-quarry", 355, 120, 1.7, 95.0, -12.0)
-	await _view("solo-vista", 0, -340, 2.2, 180.0, -5.0)
-	await _view("solo-lake", -380, 205, 1.7, 250.0, -3.0)
-	# water close-ups: the marsh edge from 2 m, running water at the bridge, and a submerged camera in the quarry
-	await _view("solo-water-edge", -52, 150, 1.4, 250.0, -22.0)
-	await _view("solo-water-river", -74, 60, 1.6, 200.0, -14.0)
-	await _view("solo-underwater", 430, 130, 1.2, 20.0, -6.0)
-	var w2: Node = Game.world.get_node_or_null("Water")
-	if w2 and w2.has_method("info"): print("[water] ", w2.info())
+	#            name                 from x     z   eye   look at x     z   pitch
+	await _view("solo-ground-1m",        20,   250,  1.0,        22,   246, -40.0)
+	await _view("solo-vanno-north",       0,   300,  1.7,         0,     0,  -2.0)
+	await _view("solo-road-north",       14,   150,  1.7,        -5,  -140,  -1.0)
+	await _view("solo-marsh",           -18,   118,  1.7,       -60,   165,  -3.0)
+	await _view("solo-river",           -95,   -20,  1.7,       -70,    69,  -6.0)
+	await _view("solo-bridge",          -60,    30,  1.7,       -78,   100,  -3.0)
+	await _view("solo-escarpment",       10,  -250,  1.7,        10,  -330,   6.0)
+	await _view("solo-cliff-edge",        0,  -318,  1.9,         0,  -100,  -7.0)
+	await _view("solo-quarry",          345,   125,  1.8,       460,   135, -10.0)
+	await _view("solo-lake",           -378,   200,  1.7,      -470,   220,  -2.0)
+	await _view("solo-mast",            445,  -255,  2.0,        50,  -230,  -2.0)
+	await _view("solo-dam",            -215,  -400,  2.0,      -245,  -448,  -5.0)
+	await _view("solo-rail",            -60,  -150,  1.7,       200,  -175,  -2.0)
+	await _view("solo-water-edge",      -55,   132,  1.5,       -75,   170, -12.0)
+	await _view("solo-water-river",     -74,    50,  1.6,       -72,    80, -10.0)
+	await _view("solo-underwater",      430,   130,  1.2,       470,   135,  -4.0)
+	if w and w.has_method("info"): print("[water] ", w.info())

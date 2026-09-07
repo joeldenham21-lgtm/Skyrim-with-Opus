@@ -99,10 +99,37 @@ def _bleed(rgb, cov, thresh=0.02):
     return rgb[idx[0], idx[1]].astype(F32)
 
 
-def _card_maps(rgb_pm, cov, dep, rgh, radius=3.0, ao_blur=24.0, depth_h=0.55):
+def _detail(albedo, cov, seed, dry=(0.34, 0.27, 0.16), edge_px=5.0, mottle=0.16, spots=0.35):
+    """Leaves and blades are never flat colour: add fine variegation, a few damaged blotches and a dry rim.
+
+    The rim uses the distance to the silhouette, so every leaf and blade darkens and browns at its own edge —
+    the single cheapest thing that stops drawn foliage from reading as clip art.
+    """
+    h, w = cov.shape
+    n = 1
+    while n < max(h, w):
+        n *= 2
+    n1 = (N.fbm(n, 26, 5, seed, min_res=256) * 0.5 + 0.5)[:h, :w]
+    n2 = (N.fbm(n, 110, 4, seed + 1, min_res=512) * 0.5 + 0.5)[:h, :w]
+    n3 = (N.fbm(n, 340, 3, seed + 2, min_res=512) * 0.5 + 0.5)[:h, :w]
+    shade = 1.0 + (n1 - 0.5) * mottle * 1.4 + (n2 - 0.5) * mottle + (n3 - 0.5) * mottle * 0.7
+    out = albedo * shade[..., None]
+    d = ndimage.distance_transform_edt(cov > 0.35).astype(F32)
+    rim = 1.0 - np.clip(d / edge_px, 0.0, 1.0)
+    dryc = np.array(dry, F32)[None, None, :]
+    out = out * (1.0 - rim[..., None] * 0.45) + dryc * (rim[..., None] * 0.45)
+    blot = np.clip((n2 * 0.6 + n3 * 0.4 - 0.62) * 6.0, 0, 1) * spots
+    out = out * (1.0 - blot[..., None] * 0.8) + dryc * 0.85 * (blot[..., None] * 0.8)
+    return np.clip(out, 0, 1).astype(F32)
+
+
+def _card_maps(rgb_pm, cov, dep, rgh, radius=3.0, ao_blur=24.0, depth_h=0.55, detail_seed=None, detail=None):
     """Turn a resolved tile into (albedo, alpha, normal, orm, height)."""
     alpha = np.clip(cov, 0, 1)
-    albedo = _bleed(_unpremul(rgb_pm, cov), cov)
+    albedo = _unpremul(rgb_pm, cov)
+    if detail_seed is not None:
+        albedo = _detail(albedo, cov, detail_seed, **(detail or {}))
+    albedo = _bleed(albedo, cov)
     # cross-section: distance inside the silhouette gives every blade/leaf a rounded body
     d = ndimage.distance_transform_edt(cov > 0.35).astype(F32)
     bulge = np.sqrt(np.clip(d / radius, 0.0, 1.0)).astype(F32)
@@ -189,8 +216,8 @@ def _leaf(tile, x, y, ang, length, width, col, vein, depth, rough, teeth=9, flip
             a = ang + sgn * flip * 0.75
             bx = x + np.cos(ang) * t * length
             by = y + np.sin(ang) * t * length
-            ex = bx + np.cos(a) * w * 1.5
-            ey = by + np.sin(a) * w * 1.5
+            ex = bx + np.cos(a) * w * 0.80
+            ey = by + np.sin(a) * w * 0.80
             tile.line([(bx, by), (ex, ey)], vein, max(1.0, width * 0.035), depth + 0.005, rough)
     if petiole is not None:
         tile.line([(x - np.cos(ang) * length * 0.16, y - np.sin(ang) * length * 0.16), (x, y)],
@@ -285,17 +312,16 @@ def pine_cell(n, seed):
     wood2 = (0.235, 0.180, 0.128)
     needles = [(0.118, 0.170, 0.118), (0.145, 0.196, 0.130), (0.098, 0.145, 0.108), (0.180, 0.205, 0.135)]
     dead_n = [(0.320, 0.240, 0.140), (0.260, 0.185, 0.110)]
-    y0 = n * 0.5
-    main = _spine(-n * 0.02, y0 + n * 0.16, -0.16, n * 1.02, -0.10, seg=14)
-    _strip(t, main, n * 0.055, n * 0.012, wood, wood2, 0.30, 0.88)
+    main = _spine(n * 0.02, n * 0.98, -0.62, n * 1.30, 0.16, seg=16)
+    _strip(t, main, n * 0.048, n * 0.010, wood, wood2, 0.30, 0.88)
     # side branches with needle fans at every twig tip
-    for i, tt in enumerate(np.linspace(0.16, 0.97, 9)):
+    for i, tt in enumerate(np.linspace(0.10, 0.97, 11)):
         bx, by = main[int(tt * (len(main) - 1))]
         for sgn in (-1.0, 1.0):
-            if r.random() < 0.12:
+            if r.random() < 0.08:
                 continue
-            a = -0.16 + sgn * r.uniform(0.55, 1.05)
-            ln = n * r.uniform(0.16, 0.34) * (1.05 - tt * 0.45)
+            a = -0.62 + sgn * r.uniform(0.6, 1.25)
+            ln = n * r.uniform(0.22, 0.42) * (1.05 - tt * 0.35)
             sp = _spine(bx, by, a, ln, sgn * r.uniform(0.1, 0.4), seg=8)
             dep = 0.35 + 0.3 * r.random()
             _strip(t, sp, n * 0.020, n * 0.006, wood, wood2, dep, 0.88)
@@ -309,7 +335,7 @@ def pine_cell(n, seed):
                 _needle_fan(t, r, px, py, a, 9, n * 0.09, n * 0.005, dead_n, 0.5, 0.85, spread=1.3, curve=0.7)
     # terminal candle
     ex, ey = main[-1]
-    _needle_fan(t, r, ex, ey, -0.16, 46, n * 0.16, n * 0.006, needles, 0.92, 0.55, spread=1.4, curve=0.5)
+    _needle_fan(t, r, ex, ey, -0.62, 46, n * 0.16, n * 0.006, needles, 0.92, 0.55, spread=1.4, curve=0.5)
     # two cones
     for _ in range(2):
         cx, cy = r.uniform(n * 0.35, n * 0.8), r.uniform(n * 0.25, n * 0.75)
@@ -327,13 +353,13 @@ def spruce_cell(n, seed):
     t = Tile(n, n, ss=2)
     wood = (0.130, 0.098, 0.075)
     needles = [(0.075, 0.125, 0.098), (0.098, 0.150, 0.110), (0.060, 0.100, 0.082), (0.130, 0.165, 0.115)]
-    main = _spine(-n * 0.02, n * 0.30, 0.06, n * 1.03, 0.10, seg=14)
-    _strip(t, main, n * 0.042, n * 0.010, wood, (0.20, 0.155, 0.115), 0.30, 0.88)
-    for tt in np.linspace(0.10, 0.98, 12):
+    main = _spine(n * 0.02, n * 0.90, -0.42, n * 1.25, 0.22, seg=16)
+    _strip(t, main, n * 0.038, n * 0.009, wood, (0.20, 0.155, 0.115), 0.30, 0.88)
+    for tt in np.linspace(0.08, 0.98, 15):
         bx, by = main[int(tt * (len(main) - 1))]
         for sgn in (-1.0, 1.0):
-            a = 0.06 + sgn * r.uniform(0.5, 1.0)
-            ln = n * r.uniform(0.14, 0.30) * (1.1 - tt * 0.5)
+            a = -0.42 + sgn * r.uniform(0.55, 1.20)
+            ln = n * r.uniform(0.20, 0.38) * (1.1 - tt * 0.42)
             sp = _spine(bx, by, a, ln, sgn * r.uniform(0.2, 0.6), gravity=sgn * 0.5, seg=8)
             dep = 0.35 + 0.35 * r.random()
             _strip(t, sp, n * 0.014, n * 0.004, wood, (0.19, 0.145, 0.108), dep, 0.88)
@@ -357,16 +383,16 @@ def birch_cell(n, seed):
     t = Tile(n, n, ss=2)
     bark = (0.560, 0.545, 0.505)
     bark2 = (0.300, 0.270, 0.235)
-    greens = [(0.170, 0.230, 0.115), (0.205, 0.265, 0.135), (0.140, 0.190, 0.100)]
-    yellows = [(0.400, 0.360, 0.150), (0.330, 0.270, 0.115)]
-    main = _spine(-n * 0.02, n * 0.72, -0.30, n * 1.04, 0.22, seg=14)
+    greens = [(0.215, 0.285, 0.140), (0.255, 0.320, 0.165), (0.180, 0.240, 0.120)]
+    yellows = [(0.430, 0.390, 0.165), (0.360, 0.295, 0.125)]
+    main = _spine(n * 0.03, n * 1.0, -0.72, n * 1.20, 0.30, seg=16)
     _strip(t, main, n * 0.026, n * 0.006, bark2, bark, 0.28, 0.85)
-    twigs = [(main, -0.30)]
-    for tt in np.linspace(0.18, 0.95, 7):
+    twigs = [(main, -0.72)]
+    for tt in np.linspace(0.12, 0.95, 10):
         bx, by = main[int(tt * (len(main) - 1))]
         sgn = 1.0 if r.random() < 0.5 else -1.0
-        a = -0.30 + sgn * r.uniform(0.4, 0.9)
-        sp = _spine(bx, by, a, n * r.uniform(0.16, 0.34), sgn * r.uniform(0.1, 0.5), gravity=0.35, seg=8)
+        a = -0.72 + sgn * r.uniform(0.45, 1.15)
+        sp = _spine(bx, by, a, n * r.uniform(0.20, 0.42), sgn * r.uniform(0.1, 0.5), gravity=0.35, seg=8)
         _strip(t, sp, n * 0.012, n * 0.004, bark2, bark, 0.33, 0.85)
         twigs.append((sp, a))
     for sp, a in twigs:
@@ -384,9 +410,10 @@ def birch_cell(n, seed):
                 col = (yellows if yellow else greens)[r.integers(0, 2 if yellow else 3)]
                 sh = r.uniform(0.78, 1.22)
                 dep = 0.45 + 0.5 * r.random()
-                _leaf(t, px, py, la, ln, ln * r.uniform(0.72, 0.92), col,
-                      tuple(v * 0.62 for v in col), dep, 0.52 if not yellow else 0.74,
-                      teeth=11, flip=1.0 if r.random() < 0.5 else -1.0, shade=sh, petiole=bark2)
+                _leaf(t, px, py, la, ln, ln * r.uniform(0.74, 0.95), col,
+                      tuple(v * 0.68 for v in col), dep, 0.52 if not yellow else 0.74,
+                      teeth=13, tooth=0.028, tip=0.62, base=0.72,
+                      flip=1.0 if r.random() < 0.5 else -1.0, shade=sh, petiole=bark2)
     for _ in range(3):                                  # catkins
         sp, a = twigs[r.integers(0, len(twigs))]
         px, py = sp[r.integers(2, len(sp) - 1)]
@@ -430,8 +457,9 @@ def dead_branch_cell(n, seed):
             fork(mx, my, a + r.choice([-1.0, 1.0]) * r.uniform(0.5, 1.1), ln * r.uniform(0.35, 0.55),
                  wd * r.uniform(0.4, 0.6), depth + r.uniform(0.02, 0.1), order - 1)
 
-    fork(-n * 0.02, n * 0.62, -0.35, n * 0.42, n * 0.035, 0.3, 4)
-    fork(n * 0.05, n * 0.92, -0.85, n * 0.34, n * 0.026, 0.32, 3)
+    fork(n * 0.02, n * 0.98, -0.60, n * 0.50, n * 0.038, 0.3, 5)
+    fork(n * 0.06, n * 0.96, -1.05, n * 0.40, n * 0.028, 0.32, 4)
+    fork(n * 0.30, n * 0.99, -0.35, n * 0.34, n * 0.022, 0.34, 3)
     return t
 
 
@@ -441,11 +469,11 @@ def bush_cell(n, seed):
     wood = (0.140, 0.120, 0.098)
     greens = [(0.128, 0.170, 0.098), (0.160, 0.205, 0.118), (0.100, 0.140, 0.088), (0.205, 0.225, 0.128)]
     autumn = [(0.330, 0.255, 0.115), (0.270, 0.190, 0.098)]
-    cx, cy = n * 0.5, n * 0.62
+    cx, cy = n * 0.5, n * 0.52
     stems = []
     for i in range(9):
         a = -np.pi / 2 + r.uniform(-0.85, 0.85)
-        sp = _spine(cx + r.uniform(-n * 0.06, n * 0.06), n * 1.0, a, n * r.uniform(0.55, 0.92),
+        sp = _spine(cx + r.uniform(-n * 0.12, n * 0.12), n * 1.0, a, n * r.uniform(0.72, 1.05),
                     r.uniform(-0.5, 0.5), gravity=r.uniform(-0.4, 0.4), seg=10)
         _strip(t, sp, n * 0.016, n * 0.004, wood, (0.22, 0.19, 0.15), 0.22, 0.9)
         stems.append((sp, a))
@@ -456,22 +484,22 @@ def bush_cell(n, seed):
                 sp2 = _spine(px, py, aa, n * r.uniform(0.10, 0.24), r.uniform(-0.5, 0.5), seg=6)
                 _strip(t, sp2, n * 0.009, n * 0.003, wood, (0.22, 0.19, 0.15), 0.26, 0.9)
                 stems.append((sp2, aa))
-    for i in range(560):
+    for i in range(1100):
         sp, a = stems[r.integers(0, len(stems))]
         k = r.integers(1, len(sp))
         px, py = sp[k - 1]
         px += r.normal(0, n * 0.02)
         py += r.normal(0, n * 0.02)
-        d = np.hypot(px - cx, py - cy * 1.05) / (n * 0.55)
+        d = np.hypot((px - cx) * 0.92, (py - cy * 1.05) * 1.08) / (n * 0.62)
         if r.random() < d * d * 0.9:
             continue
         la = a + r.uniform(-1.6, 1.6)
-        ln = n * r.uniform(0.045, 0.085)
+        ln = n * r.uniform(0.030, 0.062)
         aut = r.random() < 0.18
         col = (autumn if aut else greens)[r.integers(0, 2 if aut else 4)]
         depth = 0.35 + 0.62 * float(np.clip(1.0 - d, 0.05, 1.0)) * r.uniform(0.6, 1.0)
-        _leaf(t, px, py, la, ln, ln * r.uniform(0.5, 0.72), col, tuple(v * 0.6 for v in col),
-              depth, 0.58 if not aut else 0.8, teeth=7, tooth=0.04,
+        _leaf(t, px, py, la, ln, ln * r.uniform(0.52, 0.76), col, tuple(v * 0.66 for v in col),
+              depth, 0.58 if not aut else 0.8, teeth=6, tooth=0.022, tip=0.68, base=0.70,
               flip=1.0 if r.random() < 0.5 else -1.0, shade=r.uniform(0.62, 1.25))
     return t
 
@@ -481,20 +509,23 @@ def fern_cell(n, seed):
     t = Tile(n, n, ss=2)
     greens = [(0.105, 0.155, 0.088), (0.135, 0.185, 0.100), (0.082, 0.120, 0.072)]
     brown = (0.290, 0.220, 0.110)
-    for f in range(4):
-        x0 = n * (0.20 + 0.20 * f) + r.uniform(-n * 0.04, n * 0.04)
-        a0 = -np.pi / 2 + r.uniform(-0.5, 0.5)
-        L = n * r.uniform(0.72, 0.98)
-        rach = _spine(x0, n * 1.0, a0, L, r.uniform(-0.35, 0.35), gravity=r.uniform(0.5, 1.4), seg=16)
+    for f in range(3):
+        x0 = n * (0.22 + 0.28 * f) + r.uniform(-n * 0.05, n * 0.05)
+        a0 = -np.pi / 2 + (f - 1) * 0.45 + r.uniform(-0.2, 0.2)
+        L = n * r.uniform(0.88, 1.10)
+        rach = _spine(x0, n * 1.02, a0, L, r.uniform(-0.25, 0.25),
+                      gravity=(1.0 if f != 1 else 0.5) * r.uniform(0.8, 1.8), seg=16)
         dep = 0.3 + 0.16 * f
         _strip(t, rach, n * 0.011, n * 0.003, (0.20, 0.175, 0.098), (0.28, 0.255, 0.140), dep, 0.85)
         m = len(rach) - 1
         for k in range(1, m):
+            if k % 2 == 0:
+                continue
             tt = k / m
             px, py = rach[k]
             ax, ay = rach[k + 1]
             base_a = np.arctan2(ay - py, ax - px)
-            plen = n * 0.20 * (np.sin(np.pi * (0.12 + tt * 0.88)) ** 0.8) * r.uniform(0.85, 1.15)
+            plen = n * 0.30 * (np.sin(np.pi * (0.10 + tt * 0.90)) ** 0.70) * r.uniform(0.85, 1.15)
             for sgn in (-1.0, 1.0):
                 pa = base_a + sgn * (0.95 - 0.35 * tt)
                 psp = _spine(px, py, pa, plen, sgn * r.uniform(0.1, 0.45), seg=7)
@@ -505,8 +536,10 @@ def fern_cell(n, seed):
                        tuple(min(1, v * sh * 1.1) for v in col), dep + 0.02, 0.62)
                 # pinnules along the pinna
                 for j in range(1, len(psp) - 1):
+                    if j % 2 == 0:
+                        continue
                     qx, qy = psp[j]
-                    sz = plen * 0.30 * (1.0 - j / len(psp))
+                    sz = plen * 0.34 * (1.0 - j / len(psp) * 0.85)
                     for s2 in (-1.0, 1.0):
                         _leaf(t, qx, qy, pa + s2 * 1.0, sz, sz * 0.55,
                               tuple(v * sh for v in col), tuple(v * sh * 0.6 for v in col),
@@ -565,21 +598,21 @@ def litter_cell(n, seed):
         sh = r.uniform(0.7, 1.25)
         _strip(t, _spine(x, y, a, ln, r.uniform(-0.5, 0.5), seg=3), n * r.uniform(0.002, 0.005), n * 0.001,
                tuple(v * sh * 0.8 for v in c), tuple(min(1, v * sh * 1.15) for v in c), 0.08 + 0.12 * r.random(), 0.9)
-    for i in range(230):
+    for i in range(300):
         d = i / 230.0
         x, y = r.uniform(0, n), r.uniform(0, n)
         # keep an irregular open edge so the card does not read as a rectangle
-        e = min(x, y, n - x, n - y) / (n * 0.12)
-        if r.random() > np.clip(e, 0.15, 1.0):
+        e = min(x, y, n - x, n - y) / (n * 0.10)
+        if r.random() > np.clip(e, 0.35, 1.0):
             continue
         a = r.uniform(0, np.pi * 2)
-        ln = n * r.uniform(0.075, 0.165)
+        ln = n * r.uniform(0.055, 0.185)
         col = cols[r.integers(0, len(cols))]
         sh = r.uniform(0.65, 1.3)
         curl = r.random() < 0.35
         _leaf(t, x, y, a, ln, ln * r.uniform(0.55, 0.85), tuple(v * sh for v in col),
               tuple(v * sh * 0.55 for v in col), 0.25 + 0.7 * d, 0.86,
-              teeth=9 if not curl else 5, tooth=0.05 if not curl else 0.11,
+              teeth=8 if not curl else 5, tooth=0.030 if not curl else 0.075,
               flip=1.0 if r.random() < 0.5 else -1.0, tip=0.7 if not curl else 1.1)
     return t
 
@@ -591,7 +624,7 @@ def _paste(dst, src, x, y):
     dst[y:y + h, x:x + w] = src
 
 
-def _build_atlas(name, size, cells, out, preview_dir, radius=3.0, ao_blur=24.0):
+def _build_atlas(name, size, cells, out, preview_dir, radius=3.0, ao_blur=24.0, detail=None):
     """cells = [(cx, cy, cw, ch, tile, meta)] in atlas pixels."""
     albedo = np.zeros((size, size, 3), F32)
     alpha = np.zeros((size, size), F32)
@@ -604,8 +637,12 @@ def _build_atlas(name, size, cells, out, preview_dir, radius=3.0, ao_blur=24.0):
     orm[..., 1] = 0.9
     height = np.zeros((size, size), F32)
     rects = []
-    for cx, cy, cw, ch, tile, meta in cells:
-        a, al, nn, oo, hh = _card_maps(*tile.resolve(), radius=radius, ao_blur=ao_blur)
+    for ci, (cx, cy, cw, ch, tile, meta) in enumerate(cells):
+        det = dict(detail or {})
+        if "dry" in meta:
+            det["dry"] = meta.pop("dry")
+        a, al, nn, oo, hh = _card_maps(*tile.resolve(), radius=radius, ao_blur=ao_blur,
+                                       detail_seed=9100 + ci * 131, detail=det)
         _paste(albedo, a, cx, cy)
         _paste(alpha, al, cx, cy)
         _paste(nrm, nn, cx, cy)

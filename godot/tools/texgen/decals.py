@@ -156,15 +156,15 @@ def bullet(kind, n=512, seed=0):
     elif kind == "metal":
         hole = 1.0 - N.smoothstep(0.030, 0.048, dd)
         lip = (1.0 - N.smoothstep(0.055, 0.085, dd)) * N.smoothstep(0.028, 0.05, dd)
-        bright = 1.0 - N.smoothstep(0.06, 0.13, dd)
+        bright = 1.0 - N.smoothstep(0.048, 0.085, dd)
         petal = np.zeros((n, n), F32)
         for i in range(int(r.integers(5, 8))):
             a0 = r.uniform(0, 2 * np.pi)
             dth = np.abs(((th - a0 + np.pi) % (2 * np.pi)) - np.pi)
             petal = np.maximum(petal, (1.0 - N.smoothstep(0.25, 0.55, dth)) * lip)
         chip = (1.0 - N.smoothstep(0.10, 0.19, dd)) * (_noise(n, n, 26, 3, seed + 6) * 0.5 + 0.5)
-        alpha = np.clip(hole + lip + bright * 0.7 + chip * 0.5, 0, 1)
-        col = M.mix(M.solid(n, C("#8f959a")), M.solid(n, C("#c2c7ca")), bright)
+        alpha = np.clip(hole + lip + bright * 0.85 + chip * 0.6, 0, 1)
+        col = M.mix(M.solid(n, C("#7c8288")), M.solid(n, C("#b6bbbe")), bright)
         col = M.mix(col, M.solid(n, C("#d6dade")), petal * 0.8)
         col = M.mix(col, M.solid(n, C("#08080a")), hole * 0.98)
         col = M.mix(col, M.solid(n, C("#5b4a3a")), chip * 0.35)
@@ -221,12 +221,12 @@ def blood_splat(n=512, seed=0, big=False):
     alpha = _blur(alpha, 0.8)
     edge = np.clip((alpha - _blur(alpha, 3.0)) * 4.0, 0, 1)
     inner = np.clip(alpha - edge, 0, 1)
-    dark = M.solid(n, C("#3a0f0c"))
-    mid = M.solid(n, C("#5a1a12"))
-    dry = M.solid(n, C("#2a1410"))
+    dark = M.solid(n, C("#2a0e0a"))
+    mid = M.solid(n, C("#42160f"))
+    dry = M.solid(n, C("#1d100c"))
     col = M.mix(dark, mid, _noise(n, n, 20, 4, seed + 3) * 0.5 + 0.5)
     col = M.mix(col, dry, np.clip(1.0 - inner, 0, 1) * 0.6)
-    col = M.mul(col, 0.8 + (_noise(n, n, 60, 3, seed + 4) * 0.5 + 0.5) * 0.4)
+    col = M.mul(col, 0.75 + (_noise(n, n, 60, 3, seed + 4) * 0.5 + 0.5) * 0.3)
     height = alpha * 0.12 + edge * 0.10
     nrm = _normal_from(_blur(height, 1.2), strength=5.0, alpha=alpha)
     rough = 0.55 + (1.0 - inner) * 0.35
@@ -260,8 +260,8 @@ def blood_drip(w=384, h=768, seed=0):
     nz = np.zeros((h, w), F32)
     nz[:] = (np.random.default_rng(seed + 9).random((h, w)) - 0.5) * 0.2
     col = np.zeros((h, w, 3), F32)
-    base = np.array(C("#4a1410"), F32)
-    dryc = np.array(C("#2b110d"), F32)
+    base = np.array(C("#36110c"), F32)
+    dryc = np.array(C("#1f0d09"), F32)
     fade = np.clip(ys / h, 0, 1)
     col[:] = base[None, None, :] * (1 - fade[..., None] * 0.35) + dryc[None, None, :] * (fade[..., None] * 0.35)
     col = col * (0.85 + nz[..., None])
@@ -346,18 +346,32 @@ def rust_streak(w=384, h=768, seed=0):
     m = max(w, h)
     src = np.zeros((m, m), F32)
     rr = np.random.default_rng(seed)
-    for i in range(int(rr.integers(3, 7))):
-        x = int(rr.uniform(0.15, 0.85) * w)
-        src[int(rr.uniform(0.01, 0.08) * h), max(0, x - 3):x + 3] = 1.0
-    col_noise = N.fbm(m, 90, 3, seed + 1, cells_y=6, min_res=512) * 0.5 + 0.5
-    d = N.drips(src * (0.4 + 0.6 * col_noise), decay=0.9975, noise=col_noise, strength=1.0)
-    d = np.clip(d[:h, :w] * 1.5, 0, 1)
-    spread = _blur(d, 3.0) * 0.7
-    alpha = np.clip(d + spread * 0.6, 0, 1)
+    # a few sources that wander sideways as they run, so the streaks are ragged and merge
+    for i in range(int(rr.integers(3, 6))):
+        x = rr.uniform(0.15, 0.85) * w
+        y = rr.uniform(0.01, 0.06) * h
+        wdt = rr.uniform(2.0, 7.0)
+        strength = rr.uniform(0.55, 1.0)
+        for step in range(int(h * rr.uniform(0.35, 0.95))):
+            yy = int(y + step)
+            if yy >= m:
+                break
+            x += rr.normal(0, 0.35)
+            ww = wdt * (1.0 + step / h * 2.2)
+            x0 = int(np.clip(x - ww * 0.5, 0, w - 1))
+            x1 = int(np.clip(x + ww * 0.5, 1, w))
+            src[yy, x0:x1] = max(0.0, strength * (1.0 - step / h * 0.55)) * rr.uniform(0.7, 1.0)
+    col_noise = N.fbm(m, 110, 3, seed + 1, cells_y=5, min_res=512) * 0.5 + 0.5
+    d = N.drips(src, decay=0.9955, noise=None, strength=1.0)
+    d = d[:h, :w] * (0.35 + 0.85 * col_noise[:h, :w])
+    thin = np.linspace(1.0, 0.35, h).astype(F32)[:, None]
+    d = np.clip(d * 1.6 * thin, 0, 1)
+    spread = _blur(d, 5.0) * 0.9
+    alpha = np.clip(d + spread * 0.75, 0, 1)
     tex = (N.fbm(m, 60, 4, seed + 2, min_res=512) * 0.5 + 0.5)[:h, :w]
     col = np.zeros((h, w, 3), F32)
-    c1 = np.array(C("#6b3a1e"), F32)
-    c2 = np.array(C("#9a5c2a"), F32)
+    c1 = np.array(C("#63361c"), F32)
+    c2 = np.array(C("#8f5527"), F32)
     col[:] = c1[None, None, :] * (1 - tex[..., None]) + c2[None, None, :] * tex[..., None]
     col = col * (0.8 + tex[..., None] * 0.4)
     height = alpha * 0.06
@@ -371,7 +385,7 @@ def moss_patch(n=1024, seed=0):
     d, th = _radial(n, n)
     shape = d + _noise(n, n, 6, 5, seed + 1) * 0.16 + _noise(n, n, 22, 4, seed + 2) * 0.06
     body = 1.0 - N.smoothstep(0.26, 0.40, shape)
-    greens = [C("#455326"), C("#57662f"), C("#38431f"), C("#6d7a3f")]
+    greens = [C("#39442a"), C("#46532f"), C("#2c3520"), C("#57603a")]
     rgb, cov, hh = draw_strokes(n, seed + 3, 12000, length=(5, 14), width=(1.4, 3.0), colors=greens,
                                 shade=(0.55, 1.15), tip_light=0.4, height=(0.2, 1.0), ss=2, segments=3, taper=0.6)
     alpha = np.clip(cov * np.clip(body * 1.6, 0, 1), 0, 1)
@@ -389,12 +403,13 @@ def moss_patch(n=1024, seed=0):
 def crack_decal(n=1024, seed=0, heavy=False):
     lines = crack_lines(n, 2 if not heavy else 4, seed, length=(0.4, 0.95), wander=0.05, branch_p=0.55)
     lines += crack_lines(n, 5 if not heavy else 9, seed + 1, length=(0.1, 0.35), wander=0.1, branch_p=0.35)
-    m1 = crack_mask(n, lines, width=3.2 if heavy else 2.2, soft=0.5, wobble=1.5, seed=seed + 2)
-    m2 = crack_mask(n, lines, width=9.0, soft=5.0)
-    alpha = np.clip(m1 + m2 * 0.55, 0, 1)
+    m1 = crack_mask(n, lines, width=5.0 if heavy else 3.4, soft=0.6, wobble=1.8, seed=seed + 2)
+    m1 = np.clip(m1 * 1.5, 0, 1)
+    m2 = np.clip(crack_mask(n, lines, width=16.0, soft=7.0) * 1.6, 0, 1)
+    alpha = np.clip(m1 * 1.2 + m2 * 0.8, 0, 1)
     edge = np.clip(m2 - m1, 0, 1)
-    col = M.mix(M.solid(n, C("#2a2825")), M.solid(n, C("#12100f")), m1)
-    col = M.mix(col, M.solid(n, C("#918d84")), edge * 0.35)
+    col = M.mix(M.solid(n, C("#3a3733")), M.solid(n, C("#0d0c0b")), np.clip(m1 * 1.3, 0, 1))
+    col = M.mix(col, M.solid(n, C("#9d998f")), edge * 0.45)
     height = -m1 * 0.5 - m2 * 0.08
     nrm = _normal_from(_blur(height, 0.8), strength=9.0, alpha=alpha)
     ao = np.clip(1.0 - m2 * 0.5 - m1 * 0.4, 0.2, 1.0)
@@ -446,18 +461,20 @@ def footprint(w=320, h=640, seed=0, right=True):
     if not right:
         u = -u
     # sole outline: heel (0.72-1.0), waist, forefoot (0.05-0.62)
-    halfw = (0.72 * np.exp(-((v - 0.30) / 0.36) ** 2)
-             + 0.60 * np.exp(-((v - 0.86) / 0.16) ** 2)
-             + 0.30)
-    halfw = np.clip(halfw, 0, 0.92)
-    halfw = halfw * (1.0 - 0.16 * np.exp(-((v - 0.62) / 0.10) ** 2))     # waist
+    halfw = (0.76 * np.exp(-((v - 0.26) / 0.30) ** 2)                   # ball of the foot: widest
+             + 0.60 * np.exp(-((v - 0.88) / 0.16) ** 2)                  # heel
+             + 0.52 * np.exp(-((v - 0.58) / 0.40) ** 2))                 # instep carries through
+    halfw = np.clip(halfw, 0, 0.78)
+    halfw = halfw * (1.0 - 0.12 * np.exp(-((v - 0.72) / 0.11) ** 2))     # slight waist only
     edge = np.abs(u + 0.06 * np.sin(v * 6.0)) / np.maximum(halfw, 1e-3)
     sole = 1.0 - N.smoothstep(0.90, 1.02, edge)
     sole = sole * N.smoothstep(0.02, 0.06, v) * N.smoothstep(0.02, 0.06, 1 - v)
     # lugs: chevrons on the forefoot, bars on the heel
-    chev = np.abs(((v * 22.0 + np.abs(u) * 3.2) % 1.0) - 0.5) * 2.0
-    bar = np.abs(((v * 15.0) % 1.0) - 0.5) * 2.0
-    lug = np.where(v < 0.66, N.smoothstep(0.30, 0.60, chev), N.smoothstep(0.35, 0.65, bar))
+    chev = np.abs(((v * 13.0 + np.abs(u) * 1.6) % 1.0) - 0.5) * 2.0
+    bar = np.abs(((v * 9.0) % 1.0) - 0.5) * 2.0
+    blockx = np.abs(((u * 3.0) % 1.0) - 0.5) * 2.0
+    lug = np.where(v < 0.62, N.smoothstep(0.25, 0.55, chev), N.smoothstep(0.30, 0.60, bar))
+    lug = np.minimum(lug, N.smoothstep(0.12, 0.35, blockx) * 0.4 + 0.6)
     rim = 1.0 - N.smoothstep(0.72, 0.95, edge)
     nz = N.fbm(max(w, h), 50, 4, seed + 1, min_res=256)[:h, :w]
     depth = sole * (0.55 + lug * 0.45) * (0.8 + nz * 0.4)
@@ -516,8 +533,7 @@ def poster(w=768, h=1024, seed=0, variant=0):
         d.text((cx, int(h * 0.82)), "УНПСК · ОТДЕЛ РЕЖИМА · ФОРМА 4", font=f4, fill=(88, 84, 80), anchor="ma")
     else:
         f = font(int(h * 0.055), bold=True)
-        d.text((int(w * 0.07), int(h * 0.07)), "ГРАФИК", font=f, fill=ink)
-        d.text((int(w * 0.07), int(h * 0.135)), "ДЕЖУРСТВ", font=f, fill=ink)
+        d.text((w // 2, int(h * 0.085)), "ГРАФИК ДЕЖУРСТВ", font=font(int(h * 0.036), bold=True), fill=ink, anchor="ma")
         rows, cols = 9, 4
         x0, y0 = int(w * 0.07), int(h * 0.24)
         cw, ch = int(w * 0.86 / cols), int(h * 0.06)

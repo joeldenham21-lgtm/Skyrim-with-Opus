@@ -71,8 +71,8 @@ void fragment() {
 	vec3 nw = normalize(texture(normal_tex, v_map).xyz * 2.0 - 1.0);
 	float slope = 1.0 - nw.y;
 	// rock takes over the steep faces even where the splat has not been told about it
-	float steep = smoothstep(0.30, 0.62, slope);
-	w[3] = max(w[3], steep * 0.9);
+	float steep = smoothstep(0.42, 0.80, slope);
+	w[3] = max(w[3], steep * 0.75);
 	float tot = 0.0;
 	for (int i = 0; i < 8; i++) { w[i] = max(w[i], 0.0); tot += w[i]; }
 	for (int i = 0; i < 8; i++) w[i] /= max(tot, 1e-4);
@@ -85,8 +85,11 @@ void fragment() {
 	float macro_hue = (n200.g - 0.5) * 1.0 + (n60.r - 0.5) * 0.55;
 
 	// ---- height-blended layer sampling --------------------------------------------------------------------
-	float lod_bias = 0.0;
-	float far_mix = smoothstep(far_fade * 0.6, far_fade, dist);
+	// every layer is sampled at two incommensurate scales, the second rotated 38 degrees, and mixed by low
+	// frequency noise: the lattice of a 1-2 m tile is invisible even across a 300 m field.
+	float far_mix = smoothstep(far_fade * 0.35, far_fade, dist);
+	float mix2 = clamp(0.30 + 0.34 * n60.g + 0.28 * far_mix, 0.0, 0.8);
+	vec2 rot = vec2(dot(xz, vec2(0.783, -0.622)), dot(xz, vec2(0.622, 0.783)));
 	vec3 alb[8];
 	float hgt[8];
 	float best = 0.0;
@@ -107,11 +110,8 @@ void fragment() {
 		} else {
 			a = texture(layer_alb, vec3(uv, float(i)));
 		}
-		if (far_mix > 0.001) {
-			// a much larger tile far away: hides repetition and stops mip shimmer at grazing angles
-			vec4 fa = texture(layer_alb, vec3(xz / (tile * 7.0), float(i)));
-			a = mix(a, fa, far_mix * 0.55);
-		}
+		vec4 b = texture(layer_alb, vec3(rot / (tile * 3.17) + vec2(0.37, 0.11), float(i)));
+		a = mix(a, b, mix2);
 		alb[i] = a.rgb * layer_tint[i].rgb;
 		hgt[i] = a.a;
 	}
@@ -145,7 +145,7 @@ void fragment() {
 		ao += orm.r * k;
 		if (detail_amt > 0.004) {
 			vec3 dn = texture(layer_nml, vec3(xz / tile, float(i))).xyz * 2.0 - 1.0;
-			tnrm += vec3(dn.xy * k * detail_amt, 0.0);
+			tnrm += vec3(dn.xy * k * detail_amt * (i == 3 ? 0.45 : 1.0), 0.0);
 		}
 		// mud and marsh mud read wetter than the rest
 		wet_layer += (i == 2 ? 1.0 : (i == 6 ? 0.25 : 0.0)) * k;
@@ -155,16 +155,20 @@ void fragment() {
 
 	// ---- macro colour: large scale lightness and hue drift, plus dead patches ------------------------------
 	float grassy = w[0] + w[7];
-	albedo *= 1.0 + macro * 0.20 * macro_strength;
-	albedo = mix(albedo, albedo * vec3(1.10, 1.03, 0.80), clamp(macro_hue, 0.0, 1.0) * 0.42 * grassy * macro_strength);
+	albedo *= 1.0 + macro * 0.30 * macro_strength;
+	albedo = mix(albedo, albedo * vec3(1.07, 1.02, 0.84), clamp(macro_hue, 0.0, 1.0) * 0.36 * grassy * macro_strength);
 	albedo = mix(albedo, albedo * vec3(0.80, 0.86, 0.84), clamp(-macro_hue, 0.0, 1.0) * 0.35 * macro_strength);
 	// a faint darkening in the hollows reads as damp ground even before the wet mask
 	albedo *= 1.0 - 0.10 * smoothstep(0.35, 0.85, n60.b);
+	// concrete works (dam crest, bridge decks, hard standings) read pale and dry, rail ballast dark and oiled
+	albedo = mix(albedo, albedo * vec3(1.30, 1.30, 1.26) + vec3(0.025), rd.a);
+	rough = mix(rough, 0.88, rd.a * 0.7);
+	albedo = mix(albedo, albedo * vec3(0.78, 0.74, 0.71), rd.b * 0.55);
 
 	// ---- normal ------------------------------------------------------------------------------------------
 	vec3 t = normalize(vec3(1.0, 0.0, 0.0) - nw * nw.x);
 	vec3 b = normalize(cross(nw, t));
-	vec3 detail_n = normalize(nw + (tnrm.x * t + tnrm.y * b) * 1.15);
+	vec3 detail_n = normalize(nw + (tnrm.x * t + tnrm.y * b) * 0.55);
 
 	// ---- wetness and puddles ------------------------------------------------------------------------------
 	float wet_map = s2.b;

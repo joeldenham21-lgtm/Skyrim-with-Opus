@@ -61,7 +61,7 @@ func run() -> void:
 	if quick:
 		# the Column and a low sun, then stop
 		setw("overcast", 12.0)
-		await at(0.0, -280.0, col_yaw, 0.16)
+		await at(cx + 12.0, cz + 24.0, col_yaw, 0.16)
 		await shot("column-" + frame("overcast", 12.0))
 		setw("clear", 18.5)
 		await at(22.0, 226.0, 0.5, -0.16)
@@ -98,10 +98,10 @@ func run() -> void:
 	# ---- 5. the Column and the Pechorsk Anomaly from the northern ridge
 	for p in [["overcast", 12.0], ["clear", 16.0], ["clear", 19.5], ["clear", 23.5], ["fog", 12.0], ["storm", 16.0]]:
 		setw(p[0], p[1], p[1] >= 21.0)
-		await at(0.0, -280.0, col_yaw, 0.16)
+		await at(cx + 12.0, cz + 24.0, col_yaw, 0.16)
 		await shot("column-" + frame(p[0], p[1]))
 	setw("clear", 12.0)
-	await at(0.0, -280.0, col_yaw - 0.42, 0.30)
+	await at(cx + 12.0, cz + 24.0, col_yaw - 0.42, 0.26)
 	await shot("anomaly-clear-1200")
 	print("[stats] column ", JSON.stringify(stats()))
 

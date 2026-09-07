@@ -20,35 +20,46 @@ uniform float map_half = 640.0;
 uniform float map_texels = 1281.0;
 uniform float rain : hint_range(0.0, 1.0) = 0.0;
 uniform float wind : hint_range(0.0, 2.0) = 0.5;
-uniform float tile_a = 7.0;         // metres per tile, coarse ripple band
-uniform float tile_b = 2.3;         // metres per tile, fine band
+uniform float tile_a = 4.5;         // metres per tile, coarse ripple band
+uniform float tile_b = 1.35;        // metres per tile, fine band
 uniform float flow_speed = 0.09;    // flow-map cycle length scale
-uniform float normal_strength = 0.55;
+uniform float normal_strength = 0.85;
 uniform float absorb = 0.42;        // extinction per metre of depth
 uniform float refract_amount = 0.055;
-uniform float foam_width = 0.85;    // metres of depth over which shoreline foam fades out
+uniform float foam_width = 0.45;    // metres of depth over which shoreline foam fades out
 uniform vec3 deep_marsh : source_color = vec3(0.048, 0.058, 0.040);
 uniform vec3 deep_lake : source_color = vec3(0.030, 0.052, 0.058);
 uniform vec3 deep_quarry : source_color = vec3(0.036, 0.070, 0.078);
 uniform vec3 shallow_tint : source_color = vec3(0.42, 0.44, 0.32);
-uniform vec3 foam_color : source_color = vec3(0.62, 0.63, 0.60);
+uniform vec3 foam_color : source_color = vec3(0.50, 0.50, 0.46);
 uniform float swell = 0.05;
 
 varying vec3 v_world;
 varying vec3 v_body;      // r tannin, g flow strength, b clarity
+
+// three Gerstner components: direction, wavenumber (rad/m), speed, relative amplitude
+const vec2 W_DIR[3] = {vec2(0.86, 0.51), vec2(-0.31, 0.95), vec2(0.72, -0.69)};
+const float W_K[3] = {0.53, 0.66, 1.35};
+const float W_SPEED[3] = {0.55, 0.41, 1.10};
+const float W_AMP[3] = {0.55, 0.35, 0.18};
 
 vec2 map_uv(vec2 xz) { return (xz + vec2(map_half + 0.5)) / map_texels; }
 
 void vertex() {
 	v_body = COLOR.rgb;
 	vec3 wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	// a slow swell: two long, low waves plus a shorter one, all scaled down on sheltered marsh water
+	// three Gerstner waves: crests sharpen because the vertices also move horizontally toward them.
+	// Amplitude is scaled down hard on sheltered peat water and up on open lake/quarry water.
 	float amp = swell * (0.35 + 0.9 * v_body.b) * (0.5 + 0.9 * wind);
 	float t = TIME;
-	float w1 = sin(dot(wp.xz, vec2(0.071, 0.043)) * 6.2831 + t * 0.55);
-	float w2 = sin(dot(wp.xz, vec2(-0.037, 0.089)) * 6.2831 + t * 0.41);
-	float w3 = sin(dot(wp.xz, vec2(0.181, -0.121)) * 6.2831 + t * 1.10);
-	VERTEX.y += amp * (w1 * 0.55 + w2 * 0.35 + w3 * 0.18);
+	vec3 disp = vec3(0.0);
+	for (int i = 0; i < 3; i++) {
+		float ph = dot(wp.xz, W_DIR[i]) * W_K[i] + t * W_SPEED[i] * 2.0;
+		float a = amp * W_AMP[i];
+		disp.y += a * sin(ph);
+		disp.xz += W_DIR[i] * (a * 0.85) * cos(ph);
+	}
+	VERTEX += disp;
 	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	NORMAL = vec3(0.0, 1.0, 0.0);
 }
@@ -111,19 +122,19 @@ void fragment() {
 	vec3 col = mix(behind * mix(vec3(1.0), tint, clamp(path * 0.35, 0.0, 0.85)), deep, ext);
 
 	// ---- foam: shorelines, obstacles, fast flow, wind chop -------------------------------------------------
+	// the mesh is built at 2 m, so its rim is blocky; the sheet is faded out on the real water depth instead
+	float edge_fade = smoothstep(0.02, 0.30, depth_data) * smoothstep(0.0, 0.06, dz);
 	float shore = 1.0 - smoothstep(0.0, foam_width, dz);
-	float edge_mask = 1.0 - smoothstep(0.0, 0.55, depth_data);
-	vec2 fuv = v_world.xz * 0.22 - flow * TIME * 0.06;
-	float fnoise = texture(noise_tex, fuv).r * 0.6 + texture(noise_tex, fuv * 2.7 + vec2(0.3)).g * 0.4;
-	float foam = smoothstep(0.35, 0.85, shore * (0.55 + 0.75 * fnoise));
-	foam += smoothstep(0.55, 0.95, max(edge_mask, 0.0) * fnoise) * 0.45;
-	foam += smoothstep(0.7, 1.5, flow_len) * smoothstep(0.4, 0.85, fnoise) * 0.7;
-	foam = clamp(foam, 0.0, 1.0) * (1.0 - 0.35 * v_body.r);
-	col = mix(col, foam_color, foam * 0.85);
+	vec2 fuv = v_world.xz * 0.35 - flow * TIME * 0.06;
+	float fnoise = texture(noise_tex, fuv).r * 0.55 + texture(noise_tex, fuv * 3.3 + vec2(0.3)).g * 0.45;
+	float foam = smoothstep(0.45, 0.95, shore * (0.35 + 0.9 * fnoise));
+	foam += smoothstep(0.75, 1.6, flow_len) * smoothstep(0.45, 0.9, fnoise) * 0.55;
+	foam = clamp(foam, 0.0, 1.0) * (1.0 - 0.45 * v_body.r) * edge_fade;
+	col = mix(col, foam_color, foam * 0.6);
 
 	// ---- output --------------------------------------------------------------------------------------------
 	ALBEDO = col;
-	ALPHA = clamp(max(ext * 1.25, 0.25) + foam * 0.8, 0.0, 1.0);
+	ALPHA = clamp((max(ext * 1.3, 0.22) + foam * 0.6) * edge_fade, 0.0, 1.0);
 	ROUGHNESS = mix(0.03, 0.28, clamp(foam + rain * 0.25 + flow_len * 0.12, 0.0, 1.0));
 	METALLIC = 0.0;
 	SPECULAR = 0.62;

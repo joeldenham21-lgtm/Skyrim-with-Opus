@@ -13,12 +13,13 @@ const AMBER := Color(0.659, 0.404, 0.165)        # #a8672a  ink amber, not the H
 const RED := Color(0.545, 0.176, 0.125)          # #8b2d20
 const GREEN := Color(0.325, 0.396, 0.251)        # marsh olive, used only for "in effect" ticks
 
-const S_BODY := 15
+# sizes follow the shared theme's scale (micro 11 · small 12 · base 13 · data 14 · lead 16 · head 22 · title 34)
+const S_BODY := 14
 const S_SMALL := 13
-const S_TINY := 11
-const S_MICRO := 10
-const S_H1 := 30
-const S_H2 := 19
+const S_TINY := 12
+const S_MICRO := 11
+const S_H1 := 34
+const S_H2 := 22
 
 static var _fonts := {}
 static var _theme: Theme = null
@@ -42,10 +43,21 @@ static func cond_color(pct01: float) -> Color:
 # ------------------------------------------------------------------------------------------------------------------
 # type
 # ------------------------------------------------------------------------------------------------------------------
-## kind: mono | mono_med | mono_semi | caps | caps_med | display | display_med
+## Named faces. The shared theme (scenes/ui/theme.tres) publishes them under the type "Radius"; when it is not
+## there yet the same faces are built here so a panel is never blocked on another agent.
+##   mono · mono_med · mono_semi · caps · caps_wide · display · display_wide · figure
+const THEME_FONT := { "mono": "mono", "mono_med": "mono_medium", "mono_semi": "mono_semibold", "caps": "caps",
+	"caps_med": "caps", "caps_wide": "caps_wide", "display": "display", "display_wide": "display_wide",
+	"display_wide_med": "figure", "figure": "figure" }
+
 static func font(kind: String = "mono") -> Font:
 	if _fonts.has(kind): return _fonts[kind]
-	var f: Font = _load_font(kind)
+	var f: Font = null
+	var shared := shared_theme()
+	if shared != null:
+		var n := str(THEME_FONT.get(kind, "mono"))
+		if shared.has_font(n, "Radius"): f = shared.get_font(n, "Radius")
+	if f == null: f = _load_font(kind)
 	_fonts[kind] = f
 	return f
 
@@ -62,19 +74,18 @@ static func _load_font(kind: String) -> Font:
 		"mono_med": return _base("IBMPlexMono-Medium")
 		"mono_semi": return _base("IBMPlexMono-SemiBold")
 		"display": return _base("Oswald-Light")
-		"display_med": return _base("Oswald-Medium")
-		"caps":
-			var v := FontVariation.new(); v.base_font = _base("IBMPlexMono-Regular")
+		"caps", "caps_med":
+			var v := FontVariation.new(); v.base_font = _base("IBMPlexMono-Medium")
 			v.set_spacing(TextServer.SPACING_GLYPH, 2); return v
-		"caps_med":
-			var v2 := FontVariation.new(); v2.base_font = _base("IBMPlexMono-Medium")
-			v2.set_spacing(TextServer.SPACING_GLYPH, 2); return v2
+		"caps_wide":
+			var v2 := FontVariation.new(); v2.base_font = _base("IBMPlexMono-SemiBold")
+			v2.set_spacing(TextServer.SPACING_GLYPH, 3); return v2
 		"display_wide":
 			var v3 := FontVariation.new(); v3.base_font = _base("Oswald-Light")
-			v3.set_spacing(TextServer.SPACING_GLYPH, 5); return v3
-		"display_wide_med":
+			v3.set_spacing(TextServer.SPACING_GLYPH, 8); return v3
+		"display_wide_med", "figure":
 			var v4 := FontVariation.new(); v4.base_font = _base("Oswald-Medium")
-			v4.set_spacing(TextServer.SPACING_GLYPH, 4); return v4
+			v4.set_spacing(TextServer.SPACING_GLYPH, 1); return v4
 	return _base("IBMPlexMono-Regular")
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -107,11 +118,6 @@ static func lower_first(s: String) -> String:
 # ------------------------------------------------------------------------------------------------------------------
 # catalogue text (never show a raw id)
 # ------------------------------------------------------------------------------------------------------------------
-static func def_of(id: String) -> Dictionary:
-	if Engine.has_singleton("Data") or ClassDB.class_exists("Data"): pass
-	var d: Dictionary = {}
-	if typeof(Data) != TYPE_NIL: d = Data.def(id)
-	return d
 static func name_of(id: String) -> String:
 	var d := Data.def(id)
 	return str(d.get("name", id.capitalize()))
@@ -287,91 +293,53 @@ static func _flat(bg: Color, border: Color, bw: int = 0, pad := Vector4(8, 4, 8,
 	s.corner_detail = 1
 	return s
 
-## The panel theme. Built once; if the shared theme exists it becomes the base and only the variations the panels
-## need are added on top, so another agent's typography wins wherever it has an opinion.
+## The panel theme: the shared theme (another agent owns it) plus the two variations the forms add. When the
+## shared theme is missing a minimal one is built here so the panels still open and screenshot.
 static func theme() -> Theme:
 	if _theme != null: return _theme
-	var t: Theme = null
 	var shared := shared_theme()
-	if shared != null:
-		t = shared.duplicate(true)
-	else:
-		t = Theme.new()
-	if t.default_font == null: t.default_font = font("mono")
-	if t.default_font_size <= 0: t.default_font_size = S_BODY
+	var t: Theme = shared.duplicate(true) if shared != null else _fallback_theme()
+	# a focusable manifest line: flat, with the amber left edge when it takes focus or is selected
+	if not t.has_stylebox("normal", "PaperRow"):
+		t.set_type_variation("PaperRow", "Button")
+		var flat := _flat(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0, Vector4(8, 5, 8, 5))
+		var hover := _flat(amber(0.08), Color(0, 0, 0, 0), 0, Vector4(8, 5, 8, 5))
+		var pick := StyleBoxFlat.new()
+		pick.bg_color = amber(0.12); pick.border_color = AMBER; pick.border_width_left = 2
+		pick.content_margin_left = 8; pick.content_margin_top = 5; pick.content_margin_right = 8; pick.content_margin_bottom = 5
+		pick.corner_detail = 1
+		t.set_stylebox("normal", "PaperRow", flat)
+		t.set_stylebox("hover", "PaperRow", hover)
+		t.set_stylebox("pressed", "PaperRow", pick)
+		t.set_stylebox("focus", "PaperRow", pick)
+		t.set_stylebox("disabled", "PaperRow", flat)
+		t.set_font("font", "PaperRow", font("mono"))
+		t.set_font_size("font_size", "PaperRow", S_SMALL)
+		t.set_color("font_color", "PaperRow", INK)
+	_theme = t
+	return _theme
 
+static func _fallback_theme() -> Theme:
+	var t := Theme.new()
+	t.default_font = font("mono")
+	t.default_font_size = S_SMALL
 	t.set_color("font_color", "Label", INK)
-	t.set_font("font", "Label", font("mono"))
-	t.set_font_size("font_size", "Label", S_BODY)
-
-	# --- buttons: paper actions. normal has a hairline box; focus and hover put amber on the wash ---
-	var b_norm := _flat(Color(0, 0, 0, 0), ink(0.30), 1, Vector4(10, 4, 10, 4))
-	var b_hover := _flat(amber(0.10), AMBER, 1, Vector4(10, 4, 10, 4))
-	var b_press := _flat(amber(0.18), AMBER, 1, Vector4(10, 4, 10, 4))
-	var b_dis := _flat(Color(0, 0, 0, 0), ink(0.12), 1, Vector4(10, 4, 10, 4))
-	var b_focus := _flat(amber(0.14), AMBER, 1, Vector4(10, 4, 10, 4))
-	for pair in [["normal", b_norm], ["hover", b_hover], ["pressed", b_press], ["disabled", b_dis], ["focus", b_focus]]:
-		t.set_stylebox(pair[0], "Button", pair[1])
+	var norm := _flat(Color(0, 0, 0, 0), ink(0.34), 1, Vector4(9, 3, 9, 3))
+	var hover := _flat(amber(0.09), AMBER, 1, Vector4(9, 3, 9, 3))
+	t.set_stylebox("normal", "Button", norm)
+	t.set_stylebox("hover", "Button", hover)
+	t.set_stylebox("pressed", "Button", hover)
+	t.set_stylebox("focus", "Button", hover)
+	t.set_stylebox("disabled", "Button", _flat(Color(0, 0, 0, 0), ink(0.14), 1, Vector4(9, 3, 9, 3)))
 	t.set_font("font", "Button", font("caps"))
 	t.set_font_size("font_size", "Button", S_MICRO)
 	t.set_color("font_color", "Button", INK)
 	t.set_color("font_hover_color", "Button", AMBER)
 	t.set_color("font_pressed_color", "Button", AMBER)
 	t.set_color("font_focus_color", "Button", AMBER)
-	t.set_color("font_disabled_color", "Button", ink(0.32))
-	t.set_constant("h_separation", "Button", 4)
-
-	# --- variation: a wide primary button on the sheet ---
-	t.set_type_variation("PaperBtn", "Button")
-	t.set_stylebox("normal", "PaperBtn", _flat(Color(0, 0, 0, 0), ink(0.26), 1, Vector4(14, 9, 14, 9)))
-	t.set_stylebox("hover", "PaperBtn", _flat(amber(0.10), AMBER, 1, Vector4(14, 9, 14, 9)))
-	t.set_stylebox("pressed", "PaperBtn", _flat(amber(0.18), AMBER, 1, Vector4(14, 9, 14, 9)))
-	t.set_stylebox("focus", "PaperBtn", _flat(amber(0.14), AMBER, 1, Vector4(14, 9, 14, 9)))
-	t.set_stylebox("disabled", "PaperBtn", _flat(Color(0, 0, 0, 0), ink(0.12), 1, Vector4(14, 9, 14, 9)))
-	t.set_font("font", "PaperBtn", font("caps"))
-	t.set_font_size("font_size", "PaperBtn", S_TINY)
-
-	# --- variation: tabs (a rule under the row, the live tab underlined in amber) ---
-	t.set_type_variation("PaperTab", "Button")
-	var tab_norm := _flat(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0, Vector4(16, 7, 16, 7))
-	var tab_hover := _flat(amber(0.08), Color(0, 0, 0, 0), 0, Vector4(16, 7, 16, 7))
-	var tab_on := StyleBoxFlat.new()
-	tab_on.bg_color = amber(0.10); tab_on.border_color = AMBER; tab_on.border_width_bottom = 2
-	tab_on.content_margin_left = 16; tab_on.content_margin_top = 7; tab_on.content_margin_right = 16; tab_on.content_margin_bottom = 7
-	t.set_stylebox("normal", "PaperTab", tab_norm)
-	t.set_stylebox("hover", "PaperTab", tab_hover)
-	t.set_stylebox("pressed", "PaperTab", tab_on)
-	t.set_stylebox("focus", "PaperTab", tab_hover)
-	t.set_stylebox("disabled", "PaperTab", tab_norm)
-	t.set_font("font", "PaperTab", font("caps"))
-	t.set_font_size("font_size", "PaperTab", S_TINY)
-	t.set_color("font_color", "PaperTab", ink(0.62))
-	t.set_color("font_hover_color", "PaperTab", INK)
-	t.set_color("font_pressed_color", "PaperTab", INK)
-	t.set_color("font_focus_color", "PaperTab", INK)
-
-	# --- variation: a bare row that takes focus (list entries, category index) ---
-	t.set_type_variation("PaperRow", "Button")
-	t.set_stylebox("normal", "PaperRow", _flat(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0, Vector4(6, 5, 6, 5)))
-	t.set_stylebox("hover", "PaperRow", _flat(amber(0.07), Color(0, 0, 0, 0), 0, Vector4(6, 5, 6, 5)))
-	t.set_stylebox("pressed", "PaperRow", _flat(amber(0.12), Color(0, 0, 0, 0), 0, Vector4(6, 5, 6, 5)))
-	var row_focus := StyleBoxFlat.new()
-	row_focus.bg_color = amber(0.12); row_focus.border_color = AMBER; row_focus.border_width_left = 2
-	row_focus.content_margin_left = 6; row_focus.content_margin_top = 5; row_focus.content_margin_right = 6; row_focus.content_margin_bottom = 5
-	t.set_stylebox("focus", "PaperRow", row_focus)
-	t.set_stylebox("disabled", "PaperRow", _flat(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0, Vector4(6, 5, 6, 5)))
-
-	# --- scrolling: hairline gutter, ink thumb ---
-	t.set_stylebox("scroll", "VScrollBar", _flat(ink(0.06), Color(0, 0, 0, 0), 0, Vector4(0, 0, 0, 0)))
-	t.set_stylebox("grabber", "VScrollBar", _flat(ink(0.30), Color(0, 0, 0, 0), 0, Vector4(0, 0, 0, 0)))
-	t.set_stylebox("grabber_highlight", "VScrollBar", _flat(AMBER, Color(0, 0, 0, 0), 0, Vector4(0, 0, 0, 0)))
-	t.set_stylebox("grabber_pressed", "VScrollBar", _flat(AMBER, Color(0, 0, 0, 0), 0, Vector4(0, 0, 0, 0)))
-	t.set_stylebox("scroll", "HScrollBar", _flat(ink(0.06), Color(0, 0, 0, 0), 0, Vector4(0, 0, 0, 0)))
-	t.set_stylebox("grabber", "HScrollBar", _flat(ink(0.30), Color(0, 0, 0, 0), 0, Vector4(0, 0, 0, 0)))
-	t.set_stylebox("grabber_highlight", "HScrollBar", _flat(AMBER, Color(0, 0, 0, 0), 0, Vector4(0, 0, 0, 0)))
-	t.set_stylebox("grabber_pressed", "HScrollBar", _flat(AMBER, Color(0, 0, 0, 0), 0, Vector4(0, 0, 0, 0)))
+	t.set_color("font_disabled_color", "Button", ink(0.34))
+	for v in ["Act", "Register", "Tab"]:
+		t.set_type_variation(v, "Button")
 	t.set_stylebox("panel", "PanelContainer", _flat(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0, Vector4(0, 0, 0, 0)))
-	t.set_constant("separation", "VBoxContainer", 0)
-	t.set_constant("separation", "HBoxContainer", 0)
-	_theme = t
-	return _theme
+	t.set_stylebox("sheet", "Radius", _flat(PAPER, ink(0.5), 1, Vector4(22, 16, 22, 16)))
+	return t

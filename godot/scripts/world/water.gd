@@ -47,7 +47,11 @@ func _load() -> void:
 	water_level = float(meta.get("sea_level", -0.6))
 	var f := FileAccess.open(DIR + "water.f32", FileAccess.READ)
 	if f: surf = f.get_buffer(f.get_length()).to_float32_array()
-	if ResourceLoader.exists(DIR + "water.png"):
+	# reuse the terrain's decoded copy of water.png when it is there (saves 6.5 MB and a decode)
+	var terr: Node = Game.world.terrain if Game.world else null
+	if terr and "water_img" in terr and terr.water_img != null:
+		mask_img = terr.water_img
+	elif ResourceLoader.exists(DIR + "water.png"):
 		var tex: Texture2D = load(DIR + "water.png")
 		mask_img = tex.get_image()
 		if mask_img and mask_img.is_compressed(): mask_img.decompress()
@@ -203,16 +207,16 @@ func _chunk_mesh(ci: int, cj: int) -> ArrayMesh:
 const UNDER_SHADER := """
 shader_type canvas_item;
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
-uniform vec3 tint : source_color = vec3(0.055, 0.085, 0.075);
+uniform vec3 tint : source_color = vec3(0.085, 0.135, 0.125);
 uniform float depth_amt : hint_range(0.0, 1.0) = 0.5;
 void fragment() {
 	vec2 uv = SCREEN_UV;
 	float t = TIME;
 	uv += vec2(sin(uv.y * 26.0 + t * 1.7), cos(uv.x * 22.0 - t * 1.3)) * 0.0025 * (0.4 + depth_amt);
-	vec3 c = textureLod(screen_tex, clamp(uv, vec2(0.001), vec2(0.999)), 1.2 + depth_amt * 1.6).rgb;
+	vec3 c = textureLod(screen_tex, clamp(uv, vec2(0.001), vec2(0.999)), 0.4 + depth_amt * 1.1).rgb;
 	float vig = smoothstep(1.05, 0.25, length(SCREEN_UV - vec2(0.5)) * 1.6);
-	c = mix(c, tint, clamp(0.45 + depth_amt * 0.4, 0.0, 0.92));
-	c *= mix(0.55, 1.0, vig);
+	c = mix(c, tint, clamp(0.34 + depth_amt * 0.30, 0.0, 0.72));
+	c *= mix(0.72, 1.0, vig);
 	COLOR = vec4(c, 1.0);
 }
 """
@@ -253,11 +257,11 @@ func _process(dt: float) -> void:
 	if in_water(p.x, p.z):
 		var s := water_height(p.x, p.z)
 		sub = p.y < s - 0.02
-		d = clampf((s - p.y) / 3.0, 0.0, 1.0)
+		d = clampf((s - p.y) / 5.0, 0.0, 1.0)
 	if sub != _submerged:
 		_submerged = sub
 		_under_rect.visible = sub
-	if sub: _under_rect.material.set_shader_parameter("depth_amt", d)
+	if sub: _under_rect.material.set_shader_parameter("depth_amt", minf(d, 0.7))
 
 # ---------------------------------------------------------------------------------------------------------------
 # queries (Contracts v1)
@@ -287,9 +291,11 @@ func water_height(x: float, z: float) -> float:
 	return sum / wsum
 
 func in_water(x: float, z: float) -> bool:
-	if mask_img == null: return false
-	if _pix(x, z).r < 0.5: return false
-	var g := 0.0
+	if surf.size() != v * v: return false
+	var i := clampi(int(round(x + half)), 0, v - 1)
+	var j := clampi(int(round(z + half)), 0, v - 1)
+	if is_nan(surf[j * v + i]): return false
+	var g := -1e9
 	if Game.world and Game.world.terrain: g = Game.world.terrain.get_height(x, z)
 	return g < water_height(x, z) - 0.02
 

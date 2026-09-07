@@ -1,0 +1,107 @@
+[gd_scene load_steps=11 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/hud.gd" id="1_hud"]
+[ext_resource type="Theme" path="res://scenes/ui/theme.tres" id="2_theme"]
+[ext_resource type="Script" path="res://scripts/ui/widgets/screen_fx.gd" id="3_fx"]
+[ext_resource type="Script" path="res://scripts/ui/widgets/reticle.gd" id="4_reticle"]
+[ext_resource type="Script" path="res://scripts/ui/widgets/crosshair.gd" id="5_cross"]
+[ext_resource type="Script" path="res://scripts/ui/widgets/readouts.gd" id="6_read"]
+[ext_resource type="Script" path="res://scripts/ui/widgets/prompt_line.gd" id="7_prompt"]
+[ext_resource type="Script" path="res://scripts/ui/notice.gd" id="8_notice"]
+[ext_resource type="Script" path="res://scripts/ui/widgets/watch_face.gd" id="9_watch"]
+[ext_resource type="Script" path="res://scripts/ui/stats_overlay.gd" id="10_stats"]
+
+[node name="Hud" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme = ExtResource("2_theme")
+script = ExtResource("1_hud")
+
+[node name="Fx" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("3_fx")
+
+[node name="Reticle" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("4_reticle")
+
+[node name="Crosshair" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("5_cross")
+
+[node name="Readouts" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("6_read")
+
+[node name="Prompt" type="Control" parent="."]
+layout_mode = 1
+offset_right = 1920.0
+offset_bottom = 60.0
+mouse_filter = 2
+script = ExtResource("7_prompt")
+
+[node name="Notices" type="Control" parent="."]
+layout_mode = 1
+offset_left = 30.0
+offset_top = 26.0
+offset_right = 430.0
+offset_bottom = 520.0
+mouse_filter = 2
+script = ExtResource("8_notice")
+
+[node name="Watch" type="Control" parent="."]
+layout_mode = 1
+offset_left = 46.0
+offset_top = 640.0
+offset_right = 390.0
+offset_bottom = 1086.0
+mouse_filter = 2
+script = ExtResource("9_watch")
+
+[node name="Stats" type="Control" parent="."]
+layout_mode = 1
+offset_left = 1620.0
+offset_top = 24.0
+offset_right = 1888.0
+offset_bottom = 284.0
+mouse_filter = 2
+script = ExtResource("10_stats")
+
+[node name="Fade" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0, 0, 0, 1)

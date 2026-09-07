@@ -1,0 +1,418 @@
+{
+ "note": "Alpha-cut foliage cards. Use albedo RGBA (or the separate _alpha map) with alpha scissor ~0.4, cull disabled, backface normals flipped. uv = [u0, v0, u1, v1] with v measured downwards from the top-left, matching Godot UVs; px = [x, y, w, h].",
+ "material": {
+  "alpha_scissor": 0.4,
+  "cull": "disabled",
+  "specular": 0.35,
+  "roughness_from": "orm.g",
+  "ao_from": "orm.r",
+  "backlight": "foliage translucency 0.25 recommended"
+ },
+ "atlases": {
+  "grass": {
+   "albedo": "cards/grass_albedo.webp",
+   "normal": "cards/grass_normal.webp",
+   "orm": "cards/grass_orm.webp",
+   "alpha": "cards/grass_alpha.webp",
+   "size": [
+    2048,
+    2048
+   ],
+   "cell": [
+    1024,
+    512
+   ],
+   "cards": [
+    {
+     "name": "grass_green_a",
+     "state": "green",
+     "variant": "sparse",
+     "size_m": [
+      0.55,
+      0.3
+     ],
+     "kind": "grass",
+     "px": [
+      0,
+      0,
+      1024,
+      512
+     ],
+     "uv": [
+      0.0,
+      0.0,
+      0.5,
+      0.25
+     ],
+     "coverage": 0.5112
+    },
+    {
+     "name": "grass_green_b",
+     "state": "green",
+     "variant": "dense",
+     "size_m": [
+      0.55,
+      0.3
+     ],
+     "kind": "grass",
+     "px": [
+      1024,
+      0,
+      1024,
+      512
+     ],
+     "uv": [
+      0.5,
+      0.0,
+      1.0,
+      0.25
+     ],
+     "coverage": 0.5709
+    },
+    {
+     "name": "grass_olive_a",
+     "state": "olive",
+     "variant": "sparse",
+     "size_m": [
+      0.55,
+      0.3
+     ],
+     "kind": "grass",
+     "px": [
+      0,
+      512,
+      1024,
+      512
+     ],
+     "uv": [
+      0.0,
+      0.25,
+      0.5,
+      0.5
+     ],
+     "coverage": 0.5032
+    },
+    {
+     "name": "grass_olive_b",
+     "state": "olive",
+     "variant": "dense",
+     "size_m": [
+      0.55,
+      0.3
+     ],
+     "kind": "grass",
+     "px": [
+      1024,
+      512,
+      1024,
+      512
+     ],
+     "uv": [
+      0.5,
+      0.25,
+      1.0,
+      0.5
+     ],
+     "coverage": 0.5655
+    },
+    {
+     "name": "grass_dry_a",
+     "state": "dry",
+     "variant": "sparse",
+     "size_m": [
+      0.55,
+      0.3
+     ],
+     "kind": "grass",
+     "px": [
+      0,
+      1024,
+      1024,
+      512
+     ],
+     "uv": [
+      0.0,
+      0.5,
+      0.5,
+      0.75
+     ],
+     "coverage": 0.5096
+    },
+    {
+     "name": "grass_dry_b",
+     "state": "dry",
+     "variant": "dense",
+     "size_m": [
+      0.55,
+      0.3
+     ],
+     "kind": "grass",
+     "px": [
+      1024,
+      1024,
+      1024,
+      512
+     ],
+     "uv": [
+      0.5,
+      0.5,
+      1.0,
+      0.75
+     ],
+     "coverage": 0.5899
+    },
+    {
+     "name": "grass_dead_a",
+     "state": "dead",
+     "variant": "sparse",
+     "size_m": [
+      0.55,
+      0.3
+     ],
+     "kind": "grass",
+     "px": [
+      0,
+      1536,
+      1024,
+      512
+     ],
+     "uv": [
+      0.0,
+      0.75,
+      0.5,
+      1.0
+     ],
+     "coverage": 0.5134
+    },
+    {
+     "name": "grass_dead_b",
+     "state": "dead",
+     "variant": "dense",
+     "size_m": [
+      0.55,
+      0.3
+     ],
+     "kind": "grass",
+     "px": [
+      1024,
+      1536,
+      1024,
+      512
+     ],
+     "uv": [
+      0.5,
+      0.75,
+      1.0,
+      1.0
+     ],
+     "coverage": 0.5915
+    }
+   ]
+  },
+  "branches": {
+   "albedo": "cards/branches_albedo.webp",
+   "normal": "cards/branches_normal.webp",
+   "orm": "cards/branches_orm.webp",
+   "alpha": "cards/branches_alpha.webp",
+   "size": [
+    2048,
+    2048
+   ],
+   "cell": [
+    1024,
+    1024
+   ],
+   "cards": [
+    {
+     "size_m": [
+      1.1,
+      1.1
+     ],
+     "kind": "branch",
+     "tree": "pine",
+     "name": "pine_branch",
+     "px": [
+      0,
+      0,
+      1024,
+      1024
+     ],
+     "uv": [
+      0.0,
+      0.0,
+      0.5,
+      0.5
+     ],
+     "coverage": 0.4238
+    },
+    {
+     "size_m": [
+      1.2,
+      1.2
+     ],
+     "kind": "branch",
+     "tree": "spruce",
+     "name": "spruce_branch",
+     "px": [
+      1024,
+      0,
+      1024,
+      1024
+     ],
+     "uv": [
+      0.5,
+      0.0,
+      1.0,
+      0.5
+     ],
+     "coverage": 0.2071
+    },
+    {
+     "size_m": [
+      1.0,
+      1.0
+     ],
+     "kind": "branch",
+     "tree": "birch",
+     "name": "birch_branch",
+     "px": [
+      0,
+      1024,
+      1024,
+      1024
+     ],
+     "uv": [
+      0.0,
+      0.5,
+      0.5,
+      1.0
+     ],
+     "coverage": 0.3442
+    },
+    {
+     "size_m": [
+      1.0,
+      1.0
+     ],
+     "kind": "branch",
+     "tree": "dead",
+     "name": "dead_branch",
+     "px": [
+      1024,
+      1024,
+      1024,
+      1024
+     ],
+     "uv": [
+      0.5,
+      0.5,
+      1.0,
+      1.0
+     ],
+     "coverage": 0.0741
+    }
+   ]
+  },
+  "plants": {
+   "albedo": "cards/plants_albedo.webp",
+   "normal": "cards/plants_normal.webp",
+   "orm": "cards/plants_orm.webp",
+   "alpha": "cards/plants_alpha.webp",
+   "size": [
+    2048,
+    2048
+   ],
+   "cell": [
+    1024,
+    1024
+   ],
+   "cards": [
+    {
+     "size_m": [
+      1.4,
+      1.4
+     ],
+     "kind": "bush",
+     "name": "bush",
+     "px": [
+      0,
+      0,
+      1024,
+      1024
+     ],
+     "uv": [
+      0.0,
+      0.0,
+      0.5,
+      0.5
+     ],
+     "coverage": 0.3862
+    },
+    {
+     "size_m": [
+      0.9,
+      0.9
+     ],
+     "kind": "fern",
+     "name": "fern",
+     "px": [
+      1024,
+      0,
+      1024,
+      1024
+     ],
+     "uv": [
+      0.5,
+      0.0,
+      1.0,
+      0.5
+     ],
+     "coverage": 0.3019
+    },
+    {
+     "size_m": [
+      1.1,
+      1.5
+     ],
+     "kind": "reeds",
+     "name": "reeds",
+     "px": [
+      0,
+      1024,
+      1024,
+      1024
+     ],
+     "uv": [
+      0.0,
+      0.5,
+      0.5,
+      1.0
+     ],
+     "coverage": 0.4358
+    },
+    {
+     "size_m": [
+      1.2,
+      1.2
+     ],
+     "kind": "litter",
+     "ground": true,
+     "name": "leaf_litter",
+     "px": [
+      1024,
+      1024,
+      1024,
+      1024
+     ],
+     "uv": [
+      0.5,
+      0.5,
+      1.0,
+      1.0
+     ],
+     "coverage": 0.8052
+    }
+   ]
+  }
+ }
+}

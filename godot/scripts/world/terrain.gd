@@ -20,7 +20,7 @@ const CACHE_VERSION := "t2"
 const CHUNK := 160.0
 const LOD_CELLS := [1.0, 2.0, 4.0, 8.0]
 const LOD_SKIRT := [1.5, 3.0, 6.0, 14.0]
-const LOD_DIST := [150.0, 330.0, 620.0]      # < d[0] -> LOD0, < d[1] -> LOD1, < d[2] -> LOD2, else LOD3
+const LOD_DIST := [80.0, 240.0, 520.0]      # < d[0] -> LOD0, < d[1] -> LOD1, < d[2] -> LOD2, else LOD3
 const COLLIDER_BLOCKS := 4
 const SURFACE_NAMES := ["grass", "dirt", "mud", "rock", "gravel", "road", "sand", "moss"]
 
@@ -146,10 +146,11 @@ func _build_material() -> void:
 			for i in mini(arr.size(), 8): tiles[i] = float(arr[i].get("tile_m", tiles[i]))
 	material.set_shader_parameter("layer_tile", tiles)
 	var tint := PackedColorArray([
-		Color(1.02, 1.0, 0.86), Color(1.0, 0.98, 0.94), Color(0.92, 0.94, 0.96), Color(1.0, 1.0, 1.0),
+		Color(0.99, 0.99, 0.90), Color(1.0, 0.98, 0.94), Color(0.92, 0.94, 0.96), Color(1.08, 1.07, 1.05),
 		Color(1.0, 0.99, 0.96), Color(0.95, 0.96, 1.0), Color(1.0, 0.99, 0.95), Color(0.92, 1.0, 0.86)])
 	material.set_shader_parameter("layer_tint", tint)
 	material.set_shader_parameter("rain", 0.0)
+	height_bytes = PackedByteArray()          # the GPU copy is made; drop the 6.5 MB staging buffer
 
 # ---------------------------------------------------------------------------------------------------------------
 # meshes
@@ -493,6 +494,25 @@ func water_mask_at(x: float, z: float) -> float:
 func on_road(x: float, z: float, margin: float = 0.0) -> bool:
 	var s1 := _pix(splat_img, x, z)
 	return s1.a > 0.45 or _pix(roads_img, x, z).a > 0.5 or (margin > 0.0 and s1.a > 0.25)
+## Landform records the structures agent needs to sit its meshes on the ground the generator prepared
+## (all of these are also in assets/terrain/terrain.json):
+##   bridges()  [{id, kind road|rail, x, z, dx, dz, length, deck (deck height), width, broken, water}]
+##   pier()     {x, z, dx, dz, length, deck, width}          dam()   {x, z, dx, dz, crest, reservoir, tail, chute_len}
+##   quarry()   {x, z, rim, level, bench, bench_w, face}     landing() {x, z}
+##   river()    {control: [[x,z]...], dense: [[x, z, surface, channel width] every 10 m]}
+##   ditches()  [[[x,z],[x,z]] ...]     ravine() [[x,z]...]     escarpment() {z_top_samples, cliff_w, talus_w}
+##   levels()   {poi id: plateau height}   water_levels() {marsh, lake, quarry, reservoir, tail}
+func bridges() -> Array: return meta.get("bridges", [])
+func pier() -> Dictionary: return meta.get("pier", {})
+func dam() -> Dictionary: return meta.get("dam", {})
+func quarry() -> Dictionary: return meta.get("quarry", {})
+func landing() -> Dictionary: return meta.get("landing", {})
+func river() -> Dictionary: return meta.get("river", {})
+func ditches() -> Array: return meta.get("ditches", [])
+func ravine() -> Array: return meta.get("ravine", [])
+func escarpment() -> Dictionary: return meta.get("escarpment", {})
+func levels() -> Dictionary: return meta.get("levels", {})
+func water_levels() -> Dictionary: return meta.get("water_levels", {})
 func height_range() -> Vector2:
 	return Vector2(float(meta.get("min", -10.0)), float(meta.get("max", 60.0)))
 func info() -> Dictionary:

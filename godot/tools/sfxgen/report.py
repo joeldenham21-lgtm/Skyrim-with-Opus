@@ -174,7 +174,14 @@ def contact_sheet(files, out_path: str, cols: int = 8, w: int = 220, h: int = 11
         name = os.path.basename(path).replace(".ogg", "")
         maxc = w // 7
         d.text((cx, cy + h + sh + 1), "%s %.2fs" % (name[:maxc], len(mono) / sr), fill=(200, 196, 184), font=font)
-    sheet.save(out_path)
+    # a false-colour spectrogram needs nowhere near truecolour; a 256-entry palette halves the file, and the sheet is a
+    # verification artefact, not a game texture, so it is written with an importer="skip" stub to keep Godot off it
+    sheet.convert("RGB").quantize(colors=256, method=Image.MEDIANCUT, dither=Image.FLOYDSTEINBERG).save(out_path, optimize=True)
+    try:
+        with open(out_path + ".import", "w") as fh:
+            fh.write('[remap]\n\nimporter="skip"\n')
+    except OSError:
+        pass
     return out_path
 
 

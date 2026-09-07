@@ -49,16 +49,17 @@ void fragment() {
 	vec3 glow;
 	vec2 refr;
 	if (mode == 0) {
-		// chord through the shaft, softened at the very edge so there is no rim line
-		float chord = facing * smoothstep(0.0, 0.16, facing);
+		// chord through the shaft. The mesh is wider than the visible core: raising the chord to a power keeps a
+		// dense centre and lets the edges dissolve, so it reads as light and not as a painted bar.
+		float chord = pow(facing, 1.9) * smoothstep(0.0, 0.10, facing);
 		// rising light inside: slow streaks and a faster fine shimmer, both travelling up
-		float streaks = fbm(vec2(ang * 2.2, h * 26.0 - t * 0.055));
-		float fine = fbm(vec2(ang * 6.5 + 3.0, h * 90.0 - t * 0.19));
-		float s = streaks * 0.66 + fine * 0.34;
+		float streaks = fbm(vec2(ang * 2.2, h * 18.0 - t * 0.045));
+		float fine = fbm(vec2(ang * 6.5 + 3.0, h * 62.0 - t * 0.16));
+		float s = 0.30 + streaks * 0.48 + fine * 0.22;
 		// a kilometres-tall pillar: bright at the foot, thinning with height, never quite gone
 		float tall = exp(-h * 2.3) * (1.0 - h * 0.55) + 0.05 * (1.0 - h);
 		float foot = exp(-h * 26.0) * 0.7;                      // the flare where it stands in the haze
-		a = chord * (0.30 + 0.70 * s) * (tall + foot);
+		a = chord * (0.45 + 0.55 * s) * (tall + foot);
 		glow = mix(core_color, edge_color, s * 0.8) * energy * (0.85 + 1.6 * night);
 		glow += edge_color * energy * foot * chord * (0.5 + night);
 		refr = (vec2(vnoise(vec2(ang * 9.0, h * 160.0 - t * 0.2)), vnoise(vec2(ang * 9.0 + 5.0, h * 160.0 - t * 0.17))) - 0.5) * 0.010 * chord;
@@ -68,7 +69,7 @@ void fragment() {
 		float churn = fbm(vec2(ang * 5.0 - t * 0.05, v_local.y * 0.03 + 2.0));
 		float rim = pow(1.0 - facing, 2.2);
 		float breathe = 0.5 + 0.5 * sin(t * 0.31);
-		a = clamp(rim * 0.75 + 0.16 * facing * (0.4 + 0.6 * cells), 0.0, 1.0) * (0.7 + 0.3 * breathe);
+		a = clamp(rim * 0.80 + 0.30 * facing * (0.35 + 0.65 * cells), 0.0, 1.0) * (0.7 + 0.3 * breathe);
 		glow = mix(core_color, edge_color, cells) * energy * (0.8 + 1.7 * night) * (0.35 + 0.9 * rim + 0.25 * churn);
 		refr = (vec2(cells - 0.5, churn - 0.5)) * 0.075 * (0.25 + 0.75 * facing);
 	}

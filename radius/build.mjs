@@ -37,8 +37,10 @@ export async function bundle() {
   const html = artifact
     ? `<title>RADIUS</title>\n<link rel="preconnect" href="https://fonts.googleapis.com">\n<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Oswald:wght@300;400;500&display=swap" rel="stylesheet">\n<style>\n${css}\n</style>\n<canvas id="gl"></canvas>\n<div id="ui"></div>\n${script}`
     : shell
-      .replace('<!--STYLE-->', `<style>\n${css}\n</style>`)
-      .replace('<!--SCRIPT-->', script);
+      // NB: function replacers, never strings — a string replacement interprets $&, $`, $' and $1
+      // as pattern references, and the minified bundle legitimately contains sequences like `$&&`.
+      .replace('<!--STYLE-->', () => `<style>\n${css}\n</style>`)
+      .replace('<!--SCRIPT-->', () => script);
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, html);
   const ms = (performance.now() - t0).toFixed(0);

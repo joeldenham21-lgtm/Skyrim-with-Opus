@@ -48,6 +48,7 @@ uniform vec3 art_tint : source_color = vec3(1.0);
 uniform float rayleigh = 1.0;
 uniform float mie = 1.0;
 uniform float time = 0.0;
+uniform vec3 horizon_col = vec3(0.6, 0.62, 0.65);   // the colour scripts/world/sky.gd also gives the engine fog
 uniform sampler2D cloud_tex : filter_linear_mipmap, repeat_enable;
 
 const vec3 BETA_R = vec3(5.8e-6, 13.5e-6, 33.1e-6);
@@ -163,10 +164,10 @@ vec4 cloud_layer(vec3 d, vec3 s, float h, float k, float cell, float cover, floa
 	float T2 = exp(-(od_s * 0.65 + od * 0.15)) * 0.32;
 	float fwd = cloud_phase(mu);
 	vec3 lit = direct * (T + T2) * fwd;
-	vec3 ambient = amb * (0.55 + 0.75 * exp(-od * 0.85));
+	vec3 ambient = amb * (0.55 + 0.75 * exp(-od * 0.85)) * (1.0 - dark * 0.45);
 	vec3 col = CLOUD_ALBEDO * (lit + ambient);
 	// bellies go grey-blue and dark under rain
-	col *= mix(1.0, 0.42, dark * clamp(od * 0.9, 0.0, 1.0));
+	col *= mix(1.0, 0.34, dark * clamp(od * 0.9, 0.0, 1.0));
 	// powder: thin edges toward the light darken slightly, thick sunlit flanks flare (silver linings)
 	col *= 0.72 + 0.28 * (1.0 - exp(-od * 3.5));
 	col += direct * pow(max(mu, 0.0), 26.0) * (0.55 * exp(-od_s * 1.6)) * (1.0 - dark * 0.6);
@@ -174,8 +175,8 @@ vec4 cloud_layer(vec3 d, vec3 s, float h, float k, float cell, float cover, floa
 	float mmu = max(dot(d, normalize(moon_dir)), 0.0);
 	col += vec3(0.60, 0.66, 0.86) * moon_energy * night * (0.016 + pow(mmu, 8.0) * 0.10) * exp(-od_s * 0.9);
 	// aerial perspective: the lid dissolves into the haze at the horizon
-	float ap = 1.0 - smoothstep(0.0, 0.30, hy);
-	col = mix(col, haze_col, ap * ap * 0.88);
+	float ap = 1.0 - smoothstep(0.0, 0.34, hy);
+	col = mix(col, haze_col, ap * ap * 0.92);
 	alpha = min(alpha, 1.0);
 	return vec4(col, alpha);
 }
@@ -199,16 +200,16 @@ void sky() {
 	// cloud weights per weather: the lid carries the coverage, the veil is thin and mostly follows it,
 	// the scud only appears under rain and storm.
 	float cov_deck = clamp(coverage, 0.0, 1.0);
-	float cov_veil = clamp(0.18 + coverage * 0.45, 0.0, 0.75);
+	float cov_veil = clamp((0.34 - coverage * 0.20) * (1.0 - cloud_dark * 0.95), 0.0, 0.45);
 	float cov_scud = clamp(scud, 0.0, 0.85);
 
 	if (AT_HALF_RES_PASS) {
-		vec3 haze_col = sky_base(normalize(vec3(d.x, max(d.y, 0.0) * 0.35 + 0.012, d.z)), s, m, sun_rad);
-		vec4 veil = cloud_layer(d, s, 7000.0, 0.28, 9000.0, cov_veil, 0.9, 0.15, 0.35, 0.55, 0.55 + cloud_soft * 0.3,
+		vec3 haze_col = horizon_col;
+		vec4 veil = cloud_layer(d, s, 7000.0, 0.28, 11000.0, cov_veil, 0.8, 0.10, 0.30, 0.55, 0.50 + cloud_soft * 0.3,
 			cloud_dark * 0.25, direct, amb, haze_col, false);
-		vec4 deck = cloud_layer(d, s, 1750.0, 0.105, 2600.0, cov_deck, 2.6 + storm * 1.4, 0.45 + storm * 0.2,
-			0.55, 1.0, cloud_soft, cloud_dark, direct, amb, haze_col, false);
-		vec4 low = cloud_layer(d, s, 700.0, 0.055, 1250.0, cov_scud, 2.2, 0.62, 0.9, 2.1, 0.30,
+		vec4 deck = cloud_layer(d, s, 1750.0, 0.105, 1750.0, cov_deck, 3.4 + storm * 2.2, 0.62 + storm * 0.15,
+			0.62, 1.0, cloud_soft, cloud_dark, direct, amb, haze_col, false);
+		vec4 low = cloud_layer(d, s, 620.0, 0.050, 1500.0, cov_scud, 2.6, 0.70, 1.0, 2.2, 0.28,
 			cloud_dark * 1.15, direct, amb, haze_col, false);
 		vec4 c = veil;
 		c.rgb = mix(c.rgb, deck.rgb, deck.a); c.a = deck.a + c.a * (1.0 - deck.a);
@@ -217,6 +218,7 @@ void sky() {
 		ALPHA = c.a;
 	} else {
 		vec3 col = sky_base(d, s, m, sun_rad);
+		col = mix(col, horizon_col, (1.0 - smoothstep(0.0, 0.17, d.y)) * clamp(coverage, 0.0, 1.0) * 0.88);
 		float sky_lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
 		// stars, with a faint galactic band
 		float star_fade = night * (1.0 - smoothstep(0.004, 0.055, sky_lum));
@@ -237,9 +239,8 @@ void sky() {
 		}
 		vec4 cl;
 		if (AT_CUBEMAP_PASS) {
-			vec3 haze_col = sky_base(normalize(vec3(d.x, max(d.y, 0.0) * 0.35 + 0.012, d.z)), s, m, sun_rad);
-			cl = cloud_layer(d, s, 1750.0, 0.105, 2600.0, cov_deck, 2.6, 0.45, 0.55, 1.0, cloud_soft, cloud_dark,
-				direct, amb, haze_col, true);
+			cl = cloud_layer(d, s, 1750.0, 0.105, 1750.0, cov_deck, 3.4, 0.62, 0.62, 1.0, cloud_soft, cloud_dark,
+				direct, amb, horizon_col, true);
 		} else {
 			cl = HALF_RES_COLOR;
 		}

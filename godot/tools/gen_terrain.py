@@ -14,6 +14,7 @@ plus extras used by terrain.gd / water.gd and offered to other agents:
   water.f32    (N+1)^2 float32 water surface height (NaN where no water); exact levels for the water mesh
   far.f32      257^2 float32 at 16 m covering +-2048 m (horizon terrain beyond the map)
   preview.png  hillshade + splat colour preview (look at it)
+  water_normal.png / water_ripple.png   tileable ripple and rain-ring normals for shaders/water.gdshader
 
 Pipeline: macro shape (control blobs + warped fBm) -> escarpment -> river valley (channel, banks, floodplain,
 terraces) and dry ravine -> marsh / lake / crater basins -> hydraulic (particle) + thermal erosion -> man-made
@@ -96,6 +97,12 @@ lowland += 0.9 * fbm(X * 0.03, Z * 0.03, 3, seed=SEED + 3) + 0.25 * fbm(X * 0.09
 # regional trends: the south-west lowland sinks toward the river exit, the south-east rises into hills
 lowland += -3.0 * smoothstep(0.0, 1.0, (-(X + 200) / 440.0)) * smoothstep(0.0, 1.0, (Z - 150) / 400.0)
 lowland += 4.0 * smoothstep(0.2, 1.0, (X + Z) / 1100.0) * smoothstep(0.0, 1.0, (X - 150) / 400.0)
+# rolling ground away from the middle of the zone: broad rises and hollows at 450 m and 170 m so the fields read
+# as farmland over glacial till, not a plain (the middle stays low so the marsh, roads and POIs keep their levels)
+roll_w = np.clip(smoothstep(60.0, 300.0, Z) + smoothstep(-260.0, -60.0, np.abs(X) - 170.0) * smoothstep(200.0, -40.0, Z), 0.0, 1.0)
+lowland += 7.0 * roll_w * (fbm(WX * 0.0022 + 17.0, WZ * 0.0022 + 3.0, 3, seed=SEED + 50) - 0.12)
+lowland += 3.2 * roll_w * (fbm(X * 0.0062 + 4.0, Z * 0.0062, 3, seed=SEED + 51) - 0.1)
+lowland += 1.4 * (fbm(X * 0.004 + 21.0, Z * 0.004 + 9.0, 3, seed=SEED + 52) - 0.5) * 2.0
 # hills and basins (x, z, r, height)
 BLOBS = [
     (50, -230, 82, 16.0),        # church hill
@@ -967,7 +974,8 @@ log('done: h range %.1f .. %.1f, water cells %d (%.1f%%), bridges %s' % (h.min()
 # 11. post-steps: normal map, noise, import files, layer sheets (tools/terragen/post.py, pack_layers.py)
 # ---------------------------------------------------------------------------------------------------------------
 log('post')
-from terragen import post as _post, pack_layers as _pack  # noqa: E402
+from terragen import post as _post, pack_layers as _pack, water_tex as _wtex  # noqa: E402
 _post.run(log)
+_wtex.run(log)
 _pack.run(1024, log)
 log('all done')

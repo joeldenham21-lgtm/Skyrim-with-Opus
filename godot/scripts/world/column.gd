@@ -75,15 +75,15 @@ void fragment() {
 	// rock: dark, cool, with strata bands across the mass and vertical erosion streaks down the gullies
 	float strata = fbm(vec2(v_local.y * 0.020, ang * 2.2));
 	float streak = fbm(vec2(ang * 26.0, v_local.y * 0.006 + 4.0));
-	vec3 rock = vec3(0.052, 0.055, 0.062) * (0.75 + 0.55 * strata) * (0.85 + 0.30 * streak);
+	vec3 rock = vec3(0.150, 0.143, 0.132) * (0.70 + 0.60 * strata) * (0.82 + 0.36 * streak);
 	rock *= 0.80 + 0.40 * smoothstep(-0.2, 0.6, n.y);      // the tops of ledges catch dust and light
 	// light: the sun, a sky dome term, and a cold rim that keeps the silhouette readable against the lid
 	float lam = max(dot(n, sun_dir), 0.0);
-	vec3 lit = rock * (sun_col * sun_energy * lam * 0.55 + horizon * (0.30 + 0.55 * max(n.y, 0.0)));
+	vec3 lit = rock * (sun_col * sun_energy * lam * 0.60 + horizon * (0.45 + 0.75 * max(n.y, 0.0)));
 	lit += horizon * 0.10 * pow(1.0 - abs(dot(n, normalize(v_world - CAMERA_POSITION_WORLD))), 3.0);
 	// seams of Radius light in the deepest cracks, breathing slowly
-	float crack = smoothstep(0.62, 0.90, fbm(vec2(ang * 7.0, v_local.y * 0.03 - t * 0.006)));
-	lit += vec3(0.30, 0.52, 0.86) * crack * seam * (0.05 + 0.30 * night) * (0.6 + 0.4 * sin(t * 0.7 + v_local.y * 0.01));
+	float crack = smoothstep(0.70, 0.86, fbm(vec2(ang * 5.0, v_local.y * 0.022 - t * 0.006)));
+	lit += vec3(0.26, 0.46, 0.80) * crack * seam * (0.012 + 0.26 * night) * (0.6 + 0.4 * sin(t * 0.7 + v_local.y * 0.01));
 	lit += vec3(0.55, 0.60, 0.78) * lightning * 0.35 * (0.3 + 0.7 * lam);
 	// aerial perspective by true distance
 	float dist = length(v_world - CAMERA_POSITION_WORLD);
@@ -125,8 +125,8 @@ void vertex() {
 }
 void fragment() {
 	vec3 n = normalize(v_n);
-	vec3 rock = vec3(0.055, 0.058, 0.065) * (0.8 + 0.4 * max(n.y, 0.0));
-	vec3 lit = rock * (sun_col * sun_energy * max(dot(n, sun_dir), 0.0) * 0.6 + horizon * (0.32 + 0.5 * max(n.y, 0.0)));
+	vec3 rock = vec3(0.150, 0.143, 0.132) * (0.8 + 0.4 * max(n.y, 0.0));
+	vec3 lit = rock * (sun_col * sun_energy * max(dot(n, sun_dir), 0.0) * 0.6 + horizon * (0.45 + 0.7 * max(n.y, 0.0)));
 	float dist = length(v_world - CAMERA_POSITION_WORLD);
 	float ap = min(1.0 - exp(-dist * ap_density), ap_max);
 	vec3 col = mix(lit, horizon * 0.85, ap);
@@ -160,7 +160,7 @@ void vertex() {
 }
 void fragment() {
 	vec3 n = normalize(v_n);
-	vec3 col = vec3(0.012, 0.013, 0.016) * (0.7 + 0.6 * max(n.y, 0.0));
+	vec3 col = vec3(0.020, 0.020, 0.023) * (0.7 + 0.6 * max(n.y, 0.0));
 	float dist = length(v_world - CAMERA_POSITION_WORLD);
 	float ap = min(1.0 - exp(-dist * ap_density), ap_max);
 	col = mix(col, horizon * 0.80, ap * 0.92);
@@ -173,7 +173,7 @@ func setup(column_xz: Vector2, ground_y: float) -> void:
 	var shader: Shader = load("res://shaders/column.gdshader")
 	# ---- the Column
 	var cyl := CylinderMesh.new()
-	cyl.top_radius = 26.0; cyl.bottom_radius = 62.0; cyl.height = HEIGHT
+	cyl.top_radius = 46.0; cyl.bottom_radius = 104.0; cyl.height = HEIGHT
 	cyl.radial_segments = 40; cyl.rings = 10; cyl.cap_top = false; cyl.cap_bottom = false
 	column = MeshInstance3D.new(); column.name = "Column"; column.mesh = cyl
 	_col_mat = ShaderMaterial.new(); _col_mat.shader = shader
