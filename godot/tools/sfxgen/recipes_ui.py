@@ -190,9 +190,15 @@ def watch_beep(v, i):
 
 @sound("watch_alarm", 1, "ui", peak=-10.0, desc="the watch alarm: four quick beeps, twice", tags=["ui", "watch"])
 def watch_alarm(v, i):
+    # a piezo disc in a plastic case: a hard square whose odd harmonics survive (a narrow band-pass would leave a sine),
+    # each beep started by the driver's click and coloured by the case resonance, with the timing a hair imperfect
+    f = 4100.0
     for r in range(2):
         for k in range(4):
-            tone(v, at=r * 0.6 + k * 0.1, type="square", f0=4100, dur=0.05, g=0.25, atk=0.001, bp=4100, bq=3)
+            at = r * 0.6 + k * 0.1 + v.rnd(-0.002, 0.002)
+            tone(v, at=at, type="square", f0=f * v.rnd(0.995, 1.005), dur=0.05, g=0.22, atk=0.0008, hp=2200, lp=13000)
+            click(v, at=at, f=6200, g=0.16, dur=0.0018)
+            modal(v, at=at, freqs=[2450, 5900, 8300], t60s=[0.02, 0.03, 0.015], amps=[0.7, 1.0, 0.4], exc=0.0006, g=0.10)
 
 
 @sound("watch_tick", 2, "ui", peak=-22.0, desc="the watch's tick", tags=["ui", "watch"])

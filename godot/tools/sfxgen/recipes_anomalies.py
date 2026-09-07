@@ -240,11 +240,16 @@ def probe_bounce(v, i):
 
 @sound("probe_trigger", 3, "anomaly", desc="a probe finding an anomaly: a bright ping and its harmonic", tags=["probe"])
 def probe_trigger(v, i):
-    tone(v, f0=1400, f1=2800, dur=0.05, g=0.15, atk=0.002)
-    tone(v, at=0.03, f0=2800, dur=0.5, g=0.35, atk=0.002)
-    tone(v, at=0.03, f0=4200, dur=0.3, g=0.15, atk=0.002)
-    tone(v, at=0.03, f0=2803, dur=0.45, g=0.15, atk=0.002)
-    burst(v, type="white", filt="highpass", f0=5000, q=0.5, dur=0.04, g=0.2, atk=0.001)
+    # the probe touches the field and the field answers: a struck-metal ping whose partials are inharmonic and spread
+    # over three octaves, with a shorter beating twin above it, so it rings rather than beeps
+    base = v.rnd(1150, 1350)
+    modal(v, freqs=[base, base * 2.02, base * 3.03, base * 4.35, base * 5.9], t60s=[0.55, 0.42, 0.3, 0.2, 0.12],
+          amps=[1.0, 0.85, 0.6, 0.4, 0.22], exc=0.0015, g=0.30)
+    tone(v, f0=base * 0.5, f1=base * 2.1, dur=0.06, g=0.14, atk=0.002)               # the strike sliding up into it
+    tone(v, at=0.03, f0=base * 2.02 * 1.003, dur=0.45, g=0.10, atk=0.004)            # the beating twin
+    burst(v, at=0.0, type="white", filt="bandpass", f0=base * 3.4, q=1.2, dur=0.02, g=0.28, atk=0.0004)
+    burst(v, type="white", filt="highpass", f0=6000, q=0.5, dur=0.05, g=0.14, atk=0.001)
+    tail(v, dur=0.5, g=0.05, f0=4000, f1=700)
 
 
 def _tick(v: Voice, at: float, g: float, f: float = 4000.0):
@@ -311,31 +316,64 @@ def artifact_pickup(v, i):
     glass_body(v, at=0.02, f=v.rnd(3800, 4600), g=0.12, t60=0.6)
 
 
+def _partials(v: Voice, n: int, base: float, ratios, gains, beat=(0.05, 0.35), detune: float = 0.004) -> np.ndarray:
+    """A cluster of inharmonic partials, each with its own slow amplitude beat, its own micro-detune wobble and a
+    slightly detuned twin a few cents away. Independent movement per partial is what makes a resonant object sound
+    alive; a stack of static sines locked in phase just reads as one thick tone."""
+    tt = np.arange(n) / dsp.SR
+    x = np.zeros(n)
+    for r, g in zip(ratios, gains):
+        f = base * r
+        if f > dsp.SR * 0.45:
+            continue
+        wob = 1.0 + detune * np.sin(2 * np.pi * v.rnd(0.05, 0.4) * tt + v.rnd(0, 6.28))
+        am = _lfo(v, n, v.rnd(*beat), v.rnd(0.25, 0.5), 0.6)
+        x += dsp.osc(n, f * wob, "sine", phase=v.rnd(0, 6.28)) * g * am
+        # the twin: a few cents off, so the pair beats slowly against itself
+        x += dsp.osc(n, f * wob * (1.0 + v.rnd(0.002, 0.006)), "sine", phase=v.rnd(0, 6.28)) * g * 0.55 * _lfo(v, n, v.rnd(0.05, 0.3), 0.4, 0.6)
+    return x
+
+
 def _art_hum(v: Voice, base: float, kind: str):
+    """An artifact's idle voice: a resonant body, not an oscillator. Every kind is a cluster of partials spread over
+    two to three octaves (so no single third-octave band carries the sound), a moving noise bed for air, and sparse
+    events on top."""
     n = dsp.sec(LOOP)
     tt = np.arange(n) / dsp.SR
     x = np.zeros(n)
-    if kind == "pearl":  # pure, slow, but alive: a beating twin, a breath of air, glass ticks
-        x += dsp.osc(n, base * (1.0 + 0.003 * np.sin(2 * np.pi * 0.4 * tt)), "sine") * 0.3 * _lfo(v, n, 0.2, 0.15)
-        x += dsp.osc(n, base * 1.004, "sine") * 0.2 * _lfo(v, n, 0.13, 0.4)
-        x += dsp.osc(n, base * 2.0, "sine") * 0.06 + dsp.osc(n, base * 3.01, "sine") * 0.03 + dsp.osc(n, base * 1.5, "triangle") * 0.03 * _lfo(v, n, 0.07, 0.8)
-        x += dsp.biquad(dsp.pink(v.rng, n), "bandpass", base * 4.0, 8.0) * 0.08 * _lfo(v, n, 0.09, 0.7)
-        for k in range(v.irnd(3, 6)):
-            glass_body(v, at=v.rnd(0.0, LOOP - 0.6), f=base * v.rnd(4, 8), g=0.04, t60=0.5)
-    elif kind == "ember":  # warm, crackling
-        x += dsp.osc(n, base * 0.5, "triangle") * 0.2 * _lfo(v, n, 0.9, 0.3)
-        x += dsp.lowpass(dsp.crackle(v.rng, n, 30.0, 0.7), 1500.0) * 0.2
-        x += dsp.osc(n, base * 0.75, "sine") * 0.08 * _lfo(v, n, 0.3, 0.5)
-    elif kind == "tear":  # wet, glassy
-        x += dsp.osc(n, base * 1.5, "sine") * 0.15 * _lfo(v, n, 1.7, 0.4)
-        for k in range(v.irnd(6, 10)):
-            f = v.rnd(base * 2, base * 5)
-            t0 = v.rnd(0.0, LOOP - 0.2)
-            m = dsp.sec(0.15)
-            x = dsp.mix_into(x, dsp.osc(m, dsp.sweep(m, f, f * 1.5), "sine") * dsp.env(m, 0.01, 0, curve="exp") * 0.1, dsp.sec(t0))[:n]
-    else:  # organic: spine/heart — a slow pulse
-        x += dsp.osc(n, base * 0.25, "sine") * 0.3 * (0.5 + 0.5 * np.sin(2 * np.pi * 1.1 * tt)) ** 4
-        x += dsp.biquad(dsp.pink(v.rng, n), "bandpass", base, 6.0) * 0.15 * _lfo(v, n, 0.13, 0.5)
+    if kind == "pearl":  # cold and glassy — a struck singing bowl held open
+        x += _partials(v, n, base, [1.0, 2.02, 2.78, 4.04, 5.43, 7.36, 9.1],
+                       [0.26, 0.20, 0.17, 0.15, 0.12, 0.08, 0.05], beat=(0.06, 0.30))
+        # air moving through it: two bands high above the fundamental, breathing at different rates
+        x += dsp.biquad(dsp.pink(v.rng, n), "bandpass", base * 4.0 * (1.0 + 0.05 * np.sin(2 * np.pi * 0.09 * tt)), 6.0) * 0.10 * _lfo(v, n, 0.09, 0.7)
+        x += dsp.biquad(dsp.white(v.rng, n), "bandpass", base * 9.0, 4.0) * 0.05 * _lfo(v, n, 0.17, 0.8, 0.6)
+        for k in range(v.irnd(4, 7)):
+            glass_body(v, at=v.rnd(0.0, LOOP - 0.6), f=base * v.rnd(3.5, 8.0), g=0.05, t60=0.5)
+    elif kind == "ember":  # warm, crackling — a coal that will not go out
+        x += _partials(v, n, base, [0.5, 0.75, 1.0, 1.49, 2.03, 3.05],
+                       [0.20, 0.14, 0.12, 0.09, 0.07, 0.04], beat=(0.15, 0.9))
+        x += dsp.lowpass(dsp.crackle(v.rng, n, 30.0, 0.7), 1500.0) * 0.22
+        x += dsp.biquad(dsp.crackle(v.rng, n, 9.0, 0.2), "bandpass", base * 6.0, 3.0) * 0.10
+        x += dsp.biquad(dsp.brown(v.rng, n), "bandpass", base * 0.35, 2.0) * 0.12 * _lfo(v, n, 0.21, 0.6)
+    elif kind == "tear":  # wet and glassy — water standing in a cut crystal, droplets falling inside it
+        x += _partials(v, n, base, [1.0, 1.51, 2.34, 3.42, 4.61, 6.2, 8.4],
+                       [0.20, 0.19, 0.17, 0.14, 0.12, 0.08, 0.05], beat=(0.2, 1.1), detune=0.008)
+        # the water bed: a narrow band wandering slowly, plus a wide airy shimmer
+        x += dsp.biquad(dsp.pink(v.rng, n), "bandpass", base * 2.6 * (1.0 + 0.12 * np.sin(2 * np.pi * 0.13 * tt)), 5.0) * 0.12 * _lfo(v, n, 0.23, 0.6)
+        x += dsp.biquad(dsp.white(v.rng, n), "highpass", base * 7.0, 0.6) * 0.045 * _lfo(v, n, 0.31, 0.7, 0.5)
+        for k in range(v.irnd(7, 11)):  # droplets: a short rising chirp with a small body under it
+            f = v.rnd(base * 2.0, base * 5.0)
+            t0 = v.rnd(0.0, LOOP - 0.25)
+            m = dsp.sec(0.16)
+            drop = dsp.osc(m, dsp.sweep(m, f, f * 1.55), "sine") * dsp.env(m, 0.006, 0.0, curve="exp") * 0.11
+            drop += dsp.biquad(dsp.white(v.rng, m), "bandpass", f * 2.2, 8.0) * dsp.env(m, 0.001, 0.0, curve="exp") * 0.04
+            x = dsp.mix_into(x, drop, dsp.sec(t0))[:n]
+    else:  # organic: spine/heart — a slow pulse with a body around it
+        pulse = (0.5 + 0.5 * np.sin(2 * np.pi * 1.1 * tt)) ** 4
+        x += _partials(v, n, base, [0.25, 0.5, 0.76, 1.0, 1.53, 2.4], [0.26, 0.17, 0.12, 0.10, 0.07, 0.04], beat=(0.1, 0.6)) * (0.45 + 0.55 * pulse)
+        x += dsp.biquad(dsp.pink(v.rng, n), "bandpass", base, 6.0) * 0.16 * _lfo(v, n, 0.13, 0.5)
+        x += dsp.biquad(dsp.pink(v.rng, n), "bandpass", base * 3.1, 4.0) * 0.07 * pulse
+        x += dsp.lowpass(dsp.brown(v.rng, n), 180.0) * 0.35 * pulse  # the thud of it
     v.add(x, 0.0)
     v.buf = v.buf[:n]
 

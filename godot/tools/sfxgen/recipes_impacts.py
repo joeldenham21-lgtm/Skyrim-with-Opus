@@ -158,10 +158,15 @@ def bullet_whiz(v, i):
 
 @sound("hit_helmet", 3, "impact", desc="a round on a steel helmet: the ring", tags=["impact", "armor"])
 def hit_helmet(v, i):
-    click(v, f=4500, g=0.6, dur=0.003)
-    burst(v, type="white", filt="bandpass", f0=3200, q=1, dur=0.02, g=0.5, atk=0.0006)
-    modal(v, freqs=[v.rnd(1900, 2300), v.rnd(2900, 3400), v.rnd(4300, 4900), v.rnd(6000, 7000)], t60s=[0.45, 0.35, 0.25, 0.15], amps=[1, 0.7, 0.4, 0.25], exc=0.0012, g=0.4)
-    thump(v, f0=160, f1=90, dur=0.05, g=0.35)
+    # a steel shell is not one bell: it rings in a dense cluster from its breathing mode near 800 Hz up past 7 kHz,
+    # spread wide so no single band owns the sound, over a hard broadband strike and the dull thud into the wearer
+    click(v, f=4500, g=0.7, dur=0.003)
+    burst(v, type="white", filt="bandpass", f0=3200, f1=900, q=0.8, dur=0.03, g=0.7, atk=0.0004, sat=2.0)
+    burst(v, type="white", filt="highpass", f0=7000, q=0.5, dur=0.012, g=0.35, atk=0.0002)
+    modal(v, freqs=[v.rnd(760, 900), v.rnd(1250, 1450), v.rnd(1900, 2300), v.rnd(2900, 3400), v.rnd(4300, 4900), v.rnd(6000, 7000), v.rnd(8200, 9400)],
+          t60s=[0.30, 0.38, 0.45, 0.35, 0.25, 0.15, 0.09], amps=[0.75, 0.9, 1.0, 0.8, 0.55, 0.35, 0.2], exc=0.0012, g=0.34)
+    thump(v, f0=170, f1=85, dur=0.07, g=0.5)          # the head takes it
+    burst(v, type="brown", filt="lowpass", f0=420, q=0.8, dur=0.05, g=0.3, atk=0.0015)
 
 
 @sound("hit_armor", 3, "impact", desc="a round stopped by a plate: a hard flat thwack", tags=["impact", "armor"])

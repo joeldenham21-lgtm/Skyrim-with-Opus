@@ -22,6 +22,10 @@ class Mat:
         self.ao_strength = 1.0
         self.normal_strength = None
         self.meta = {}
+        # texel-scale grain applied by finish(): (albedo, height, roughness) amounts. Real surfaces are never
+        # smooth at 1:1 — without this every material reads as a blurred gradient when the player stands close.
+        self.micro_amt = (0.075, 0.010, 0.055)
+        self.micro_seed = 7717
 
     def finish(self):
         n = self.n
@@ -29,6 +33,15 @@ class Mat:
             v = getattr(self, k)
             if np.ndim(v) == 0:
                 setattr(self, k, np.full((n, n), float(v), F32))
+        if self.micro_amt:
+            a, hh, rr = self.micro_amt
+            g = micrograin(n, self.micro_seed)
+            if a:
+                self.albedo = self.albedo * (1.0 + g[..., None] * F32(a * 2.0))
+            if hh:
+                self.height = self.height + g * F32(hh * 2.0)
+            if rr:
+                self.rough = self.rough + g * F32(rr * 2.0)
         self.height = np.clip(self.height, 0.0, 1.0).astype(F32)
         self.albedo = np.clip(self.albedo, 0.0, 1.0).astype(F32)
         self.rough = np.clip(self.rough, 0.02, 1.0).astype(F32)
@@ -439,4 +452,80 @@ def gauss_bumps(n, seed, count, sigma, amp=(0.5, 1.0), aniso=1.0):
     k = np.exp(-2.0 * (np.pi ** 2) * (sigma ** 2) * (f * f * aniso + g * g / aniso))
     out = np.fft.irfft2(np.fft.rfft2(pts.astype(np.float64)) * k, s=(n, n)).astype(F32)
     out *= 2 * np.pi * sigma * sigma
+    return out
+
+
+# ----------------------------------------------------------------- texel-scale detail
+
+_MICRO_CACHE = {}
+
+
+def micrograin(n, seed=7717):
+    """Periodic grain from ~1 px to ~8 px, normalised to about [-0.5, 0.5]. Cached per (n, seed)."""
+    key = (n, seed)
+    g = _MICRO_CACHE.get(key)
+    if g is not None:
+        return g
+    r = N.rng_for(seed)
+    w = (r.random((n, n)).astype(F32) - 0.5)
+    a = N.blur(w, 0.55)
+    a = a / (a.std() + 1e-6)
+    b = N.blur(w, 1.7)
+    b = b / (b.std() + 1e-6)
+    c = N.blur(w, 4.5)
+    c = c / (c.std() + 1e-6)
+    g = (a * 0.30 + b * 0.24 + c * 0.20).astype(F32)
+    g = np.clip(g, -0.5, 0.5)
+    if len(_MICRO_CACHE) > 4:
+        _MICRO_CACHE.clear()
+    _MICRO_CACHE[key] = g
+    return g
+
+
+def grit(n, seed, density=0.35, sizes=(0.6, 2.2), soft=0.35):
+    """Fine sand/aggregate grains: many small blurred dots, tileable. Returns [0,1]."""
+    r = N.rng_for(seed)
+    cnt = int(density * n * n / 40.0)
+    c = Canvas(n, "F", 0.0)
+    xs = r.uniform(0, n, cnt)
+    ys = r.uniform(0, n, cnt)
+    ss = r.uniform(sizes[0], sizes[1], cnt) ** 1.6
+    vs = r.uniform(0.35, 1.0, cnt)
+    for x, y, sz, v in zip(xs, ys, ss, vs):
+        c.ellipse(x, y, sz, sz * r.uniform(0.7, 1.15), float(v))
+    a = c.array()
+    return (N.blur(a, soft) if soft > 0 else a).astype(F32)
+
+
+def fibres(n, seed, count, length=(20, 120), width=(1, 2), angle=0.0, spread=0.25, curve=0.6, soft=0.4):
+    """Directional fibres (paper, canvas, felt, cloth nap)."""
+    return sprinkle_lines(n, count, seed, length=length, width=width, angle=angle, spread=spread,
+                          soft=soft, curve=curve)
+
+
+def orange_peel(n, seed, cells=220, amount=1.0):
+    """The dimpled micro-relief of sprayed/brushed paint. Returns [-1,1]-ish."""
+    w = N.worley(n, cells, seed, jitter=1.0)[0]
+    d = (N.blur(w, 1.4) - N.blur(w, 5.0))
+    d = d / (np.abs(d).max() + 1e-6)
+    return (d * amount).astype(F32)
+
+
+def flake(n, seed, coverage=0.5, cells=26, edge=0.06):
+    """Paint flaking: a warped noise thresholded into islands with hard edges (peeled area = 1)."""
+    f = N.fbm(n, cells, 5, seed, min_res=256)
+    wx = N.fbm(n, cells // 2 + 1, 3, seed + 3, min_res=256) * (n / cells * 0.5)
+    wy = N.fbm(n, cells // 2 + 1, 3, seed + 4, min_res=256) * (n / cells * 0.5)
+    f = N.warp(f, wx, wy)
+    lo = np.quantile(f, np.clip(1.0 - coverage, 0.02, 0.98))
+    return N.smoothstep(lo - edge, lo + edge, f).astype(F32)
+
+
+def scratch_set(n, seed, groups=((240, (40, 260), (1, 2)), (60, (200, 700), (1, 3)))):
+    """Layered scratches: many short random ones plus a few long directional ones."""
+    out = np.zeros((n, n), F32)
+    for i, (cnt, ln, wd) in enumerate(groups):
+        a = None if i % 2 == 0 else N.rng_for(seed + i).uniform(0, np.pi)
+        out = np.maximum(out, sprinkle_lines(n, cnt, seed + i * 31, length=ln, width=wd,
+                                             angle=a, spread=0.25, soft=0.45, curve=0.25))
     return out
