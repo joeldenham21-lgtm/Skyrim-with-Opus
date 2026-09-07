@@ -110,9 +110,15 @@ func _load_maps() -> void:
 # ---------------------------------------------------------------------------------------------------------------
 # material
 # ---------------------------------------------------------------------------------------------------------------
-func _tex(name: String) -> Texture2D:
+func _tex(name: String) -> Texture:
+	## Texture, not Texture2D: layers_*.png import as CompressedTexture2DArray (TextureLayered).
 	var p := DIR + name
-	return load(p) if ResourceLoader.exists(p) else null
+	if not ResourceLoader.exists(p):
+		push_warning("[terrain] missing " + p)
+		return null
+	var t: Texture = load(p)
+	if t == null: push_warning("[terrain] could not load " + p)
+	return t
 
 func _build_material() -> void:
 	material = ShaderMaterial.new()
