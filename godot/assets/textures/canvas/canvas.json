@@ -1,6 +1,6 @@
 {
  "kind": "canvas",
- "tile_m": 0.5,
- "height_m": 0.006,
+ "tile_m": 0.25,
+ "height_m": 0.004,
  "size": 2048
 }

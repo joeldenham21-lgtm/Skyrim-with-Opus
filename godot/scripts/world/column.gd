@@ -19,7 +19,7 @@ const LENS_R := 130.0
 const MOUNTAIN_OFFSET := Vector3(-520.0, 640.0, -420.0)   # relative to the Column's foot
 const MTN_R := 560.0
 const MTN_DEPTH := 900.0
-const MESH_VERSION := "landmark-v2"
+const MESH_VERSION := "landmark-v3"
 const DEBRIS := 96
 const SHARDS := 7
 
@@ -88,7 +88,7 @@ void fragment() {
 	// aerial perspective by true distance
 	float dist = length(v_world - CAMERA_POSITION_WORLD);
 	float ap = min(1.0 - exp(-dist * ap_density), ap_max);
-	vec3 col = mix(lit, horizon, ap);
+	vec3 col = mix(lit, horizon * 0.82, ap);
 	col = mix(col, vec3(1.0), tide);
 	ALBEDO = col;
 }
@@ -129,7 +129,7 @@ void fragment() {
 	vec3 lit = rock * (sun_col * sun_energy * max(dot(n, sun_dir), 0.0) * 0.6 + horizon * (0.32 + 0.5 * max(n.y, 0.0)));
 	float dist = length(v_world - CAMERA_POSITION_WORLD);
 	float ap = min(1.0 - exp(-dist * ap_density), ap_max);
-	vec3 col = mix(lit, horizon, ap);
+	vec3 col = mix(lit, horizon * 0.85, ap);
 	ALBEDO = mix(col, vec3(1.0), tide);
 }
 """
@@ -163,7 +163,7 @@ void fragment() {
 	vec3 col = vec3(0.012, 0.013, 0.016) * (0.7 + 0.6 * max(n.y, 0.0));
 	float dist = length(v_world - CAMERA_POSITION_WORLD);
 	float ap = min(1.0 - exp(-dist * ap_density), ap_max);
-	col = mix(col, horizon, ap * 0.96);
+	col = mix(col, horizon * 0.80, ap * 0.92);
 	ALBEDO = mix(col, vec3(1.0), tide);
 }
 """
@@ -330,11 +330,11 @@ func _build_mountain() -> ArrayMesh:
 		for i in segs:
 			var ang := TAU * i / segs
 			var ridge := 0.0
-			ridge += 0.46 * (1.0 - absf(sin(ang * 3.0 + v * 1.6)))
-			ridge += 0.26 * (1.0 - absf(sin(ang * 7.0 - v * 2.4 + 1.1)))
-			ridge += 0.15 * (1.0 - absf(sin(ang * 15.0 + v * 3.3 + 2.4)))
-			ridge += 0.09 * (1.0 - absf(sin(ang * 29.0 - v * 1.2 + 0.7)))
-			ridge = ridge * 0.9 + (jit[i] - 0.5) * 0.16 * (1.0 - v * 0.5)
+			ridge += 0.52 * (1.0 - absf(sin(ang * 2.0 + v * 1.1)))
+			ridge += 0.27 * (1.0 - absf(sin(ang * 5.0 - v * 1.8 + 1.1)))
+			ridge += 0.13 * (1.0 - absf(sin(ang * 11.0 + v * 2.4 + 2.4)))
+			ridge += 0.06 * (1.0 - absf(sin(ang * 23.0 - v * 1.2 + 0.7)))
+			ridge = ridge * 0.85 + (jit[i] - 0.5) * 0.10 * (1.0 - v * 0.5)
 			var r := MTN_R * pow(1.0 - v, 0.72) * (0.72 + 0.45 * ridge)
 			# terraces: strata that survived the tearing
 			r *= 1.0 + 0.035 * sin(v * 26.0 + ang * 0.7)
@@ -354,7 +354,7 @@ func _build_mountain() -> ArrayMesh:
 	var plate: Array = []
 	for i in segs:
 		var a: Vector3 = rows[0][i]
-		var up := 34.0 + jit[i] * 46.0
+		var up := 9.0 + jit[i] * 20.0
 		lip.append(a + Vector3(0.0, up, 0.0))
 		plate.append(a * 0.78 + Vector3(0.0, up * 0.55 + 6.0, 0.0))
 	for i in segs:
@@ -427,7 +427,7 @@ func update(night: float, horizon: Color, sun_dir: Vector3, tide: float, lightni
 	for m in [_col_mat, _lens_mat]:
 		m.set_shader_parameter("night", night); m.set_shader_parameter("tide", tide); m.set_shader_parameter("lightning", lightning)
 		m.set_shader_parameter("t", t); m.set_shader_parameter("energy", energy); m.set_shader_parameter("fade", fade)
-	var ap_max := clampf(0.86 + fog * 0.14, 0.0, 1.0)
+	var ap_max := clampf(0.70 + fog * 0.30, 0.0, 1.0)
 	for m in [_mtn_mat, _deb_mat, _shard_mat]:
 		m.set_shader_parameter("horizon", horizon)
 		m.set_shader_parameter("ap_density", ap_density)

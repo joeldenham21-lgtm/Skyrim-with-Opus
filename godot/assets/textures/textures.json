@@ -20,7 +20,7 @@
  "rust": {
   "kind": "rust",
   "tile_m": 1.0,
-  "height_m": 0.006,
+  "height_m": 0.004,
   "size": 2048
  },
  "painted_metal": {
@@ -61,8 +61,8 @@
  },
  "fabric": {
   "kind": "fabric",
-  "tile_m": 0.35,
-  "height_m": 0.004,
+  "tile_m": 0.2,
+  "height_m": 0.003,
   "size": 2048
  },
  "leather": {
@@ -128,7 +128,7 @@
  "rock": {
   "kind": "rock",
   "tile_m": 2.0,
-  "height_m": 0.15,
+  "height_m": 0.14,
   "size": 2048
  },
  "sand": {
@@ -145,20 +145,20 @@
  },
  "tarp": {
   "kind": "tarp",
-  "tile_m": 1.5,
-  "height_m": 0.02,
+  "tile_m": 0.7,
+  "height_m": 0.01,
   "size": 2048
  },
  "paper": {
   "kind": "paper",
-  "tile_m": 0.5,
-  "height_m": 0.0006,
+  "tile_m": 0.3,
+  "height_m": 0.0008,
   "size": 2048
  },
  "glass": {
   "kind": "glass",
   "tile_m": 1.0,
-  "height_m": 0.0002,
+  "height_m": 0.0006,
   "size": 2048
  },
  "tiles": {
@@ -170,13 +170,13 @@
  "wallpaper": {
   "kind": "wallpaper",
   "tile_m": 1.06,
-  "height_m": 0.004,
+  "height_m": 0.0015,
   "size": 2048
  },
  "linoleum": {
   "kind": "linoleum",
-  "tile_m": 1.0,
-  "height_m": 0.004,
+  "tile_m": 2.0,
+  "height_m": 0.0025,
   "size": 2048
  },
  "sheet_metal": {
@@ -199,14 +199,14 @@
  },
  "bone": {
   "kind": "bone",
-  "tile_m": 0.3,
-  "height_m": 0.002,
+  "tile_m": 0.4,
+  "height_m": 0.004,
   "size": 2048
  },
  "canvas": {
   "kind": "canvas",
-  "tile_m": 0.5,
-  "height_m": 0.006,
+  "tile_m": 0.25,
+  "height_m": 0.004,
   "size": 2048
  }
 }

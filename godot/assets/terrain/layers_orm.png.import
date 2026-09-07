@@ -3,25 +3,17 @@
 importer="2d_array_texture"
 type="CompressedTexture2DArray"
 uid="uid://06wd50gp1vlp"
-path.s3tc="res://.godot/imported/layers_orm.png-64b38bd6b759175b6c790774b175057d.s3tc.ctexarray"
-path.etc2="res://.godot/imported/layers_orm.png-64b38bd6b759175b6c790774b175057d.etc2.ctexarray"
-metadata={
-"imported_formats": ["s3tc_bptc", "etc2_astc"],
-"vram_texture": true
-}
+path="res://.godot/imported/layers_orm.png-64b38bd6b759175b6c790774b175057d.ctexarray"
 
 [deps]
 
 source_file="res://assets/terrain/layers_orm.png"
-dest_files=["res://.godot/imported/layers_orm.png-64b38bd6b759175b6c790774b175057d.s3tc.ctexarray", "res://.godot/imported/layers_orm.png-64b38bd6b759175b6c790774b175057d.etc2.ctexarray"]
+dest_files=["res://.godot/imported/layers_orm.png-64b38bd6b759175b6c790774b175057d.ctexarray"]
 
 [params]
 
 compress/mode=2
 compress/high_quality=false
-compress/lossy_quality=0.7
-compress/uastc_level=0
-compress/rdo_quality_loss=0.0
 compress/hdr_compression=1
 compress/channel_pack=0
 mipmaps/generate=true

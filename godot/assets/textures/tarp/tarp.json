@@ -1,6 +1,6 @@
 {
  "kind": "tarp",
- "tile_m": 1.5,
- "height_m": 0.02,
+ "tile_m": 0.7,
+ "height_m": 0.01,
  "size": 2048
 }
