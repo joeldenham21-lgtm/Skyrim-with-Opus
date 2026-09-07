@@ -2,3 +2,5 @@
 .shots/
 builds/
 *.import.tmp
+__pycache__/
+*.pyc

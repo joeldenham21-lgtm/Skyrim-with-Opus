@@ -1,0 +1,32 @@
+{
+ "concrete": {
+  "kind": "concrete",
+  "tile_m": 2.0,
+  "height_m": 0.03,
+  "size": 2048
+ },
+ "plaster": {
+  "kind": "plaster",
+  "tile_m": 2.0,
+  "height_m": 0.03,
+  "size": 2048
+ },
+ "brick": {
+  "kind": "brick",
+  "tile_m": 1.0,
+  "height_m": 0.018,
+  "size": 2048
+ },
+ "rock": {
+  "kind": "rock",
+  "tile_m": 2.0,
+  "height_m": 0.12,
+  "size": 2048
+ },
+ "tiles": {
+  "kind": "tiles",
+  "tile_m": 1.2,
+  "height_m": 0.012,
+  "size": 2048
+ }
+}

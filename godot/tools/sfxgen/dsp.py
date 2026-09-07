@@ -144,16 +144,15 @@ def env(n: int, atk: float = 0.003, hold: float = 0.0, dec: float = None, curve:
         parts.append(curve_seg(nh, peak, peak * hold_level, "lin"))
     start = peak * hold_level if nh > 0 else peak
     if curve == "exp":
-        parts.append(curve_seg(nd, start, EPS * 0.3, "exp"))
+        floor = 3e-4 * max(start, EPS)
+        d = curve_seg(nd, start, floor, "exp")
+        d = (d - floor) * (start / max(start - floor, EPS))  # ends at a true zero
+        parts.append(d)
     elif curve == "cos":
         parts.append(curve_seg(nd, start, 0.0, "cos"))
     else:
         parts.append(curve_seg(nd, start, 0.0, "lin"))
     e = np.concatenate(parts)
-    if curve == "exp" and nd > 0:
-        e[na + nh:] -= EPS * 0.3  # true zero at the end
-        e[na + nh:] *= (1.0 / max(start, EPS))
-        e[na + nh:] *= start
     return e[:n]
 
 

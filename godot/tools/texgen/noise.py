@@ -134,10 +134,13 @@ def fbm(n, cells, octaves, seed, gain=0.5, lacunarity=2, ridged=False, billow=Fa
         res = n
         if min_res is not None:
             # lattice spacing >= 8 px at the reduced resolution is invisible after bilinear upsample
-            res = int(min(n, max(min_res, int(max(cx, cy)) * 8)))
-            res = max(64, res)
-            while n % res:
+            target = max(64, min_res, int(max(cx, cy)) * 8)
+            res = 64
+            while res < target:
                 res *= 2
+            res = min(n, res)
+            if n % res:
+                res = n
         layer = perlin(res, cx, seed + 977 * o, cells_y=cy)
         if ridged:
             layer = 1.0 - np.abs(layer)
@@ -154,14 +157,20 @@ def fbm(n, cells, octaves, seed, gain=0.5, lacunarity=2, ridged=False, billow=Fa
 
 
 def upsample(a, n):
-    """Periodic bilinear upsample of a square array to n x n."""
+    """Periodic bilinear upsample of a square array to n x n (integer factor, pure numpy)."""
     m = a.shape[0]
     if m == n:
         return a
-    f = m / n
-    coords = (np.arange(n, dtype=F32) * F32(f))
-    yy, xx = np.meshgrid(coords, coords, indexing="ij")
-    return ndimage.map_coordinates(a, [yy, xx], order=1, mode="grid-wrap").astype(F32)
+    k = n // m
+    j = np.arange(n, dtype=F32)
+    x = (j + F32(0.5)) / F32(k) - F32(0.5)
+    x0 = np.floor(x)
+    f = (x - x0).astype(F32)
+    x0 = x0.astype(np.int64) % m
+    x1 = (x0 + 1) % m
+    rows = a[x0] * (1.0 - f)[:, None] + a[x1] * f[:, None]
+    out = rows[:, x0] * (1.0 - f)[None, :] + rows[:, x1] * f[None, :]
+    return out.astype(F32)
 
 
 def worley(n, cells, seed, jitter=1.0, cells_y=None, aniso=1.0, metric="euclid", extra=False):

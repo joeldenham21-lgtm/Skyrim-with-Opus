@@ -63,5 +63,41 @@
   "explorer_pack": 2,
   "safe": 1,
   "weapon_crate": 1
+ },
+ "bridge": {
+  "ammo_crate": 4,
+  "ammo_tin": 3,
+  "footlocker": 2,
+  "weapon_crate": 2,
+  "toolbox": 2,
+  "ration_box": 2
+ },
+ "quarry": {
+  "toolbox": 4,
+  "ammo_tin": 3,
+  "desk": 3,
+  "med_cabinet": 2,
+  "armor_locker": 2,
+  "safe": 1,
+  "weapon_crate": 1
+ },
+ "lake": {
+  "explorer_pack": 2,
+  "ammo_tin": 1,
+  "med_bag": 1
+ },
+ "mast": {
+  "explorer_pack": 2,
+  "safe": 1,
+  "weapon_crate": 1
+ },
+ "dam": {
+  "toolbox": 4,
+  "ammo_tin": 3,
+  "desk": 3,
+  "med_cabinet": 2,
+  "armor_locker": 2,
+  "safe": 1,
+  "weapon_crate": 1
  }
 }
