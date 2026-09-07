@@ -1,0 +1,55 @@
+{
+ "tile": 1024,
+ "cols": 4,
+ "rows": 2,
+ "layers": [
+  {
+   "layer": "grass",
+   "source": "procedural",
+   "tile_m": 2.5,
+   "procedural": true
+  },
+  {
+   "layer": "dirt",
+   "source": "procedural",
+   "tile_m": 3.0,
+   "procedural": true
+  },
+  {
+   "layer": "mud",
+   "source": "procedural",
+   "tile_m": 3.0,
+   "procedural": true
+  },
+  {
+   "layer": "rock",
+   "source": "rock",
+   "tile_m": 2.0,
+   "procedural": false
+  },
+  {
+   "layer": "gravel",
+   "source": "procedural",
+   "tile_m": 2.0,
+   "procedural": true
+  },
+  {
+   "layer": "asphalt",
+   "source": "procedural",
+   "tile_m": 4.0,
+   "procedural": true
+  },
+  {
+   "layer": "sand",
+   "source": "procedural",
+   "tile_m": 3.0,
+   "procedural": true
+  },
+  {
+   "layer": "moss",
+   "source": "procedural",
+   "tile_m": 2.0,
+   "procedural": true
+  }
+ ]
+}

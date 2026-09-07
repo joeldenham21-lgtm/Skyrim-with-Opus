@@ -20,8 +20,8 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
-OUT = os.path.join(ROOT, "assets", "textures")
-PREVIEW_DIR = os.path.join(ROOT, ".shots", "texgen")
+OUT = os.environ.get("TEXGEN_OUT", os.path.join(ROOT, "assets", "textures"))
+PREVIEW_DIR = os.environ.get("TEXGEN_PREVIEW", os.path.join(ROOT, ".shots", "texgen"))
 
 from texgen import materials as MATS  # noqa: E402
 from texgen import materials2 as MATS2  # noqa: E402

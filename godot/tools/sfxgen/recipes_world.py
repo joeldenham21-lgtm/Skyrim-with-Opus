@@ -381,3 +381,50 @@ def debris_drift(v, i):
     for k in range(v.irnd(3, 6)):
         modal(v, at=v.rnd(0.1, 1.8), freqs=[v.rnd(700, 1400), v.rnd(1600, 2600)], t60s=[0.15, 0.08], amps=[1, 0.4], exc=0.003, g=0.1)
     thump(v, at=v.rnd(0.3, 1.2), f0=60, f1=35, dur=0.3, g=0.3)
+
+
+# ------------------------------------------------------------------------------------------------------ names the Godot loot/weather scripts ask for
+@sound("container_locked", 3, "world", peak=-12.0, desc="a locked hasp: the padlock knocked against the plate twice, the lid not giving", tags=["container"])
+def container_locked(v, i):
+    def one(at, k):
+        clack(v, at=at, f=v.rnd(2200, 2800), g=0.35, dur=0.01, decay=0.06)
+        metal_body(v, at=at, f=v.rnd(1500, 2100), g=0.18, t60=0.12, n=6, thick=0.4)  # the padlock body
+        modal(v, at=at + 0.003, freqs=[v.rnd(230, 300), v.rnd(500, 650)], t60s=[0.25, 0.15], amps=[1, 0.5], exc=0.003, g=0.14)  # the lid panel
+        rattle(v, at=at + 0.02, n=2, span=0.06, freqs=[3000, 4500], g=0.05, t60=0.04)  # the hasp
+    seq(v, 2, 0.0, 0.3, one)
+    burst(v, at=0.05, type="pink", filt="bandpass", f0=600, q=1.2, dur=0.2, g=0.06, atk=0.05)  # the strain on the lid
+
+
+alias("lockpick_fail", "lockpick_break")
+
+
+def _thunder_body(v: Voice, dur: float, claps: int, k_atk: float = 0.02) -> np.ndarray:
+    n = dsp.sec(dur)
+    x = dsp.brown(v.rng, n)
+    env = np.zeros(n)
+    for k in range(claps):
+        t0 = v.rnd(0.0, 0.5 * dur); d = v.rnd(0.3, 1.3)
+        env = np.maximum(env, dsp.pad_to(dsp.delay(dsp.env(dsp.sec(d), k_atk + 0.1 * k, 0, curve="exp"), t0), n)[:n] * v.rnd(0.5, 1.0))
+    env = dsp.smooth(env, 0.02)
+    x = dsp.biquad(x, "lowpass", dsp.sweep(n, 900.0, 150.0, "exp"), 0.8) * env
+    x += dsp.lowpass(dsp.pink(v.rng, n), 400.0) * env * 0.3
+    return dsp.saturate(x * 3.0, 2.5)
+
+
+@sound("thunder_near", 3, "ambience", peak=-2.0, desc="a strike close by: the tearing crack, then the roll", tags=["ambience", "weather"])
+def thunder_near(v, i):
+    click(v, g=0.8, f=2500, dur=0.02)
+    burst(v, type="white", filt="bandpass", f0=3500, f1=500, q=0.7, dur=0.35, g=0.9, atk=0.001, sat=3.0)  # the crack
+    burst(v, at=0.002, type="crackle", filt="lowpass", f0=5000, q=0.7, dur=0.5, g=0.4, atk=0.002)  # the air tearing
+    thump(v, at=0.01, f0=60, f1=25, dur=0.6, g=0.9, sat=1.5)
+    v.add(_thunder_body(v, v.rnd(4.0, 6.0), v.irnd(4, 7)), 0.15)
+    return reverb.place(v.render(), "field_big", v.rng, wet_db=-4.0)
+
+
+@sound("thunder_far", 3, "ambience", peak=-8.0, desc="thunder kilometres off: a long low rumble with no crack in it", tags=["ambience", "weather"])
+def thunder_far(v, i):
+    x = _thunder_body(v, v.rnd(5.0, 8.0), v.irnd(5, 9), 0.15)
+    x = reverb.air(x, v.rnd(2500, 5000), True, v.rng)
+    x = dsp.lowpass(x, 260.0, 0.8)
+    v.add(x, 0.0)
+    return reverb.place(v.render(), "distant", v.rng, wet_db=0.0, dry=0.5)

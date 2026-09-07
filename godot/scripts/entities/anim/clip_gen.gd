@@ -7,6 +7,7 @@ class_name ClipGen
 class RigPose:
 	var rot := {}      # bone -> Quaternion (bone-local, on top of the identity rest)
 	var pos := {}      # bone -> Vector3 offset from the rest position (bone-local)
+	var scl := {}      # bone -> Vector3 scale (1 = rest); only baked for bones named in opts.scale_bones
 	func r(bone: String, x_deg: float, y_deg: float = 0.0, z_deg: float = 0.0) -> RigPose:
 		var q := Quaternion.from_euler(Vector3(deg_to_rad(x_deg), deg_to_rad(y_deg), deg_to_rad(z_deg)))
 		rot[bone] = (rot.get(bone, Quaternion.IDENTITY) as Quaternion) * q
@@ -19,14 +20,19 @@ class RigPose:
 	func p(bone: String, v: Vector3) -> RigPose:
 		pos[bone] = (pos.get(bone, Vector3.ZERO) as Vector3) + v
 		return self
+	func s(bone: String, v: Vector3) -> RigPose:
+		scl[bone] = (scl.get(bone, Vector3.ONE) as Vector3) * v
+		return self
 	func get_r(bone: String) -> Quaternion: return rot.get(bone, Quaternion.IDENTITY)
 	func get_p(bone: String) -> Vector3: return pos.get(bone, Vector3.ZERO)
+	func get_s(bone: String) -> Vector3: return scl.get(bone, Vector3.ONE)
 	func copy() -> RigPose:
-		var o := RigPose.new(); o.rot = rot.duplicate(); o.pos = pos.duplicate(); return o
+		var o := RigPose.new(); o.rot = rot.duplicate(); o.pos = pos.duplicate(); o.scl = scl.duplicate(); return o
 	## Compose: this then other (other's rotations applied after, offsets summed).
 	func add(o: RigPose) -> RigPose:
 		for b in o.rot: rot[b] = (rot.get(b, Quaternion.IDENTITY) as Quaternion) * o.rot[b]
 		for b in o.pos: pos[b] = (pos.get(b, Vector3.ZERO) as Vector3) + o.pos[b]
+		for b in o.scl: scl[b] = (scl.get(b, Vector3.ONE) as Vector3) * o.scl[b]
 		return self
 	## Blend toward another pose (slerp / lerp) by t.
 	func mix(o: RigPose, t: float) -> RigPose:
@@ -39,11 +45,16 @@ class RigPose:
 		for b in pos: keys[b] = true
 		for b in o.pos: keys[b] = true
 		for b in keys: out.pos[b] = (pos.get(b, Vector3.ZERO) as Vector3).lerp(o.pos.get(b, Vector3.ZERO), t)
+		keys = {}
+		for b in scl: keys[b] = true
+		for b in o.scl: keys[b] = true
+		for b in keys: out.scl[b] = (scl.get(b, Vector3.ONE) as Vector3).lerp(o.scl.get(b, Vector3.ONE), t)
 		return out
 	## Scale every rotation/offset toward rest by k (0 = rest, 1 = unchanged).
 	func scale(k: float) -> RigPose:
 		for b in rot: rot[b] = Quaternion.IDENTITY.slerp(rot[b], k)
 		for b in pos: pos[b] = pos[b] * k
+		for b in scl: scl[b] = Vector3.ONE.lerp(scl[b], k)
 		return self
 
 # ---------------------------------------------------------------- easing
@@ -140,26 +151,33 @@ static func keyed(keys: Array) -> Callable:
 		for i in range(1, keys.size()):
 			if t <= keys[i][0]:
 				var a: Array = keys[i - 1]; var b: Array = keys[i]
-				var u := (t - a[0]) / maxf(b[0] - a[0], 1e-5)
+				var u: float = (t - a[0]) / maxf(b[0] - a[0], 1e-5)
 				return (a[1] as RigPose).mix(b[1], ease_by(b[2] if b.size() > 2 else "io", u))
 		return (keys[-1][1] as RigPose).copy()
 
 # ---------------------------------------------------------------- baking
-## opts: {fps, loop, lag: {bone: seconds}, spring: {bone: [stiffness, damping]}, footsteps: [[t, "l"|"r"]], meta: {}}
+## opts: {fps, loop, lag: {bone: seconds}, spring: {bone: [stiffness, damping]}, footsteps: [[t, "l"|"r"]], meta: {},
+##        pos_bones: [names] (default: hips + root, or def.pos_bones), scale_bones: [names] (default def.scale_bones)}
 static func bake(def: Dictionary, name: String, length: float, sampler: Callable, opts: Dictionary = {}) -> Animation:
 	var fps: float = opts.get("fps", 30.0)
 	var loop: bool = opts.get("loop", false)
 	var n := maxi(2, int(round(length * fps)))
 	var dt := 1.0 / fps
 	var names: Array = def["names"]
-	var rots := {}; var poss := {}
+	var pos_bones: Array = opts.get("pos_bones", def.get("pos_bones", ["hips", "root"]))
+	var scale_bones: Array = opts.get("scale_bones", def.get("scale_bones", []))
+	var rots := {}; var poss := {}; var scls := {}
 	for b in names: rots[b] = []
-	poss["hips"] = []; poss["root"] = []
+	for b in pos_bones:
+		if b in names: poss[b] = []
+	for b in scale_bones:
+		if b in names: scls[b] = []
 	for f in n:
 		var t := f * dt
 		var pose: RigPose = sampler.call(t)
 		for b in names: rots[b].append(pose.get_r(b))
-		poss["hips"].append(pose.get_p("hips")); poss["root"].append(pose.get_p("root"))
+		for b in poss: poss[b].append(pose.get_p(b))
+		for b in scls: scls[b].append(pose.get_s(b))
 	# follow-through: lag / spring passes
 	var lag: Dictionary = opts.get("lag", {})
 	var spring: Dictionary = opts.get("spring", {})
@@ -186,12 +204,17 @@ static func bake(def: Dictionary, name: String, length: float, sampler: Callable
 			for f in n: anim.rotation_track_insert_key(tr, f * dt, arr[f])
 		else:
 			anim.rotation_track_insert_key(tr, 0.0, arr[0])
-	for b in ["hips", "root"]:
+	for b in poss:
 		var tr := anim.add_track(Animation.TYPE_POSITION_3D)
 		anim.track_set_path(tr, NodePath("Skeleton3D:" + b))
 		anim.track_set_interpolation_type(tr, Animation.INTERPOLATION_LINEAR)
 		var rest_local: Vector3 = def["pos"][b] - (def["pos"][def["parent"][b]] if def["parent"][b] != "" else Vector3.ZERO)
 		for f in n: anim.position_track_insert_key(tr, f * dt, rest_local + poss[b][f])
+	for b in scls:
+		var tr := anim.add_track(Animation.TYPE_SCALE_3D)
+		anim.track_set_path(tr, NodePath("Skeleton3D:" + b))
+		anim.track_set_interpolation_type(tr, Animation.INTERPOLATION_LINEAR)
+		for f in n: anim.scale_track_insert_key(tr, f * dt, scls[b][f])
 	if opts.has("footsteps"): anim.set_meta("footsteps", opts["footsteps"])
 	if opts.has("meta"):
 		for k in opts["meta"]: anim.set_meta(k, opts["meta"][k])

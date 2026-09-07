@@ -114,8 +114,8 @@ static func _grip(pose: P.RigPose, side: String, amount: float, spread: float = 
 	var sg := -1.0 if side == "r" else 1.0
 	var a := clampf(amount, 0.0, 1.0)
 	for f in ["index", "middle", "ring", "pinky"]:
-		var k := { "index": 0.9, "middle": 1.0, "ring": 1.0, "pinky": 0.95 }[f]
-		var sp := { "index": -1.0, "middle": -0.3, "ring": 0.3, "pinky": 1.0 }[f] * spread * 10.0
+		var k: float = { "index": 0.9, "middle": 1.0, "ring": 1.0, "pinky": 0.95 }[f]
+		var sp: float = { "index": -1.0, "middle": -0.3, "ring": 0.3, "pinky": 1.0 }[f] * spread * 10.0
 		pose.r(f + "_" + side + "_1", sp, 0, sg * 70.0 * a * k)
 		pose.r(f + "_" + side + "_2", 0, 0, sg * 80.0 * a * k)
 	# thumb folds across
@@ -353,7 +353,7 @@ static func _reload(def: Dictionary, o: Dictionary) -> Animation:
 		var tl: Vector3 = keys[0][1]
 		for i in range(1, keys.size()):
 			if t <= keys[i][0]:
-				var u := (t - keys[i - 1][0]) / (keys[i][0] - keys[i - 1][0])
+				var u: float = (t - keys[i - 1][0]) / (keys[i][0] - keys[i - 1][0])
 				var ease := P.ease_snap(u) if i in [2, 5, 8] else P.ease_io(u)
 				tl = (keys[i - 1][1] as Vector3).lerp(keys[i][1], ease)
 				break

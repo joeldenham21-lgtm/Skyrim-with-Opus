@@ -24,6 +24,11 @@ class Mat:
         self.meta = {}
 
     def finish(self):
+        n = self.n
+        for k in ("height", "rough", "metal"):
+            v = getattr(self, k)
+            if np.ndim(v) == 0:
+                setattr(self, k, np.full((n, n), float(v), F32))
         self.height = np.clip(self.height, 0.0, 1.0).astype(F32)
         self.albedo = np.clip(self.albedo, 0.0, 1.0).astype(F32)
         self.rough = np.clip(self.rough, 0.02, 1.0).astype(F32)
@@ -63,10 +68,11 @@ def blotches(n, cells, seed, threshold=0.55, softness=0.08, octaves=6, warp_amt=
     return N.smoothstep(threshold - softness, threshold + softness, f)
 
 
-def crack_lines(n, count, seed, length=(0.15, 0.5), wander=0.05, kink_every=(12, 40), kink=(0.35, 1.1),
-                branch_p=0.35, step=3.0, start_mask=None, direction=None, dir_spread=1.0, depth=0):
-    """Realistic crack paths: long straight-ish runs with occasional sharp kinks, branches at kinks.
-    Returns list of (points array, width_scale) where width_scale tapers 1 -> 0 along the path."""
+def crack_lines(n, count, seed, length=(0.15, 0.5), wander=0.02, kink_every=(30, 120), kink=(0.3, 0.9),
+                branch_p=0.3, step=3.0, start_mask=None, direction=None, dir_spread=1.0, depth=0, curvature=0.004, jag=0.12):
+    """Realistic crack paths: long persistent runs with gentle drift (Ornstein-Uhlenbeck curvature), rare sharp
+    kinks, and short thinner branches leaving at kinks. No per-point jitter (that reads as hair, not as a crack).
+    Returns a list of (points (k,2) float array, width_scale in (0,1])."""
     r = N.rng_for(seed)
     lines = []
     todo = []
@@ -80,40 +86,58 @@ def crack_lines(n, count, seed, length=(0.15, 0.5), wander=0.05, kink_every=(12,
         else:
             p = r.uniform(0, n, 2)
         ang = r.uniform(0, 2 * np.pi) if direction is None else direction + r.normal(0, dir_spread)
-        ln = int(r.uniform(*length) * n / step)
+        ln = max(4, int(r.uniform(*length) * n / step))
         todo.append((p, ang, ln, 0, 1.0))
     while todo:
         p, ang, nsteps, dep, w0 = todo.pop()
         pts = [p.copy()]
+        curv = 0.0
         next_kink = int(r.integers(*kink_every))
         for s in range(nsteps):
-            ang += r.normal(0.0, wander)
+            curv = curv * 0.96 + r.normal(0.0, curvature)
+            ang += curv + r.normal(0.0, wander)
+            if s % 5 == 0:
+                ang += r.uniform(-jag, jag)                       # aggregate deflects the crack a little
             next_kink -= 1
             if next_kink <= 0:
                 next_kink = int(r.integers(*kink_every))
                 turn = r.uniform(*kink) * r.choice([-1, 1])
-                if dep < 3 and r.random() < branch_p:
-                    todo.append((p.copy(), ang + turn * r.uniform(1.2, 2.0), max(6, int((nsteps - s) * r.uniform(0.3, 0.7))), dep + 1, w0 * (1.0 - s / nsteps) * 0.8))
-                ang += turn * 0.5
+                if dep < 2 and r.random() < branch_p:
+                    bl = max(6, int((nsteps - s) * r.uniform(0.25, 0.6)))
+                    todo.append((p.copy(), ang - turn * r.uniform(0.8, 1.6), bl, dep + 1, w0 * r.uniform(0.45, 0.7)))
+                ang += turn
+                curv = 0.0
             p = p + step * np.array([np.cos(ang), np.sin(ang)])
-            pts.append(p + r.normal(0.0, 0.6, 2))
+            pts.append(p.copy())
         lines.append((np.array(pts), w0))
     return lines
 
 
-def crack_mask(n, lines, width=2.0, soft=0.7, taper=0.85):
-    """Rasterise crack paths with width tapering along each path."""
-    c = Canvas(n, "F", 0.0)
+def crack_mask(n, lines, width=2.0, soft=0.7, taper=0.85, supersample=2, wobble=0.0, seed=0):
+    """Rasterise crack paths into an (n,n) mask in [0,1]. Width is widest around a third of the way along and
+    tapers to a hairline at both ends; drawn at `supersample` x resolution and box-filtered so sub-pixel widths
+    read as fainter lines rather than aliased steps."""
+    ss = max(1, int(supersample))
+    m_ = n * ss
+    c = Canvas(m_, "F", 0.0)
+    r = N.rng_for(seed + 7)
     for pts, w0 in lines:
         m = len(pts)
-        seg = max(1, m // 12)
+        if m < 2:
+            continue
+        seg = max(1, m // 16)
         for i in range(0, m - 1, seg):
             t = i / max(1, m - 1)
-            w = width * w0 * (1.0 - taper * t)
+            env = min(1.0, t / 0.12, (1.0 - t) / 0.45 + 0.05)          # fast open, slow close
+            w = width * w0 * (1.0 - taper * (1.0 - env)) * ss
+            if wobble > 0:
+                w *= 1.0 + r.uniform(-wobble, wobble)
             wi = max(1, int(round(w)))
-            val = float(min(1.0, w / max(1.0, wi) if w < 1.0 else 1.0))
-            c.line(pts[i:i + seg + 1], val, width=wi)
+            val = float(min(1.0, w / wi)) if w < 1.0 else 1.0
+            c.line(pts[i:i + seg + 1] * ss, val, width=wi)
     a = c.array()
+    if ss > 1:
+        a = a.reshape(n, ss, n, ss).mean(axis=(1, 3))
     if soft > 0:
         a = N.blur(a, soft)
     return np.clip(a, 0, 1).astype(F32)
@@ -124,7 +148,7 @@ def crack_network(n, count, seed, steps=(120, 600), step_len=3.0, wander=0.3, br
     """Crack network (mask, lines). Kept signature for older recipes; uses the kinked generator."""
     if length is None:
         length = (steps[0] * step_len / n, steps[1] * step_len / n)
-    lines = crack_lines(n, count, seed, length=length, wander=min(wander, 0.08), branch_p=max(branch_p, 0.3),
+    lines = crack_lines(n, count, seed, length=length, wander=min(wander, 0.03), branch_p=max(branch_p, 0.3),
                         step=step_len, start_mask=start_mask)
     m = crack_mask(n, lines, width=width, soft=soft)
     return m, lines
@@ -308,3 +332,111 @@ def sprinkle_lines(n, count, seed, length=(10, 60), width=(1, 2), angle=None, sp
         c.line(pts, float(r.uniform(0.6, 1.0)), width=max(1, int(w)))
     a = c.array()
     return N.blur(a, soft) if soft > 0 else a
+
+
+# ----------------------------------------------------------------- stroke rendering (grass, litter, fibres)
+
+def flow_angle(n, seed, cells=3, swirl=1.0):
+    """Coherent direction field in radians (periodic): dead grass lies in swirls, not at random."""
+    a = N.fbm(n, cells, 3, seed, min_res=256)
+    b = N.fbm(n, cells * 3, 3, seed + 1, min_res=256)
+    return (a * np.pi * swirl + b * 0.5).astype(F32)
+
+
+def draw_strokes(n, seed, count, length, width, colors, flow=None, follow=0.8, curl=0.3, shade=(0.6, 1.1),
+                 tip_light=0.35, height=(0.4, 1.0), ss=2, segments=7, taper=0.75, weights=None):
+    """Draw `count` tapered curved strokes (blades, straws, needles) at `ss`x supersampling.
+
+    Returns (rgb premultiplied by coverage (n,n,3), coverage (n,n), height (n,n)). Colours are picked from
+    `colors` (sRGB tuples) with optional weights; each stroke gets a random brightness in `shade`, brightening
+    toward its tip by `tip_light`. Height rises along the stroke from height[0] to height[1].
+    """
+    r = N.rng_for(seed)
+    m = n * ss
+    crgb = Canvas(m, "RGB", (0, 0, 0))
+    ch = Canvas(m, "F", 0.0)
+    cols = np.asarray(colors, F32)
+    w = None if weights is None else np.asarray(weights, float) / np.sum(weights)
+    xs = r.uniform(0, n, count)
+    ys = r.uniform(0, n, count)
+    lns = r.uniform(length[0], length[1], count)
+    wds = r.uniform(width[0], width[1], count)
+    bends = r.uniform(-curl, curl, count)
+    shades = r.uniform(shade[0], shade[1], count)
+    cis = r.choice(len(cols), size=count, p=w)
+    angs = r.uniform(0, 2 * np.pi, count)
+    if flow is not None:
+        fa = flow[np.clip(ys.astype(int), 0, n - 1), np.clip(xs.astype(int), 0, n - 1)]
+        mixf = r.random(count) < follow
+        angs = np.where(mixf, fa + r.normal(0, 0.25, count), angs)
+    for i in range(count):
+        x0, y0, ln, wd, bend, sh, ci, a = xs[i], ys[i], lns[i], wds[i], bends[i], shades[i], cis[i], angs[i]
+        col = cols[ci] * sh
+        pts = []
+        for s in range(segments + 1):
+            t = s / segments
+            aa = a + bend * t * t * 2.5
+            pts.append((x0 + np.cos(aa) * ln * t, y0 + np.sin(aa) * ln * t))
+        for s in range(segments):
+            t = s / segments
+            ww = max(1, int(round(wd * (1 - taper * t) * ss)))
+            c = np.clip(col * (1.0 + tip_light * t), 0, 1)
+            seg = [(px * ss, py * ss) for px, py in pts[s:s + 2]]
+            crgb.line(seg, (int(c[0] * 255), int(c[1] * 255), int(c[2] * 255)), width=ww)
+            ch.line(seg, float(height[0] + (height[1] - height[0]) * t), width=ww)
+    rgb = np.asarray(crgb.im).astype(F32) / 255.0
+    h = ch.array()
+    cov = (h > 0).astype(F32)
+    if ss > 1:
+        rgb = rgb.reshape(n, ss, n, ss, 3).mean(axis=(1, 3))
+        cov = cov.reshape(n, ss, n, ss).mean(axis=(1, 3))
+        h = h.reshape(n, ss, n, ss).max(axis=(1, 3))
+    return rgb.astype(F32), cov.astype(F32), h.astype(F32)
+
+
+def composite_strokes(base, rgb, cov):
+    """Blend premultiplied stroke colour over base by coverage."""
+    return (base * (1.0 - cov)[..., None] + rgb).astype(F32)
+
+
+def pebble_field(n, seed, layers, palette, base_h, base_col, embed=0.35, fine=None):
+    """Embedded stones of several sizes. layers = [(cells, keep_fraction, height_amp)]. Returns (h, col, mask).
+    Stones sit partly below the ground (embed) so only their tops show, with per-stone colour and a rim of soil."""
+    h = base_h.copy()
+    col = base_col.copy()
+    total_mask = np.zeros((n, n), F32)
+    for li, (cells, keep, amp) in enumerate(layers):
+        hh, cid, edge, f1 = stones(n, cells, seed + li * 17, jitter=1.0, round_=0.75, gap=0.3, warp_amt=max(1.5, 24.0 / cells * 4))
+        cv = N.cell_random(cid, cells * cells, seed + li * 17 + 1, k=3)
+        keep_m = N.smoothstep(1 - keep - 0.02, 1 - keep + 0.02, cv[..., 0])
+        size = 0.55 + 0.45 * cv[..., 1]
+        top = base_h + (hh * size - embed) * amp
+        mask = (top > h) & (hh > 0.05)
+        maskf = mask.astype(F32) * keep_m
+        maskf = np.clip(maskf, 0, 1)
+        h = np.where(maskf > 0.5, top, h)
+        sc = M.solid(n, palette[0])
+        for i, cc in enumerate(palette[1:]):
+            sc = M.mix(sc, M.solid(n, cc), N.smoothstep(i / len(palette), (i + 1) / len(palette), cv[..., 2]))
+        if fine is not None:
+            sc = M.mul(sc, 0.85 + fine * 0.3)
+        sc = M.mul(sc, 0.8 + hh * 0.3)                       # rounded shading: tops lighter
+        col = M.mix(col, sc, maskf)
+        total_mask = np.maximum(total_mask, maskf)
+    return h.astype(F32), col, total_mask
+
+
+def gauss_bumps(n, seed, count, sigma, amp=(0.5, 1.0), aniso=1.0):
+    """Sum of `count` gaussian bumps at random positions (periodic via FFT). Cushions, clods, hummocks."""
+    r = N.rng_for(seed)
+    pts = np.zeros((n, n), F32)
+    xs = r.integers(0, n, count)
+    ys = r.integers(0, n, count)
+    vs = r.uniform(amp[0], amp[1], count)
+    np.add.at(pts, (ys, xs), vs)
+    f = np.fft.rfftfreq(n)[None, :]
+    g = np.fft.fftfreq(n)[:, None]
+    k = np.exp(-2.0 * (np.pi ** 2) * (sigma ** 2) * (f * f * aniso + g * g / aniso))
+    out = np.fft.irfft2(np.fft.rfft2(pts.astype(np.float64)) * k, s=(n, n)).astype(F32)
+    out *= 2 * np.pi * sigma * sigma
+    return out

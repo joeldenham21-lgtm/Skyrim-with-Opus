@@ -227,6 +227,6 @@ static func _humanoid(rig: Node3D, kind: String, variant: Dictionary) -> void:
 		var ba := BoneAttachment3D.new(); ba.name = "att_face"; ba.bone_name = "head"; sk.add_child(ba)
 		fm.position = Vector3(0.0, 0.10, -0.098); ba.add_child(fm)
 		fm.rotation = Vector3.ZERO
-		rig.set_meta("face", fm.get_path())
+		rig.face = fm
 	if kind == "seeker":
 		load("res://scripts/entities/bodies/gear_body.gd").seeker_suit(rig, def)

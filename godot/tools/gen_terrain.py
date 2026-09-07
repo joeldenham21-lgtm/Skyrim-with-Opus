@@ -938,3 +938,12 @@ Image.fromarray((np.clip(col, 0, 1) ** (1 / 2.2) * 255).astype(np.uint8), 'RGB')
 # secondary previews for the data maps
 Image.fromarray((np.clip(np.stack([tree_d, bush, grass_d], -1), 0, 1) * 255).astype(np.uint8), 'RGB').resize((640, 640)).save(os.path.join(OUT, 'preview_flora.png'))
 log('done: h range %.1f .. %.1f, water cells %d (%.1f%%), bridges %s' % (h.min(), h.max(), water_mask.sum(), 100.0 * water_mask.mean(), [(b['id'], round(b['deck'], 1)) for b in BRIDGES]))
+
+# ---------------------------------------------------------------------------------------------------------------
+# 11. post-steps: normal map, noise, import files, layer sheets (tools/terragen/post.py, pack_layers.py)
+# ---------------------------------------------------------------------------------------------------------------
+log('post')
+from terragen import post as _post, pack_layers as _pack  # noqa: E402
+_post.run(log)
+_pack.run(1024, log)
+log('all done')

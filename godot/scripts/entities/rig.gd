@@ -31,6 +31,8 @@ var _glitch_cool := 2.5
 var _dead := false
 var stride_meta := {}
 var entity: Node = null
+var face: Node3D = null          # the mimic face blot (hidden by masks)
+var lights: Array[Light3D] = []  # searchlight / lamps driven by set_light
 
 func _ready() -> void:
 	if entity == null:
@@ -199,6 +201,10 @@ func set_pulse(v: float) -> void:
 	for m in body_meshes: m.set_instance_shader_parameter("pulse", v)
 func set_param(name: String, v: Variant) -> void:
 	for m in body_meshes: m.set_instance_shader_parameter(name, v)
+func set_light(level: float) -> void:
+	for l in lights:
+		if is_instance_valid(l):
+			l.light_energy = float(l.get_meta("energy", 8.0)) * clampf(level, 0.0, 1.0); l.visible = level > 0.01
 func set_shadows(on: bool) -> void:
 	for m in body_meshes: m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if on else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	for k in gear_meshes: gear_meshes[k].cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if on else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -220,7 +226,7 @@ func set_loadout(d: Dictionary) -> void:
 		if mi == null: continue
 		gear_meshes[slot] = mi
 	# gloves/boots are body geometry choices; the mask hides the face blot
-	if has_node("Face"): get_node("Face").visible = not gear_meshes.has("mask")
+	if face: face.visible = not gear_meshes.has("mask")
 
 # ---------------------------------------------------------------- ragdoll
 func set_ragdoll(on: bool) -> void:
@@ -256,7 +262,7 @@ func _build_ragdoll() -> void:
 		var cs := CollisionShape3D.new(); var cap := CapsuleShape3D.new(); cap.radius = sz[0] * scale_factor; cap.height = maxf(sz[1] * scale_factor, cap.radius * 2.05)
 		cs.shape = cap
 		# capsule along the bone: limbs run down -y from the joint; torso bones run up
-		var up := bn in ["hips", "spine", "chest", "head"]
+		var up: bool = bn in ["hips", "spine", "chest", "head"]
 		var child_off := 0.0
 		# find the child joint to center the capsule between joints
 		var cname := _child_bone(bn)

@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dgq8vtt0ym8s7"
-path="res://.godot/imported/preview_flora.png-a155d760a4772e117a2a389e9dcbfa2a.ctex"
+uid="uid://cyu5g8vv6ka18"
+path="res://.godot/imported/cloud_noise.png-067d1cee7304543a6f5f819369738182.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/terrain/preview_flora.png"
-dest_files=["res://.godot/imported/preview_flora.png-a155d760a4772e117a2a389e9dcbfa2a.ctex"]
+source_file="res://assets/lut/cloud_noise.png"
+dest_files=["res://.godot/imported/cloud_noise.png-067d1cee7304543a6f5f819369738182.ctex"]
 
 [params]
 
@@ -21,9 +21,9 @@ compress/lossy_quality=0.7
 compress/uastc_level=0
 compress/rdo_quality_loss=0.0
 compress/hdr_compression=1
-compress/normal_map=2
+compress/normal_map=0
 compress/channel_pack=0
-mipmaps/generate=false
+mipmaps/generate=true
 mipmaps/limit=-1
 roughness/mode=0
 roughness/src_normal=""

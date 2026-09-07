@@ -6,6 +6,32 @@ class_name HumanoidBody
 const SEGS := 16          # ring segments for limbs
 const SEGS_T := 22        # torso
 const SEGS_F := 7         # fingers
+# torso profile at H = 1.8: [y, rx, rz, back, sq]; shared with gear_body so worn gear sits outside the body
+const PROF := [
+	[0.86, 0.150, 0.100, 0.92, 0.1], [0.92, 0.168, 0.110, 0.90, 0.15], [0.99, 0.166, 0.112, 0.88, 0.15], [1.06, 0.156, 0.104, 0.88, 0.1],
+	[1.13, 0.150, 0.100, 0.90, 0.1], [1.20, 0.158, 0.108, 0.90, 0.1], [1.28, 0.172, 0.118, 0.88, 0.15], [1.36, 0.184, 0.124, 0.86, 0.2],
+	[1.43, 0.190, 0.124, 0.86, 0.25], [1.48, 0.170, 0.108, 0.90, 0.2], [1.515, 0.100, 0.080, 1.0, 0.0]]
+
+## Body radii (rx, rz) of the torso profile at height y (H = 1.8 units), interpolated.
+static func torso_radii(y: float) -> Vector2:
+	if y <= PROF[0][0]: return Vector2(PROF[0][1], PROF[0][2])
+	for i in range(1, PROF.size()):
+		if y <= PROF[i][0]:
+			var a: Array = PROF[i - 1]; var b: Array = PROF[i]
+			var t: float = (y - a[0]) / maxf(b[0] - a[0], 1e-4)
+			return Vector2(lerpf(a[1], b[1], t), lerpf(a[2], b[2], t))
+	return Vector2(PROF[-1][1], PROF[-1][2])
+
+## Bone weights of the torso at root-space height y (metres): hips → spine → chest → neck blends.
+static func torso_weights(def: Dictionary, y: float) -> Array:
+	var pos: Dictionary = def["pos"]; var s: float = def["p"]["height"] / 1.80
+	var hips := HumanoidDef.index(def, "hips"); var spine := HumanoidDef.index(def, "spine"); var chest := HumanoidDef.index(def, "chest"); var neck := HumanoidDef.index(def, "neck")
+	var y_hips: float = pos["hips"].y; var y_spine: float = pos["spine"].y; var y_chest: float = pos["chest"].y; var y_neck: float = pos["neck"].y
+	if y < y_hips - 0.03 * s: return SkinBuilder.bw(hips)
+	if y < y_spine: return SkinBuilder.bw_mix(SkinBuilder.bw(hips), SkinBuilder.bw(spine), smoothstep(y_hips - 0.03 * s, y_spine + 0.02 * s, y))
+	if y < y_chest + 0.02 * s: return SkinBuilder.bw_mix(SkinBuilder.bw(spine), SkinBuilder.bw(chest), smoothstep(y_spine - 0.02 * s, y_chest + 0.04 * s, y))
+	if y < y_neck - 0.03 * s: return SkinBuilder.bw(chest)
+	return SkinBuilder.bw_mix(SkinBuilder.bw(chest), SkinBuilder.bw(neck), smoothstep(y_neck - 0.04 * s, y_neck + 0.03 * s, y))
 
 static func build(def: Dictionary, opts: Dictionary = {}) -> ArrayMesh:
 	var sb := SkinBuilder.new()
@@ -29,11 +55,7 @@ static func build(def: Dictionary, opts: Dictionary = {}) -> ArrayMesh:
 		if y < y_chest + 0.02 * s: return SkinBuilder.bw_mix(SkinBuilder.bw(spine), SkinBuilder.bw(chest), smoothstep(y_spine - 0.02 * s, y_chest + 0.04 * s, y))
 		if y < y_neck - 0.03 * s: return SkinBuilder.bw(chest)
 		return SkinBuilder.bw_mix(SkinBuilder.bw(chest), SkinBuilder.bw(neck), smoothstep(y_neck - 0.04 * s, y_neck + 0.03 * s, y))
-	# profile: [y (H=1.8 metres), rx, rz, back, sq]
-	var prof := [
-		[0.86, 0.150, 0.100, 0.92, 0.1], [0.92, 0.168, 0.110, 0.90, 0.15], [0.99, 0.166, 0.112, 0.88, 0.15], [1.06, 0.156, 0.104, 0.88, 0.1],
-		[1.13, 0.150, 0.100, 0.90, 0.1], [1.20, 0.158, 0.108, 0.90, 0.1], [1.28, 0.172, 0.118, 0.88, 0.15], [1.36, 0.184, 0.124, 0.86, 0.2],
-		[1.43, 0.190, 0.124, 0.86, 0.25], [1.48, 0.170, 0.108, 0.90, 0.2], [1.515, 0.100, 0.080, 1.0, 0.0]]
+	var prof := PROF
 	var rings := []
 	var hem_y := 0.985
 	var jacket_add := 0.022 if jacket else 0.0

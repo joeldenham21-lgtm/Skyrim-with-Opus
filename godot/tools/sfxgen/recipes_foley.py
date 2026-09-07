@@ -554,3 +554,179 @@ def binoculars(v, i):
 @sound("watch_raise", 2, "foley", peak=-16.0, desc="the sleeve pulled back", tags=["foley"])
 def watch_raise(v, i):
     cloth(v, n=3, span=0.2, f=2000, g=0.2)
+
+
+# ------------------------------------------------------------------------------------------------------ kit (names the Godot scripts ask for)
+@sound("headlamp", 2, "foley", peak=-14.0, desc="the headlamp's plastic switch, up by the ear", tags=["foley"])
+def headlamp(v, i):
+    click(v, f=3600, g=0.4, dur=0.004)
+    modal(v, freqs=[v.rnd(1500, 1900), v.rnd(3200, 3800), 5600], t60s=[0.025, 0.02, 0.012], amps=[1, 0.5, 0.25], exc=0.001, g=0.2)
+    burst(v, at=0.002, type="pink", filt="bandpass", f0=900, q=1.2, dur=0.03, g=0.12, atk=0.002)  # the strap creaks a little
+    cloth(v, at=0.0, n=1, span=0.05, g=0.06)
+
+
+def _thread(v: Voice, at: float, turns: int, f: float, g: float, on: bool):
+    """screwing a cap: a ratchety scrape per turn, brighter as it tightens (or duller as it comes free)"""
+    for k in range(turns):
+        t = at + k * v.rnd(0.14, 0.2)
+        ff = f * (1.0 + (0.08 * k if on else -0.06 * k))
+        burst(v, at=t, type="white", filt="bandpass", f0=ff, f1=ff * 1.15, q=2.0, dur=v.rnd(0.06, 0.1), g=g * v.rnd(0.7, 1.0), atk=0.01)
+        pulses(v, n=v.irnd(3, 6), at=t, span=0.08, type="white", f0=ff * 1.5, f1=ff * 2.5, q=3, dur=0.004, g=g * 0.5)
+
+
+@sound("battery_swap", 2, "foley", desc="the torch cap unscrewed, the dead cell shaken out, a fresh one dropped in, the cap back on", tags=["foley", "battery"])
+def battery_swap(v, i):
+    cloth(v, n=2, span=0.1, g=0.12)
+    _thread(v, 0.05, 3, 1800.0, 0.14, False)
+    click(v, at=0.62, f=2400, g=0.25, dur=0.005)  # the cap comes free
+    metal_body(v, at=0.75, f=v.rnd(2400, 3000), g=0.18, t60=0.08, n=5, thick=0.3)  # the old cell out into the palm
+    modal(v, at=0.78, freqs=[v.rnd(700, 900)], t60s=[0.05], amps=[1], exc=0.002, g=0.1)
+    cloth(v, at=0.85, n=2, span=0.15, g=0.1)
+    # the new cell slides down the tube and lands on the spring
+    burst(v, at=1.1, type="white", filt="bandpass", f0=2200, f1=1600, q=1.5, dur=0.07, g=0.12, atk=0.01)
+    clack(v, at=1.18, f=2600, g=0.3, dur=0.01, decay=0.05)
+    modal(v, at=1.18, freqs=[v.rnd(1000, 1300), v.rnd(2000, 2600)], t60s=[0.08, 0.05], amps=[1, 0.5], exc=0.0015, g=0.15)  # the tube rings
+    _thread(v, 1.32, 3, 1700.0, 0.14, True)
+    click(v, at=1.9, f=2800, g=0.3, dur=0.005)  # tight
+
+
+@sound("filter_swap", 2, "foley", desc="a gas-mask filter unscrewed (plastic threads), the new one on, one test breath", tags=["foley", "mask"])
+def filter_swap(v, i):
+    cloth(v, n=2, span=0.12, g=0.12)
+    _thread(v, 0.05, 4, 1100.0, 0.12, False)
+    click(v, at=0.78, f=1800, g=0.2, dur=0.006)
+    modal(v, at=0.85, freqs=[v.rnd(600, 800), v.rnd(1300, 1700)], t60s=[0.06, 0.04], amps=[1, 0.5], exc=0.002, g=0.15)  # the old canister set down
+    burst(v, at=1.0, type="crackle_fine", filt="bandpass", f0=3500, q=1, dur=0.15, g=0.15, atk=0.01)  # foil seal peeled off the new one
+    _thread(v, 1.2, 4, 1200.0, 0.12, True)
+    click(v, at=1.95, f=2000, g=0.25, dur=0.006)
+    sv = v.sub(); _breath_cycle(sv, 0.0, 1.5, 1.0)
+    v.add(dsp.bandpass(sv.render(), 900.0, 0.8) * 1.5, 2.05)
+    click(v, at=2.8, f=1400, g=0.1, dur=0.006)  # exhale valve
+
+
+@sound("pickup_weapon", 3, "foley", desc="a rifle lifted off the ground: sling, the receiver knocking the stock, a mag rattling in its well", tags=["foley", "pickup"])
+def pickup_weapon(v, i):
+    cloth(v, n=3, span=0.2, g=0.2)
+    burst(v, at=0.02, type="crackle_coarse", filt="lowpass", f0=2500, q=0.7, dur=0.04, g=0.12, atk=0.002)  # grit under it
+    clack(v, at=0.08, f=2200, g=0.35, dur=0.012, decay=0.08)
+    metal_body(v, at=0.08, f=v.rnd(1300, 1700), g=0.2, t60=0.15, n=7, thick=0.5)
+    wood_body(v, at=0.1, f=v.rnd(200, 280), g=0.25, t60=0.08)
+    rattle(v, at=0.14, n=v.irnd(2, 4), span=0.15, freqs=[2400, 3600, 5000], g=0.06, t60=0.05)  # the mag and the sling swivel
+    burst(v, at=0.12, type="pink", filt="bandpass", f0=500, q=1.0, dur=0.15, g=0.1, atk=0.03)  # the sling pulled taut
+    thump(v, at=0.3, f0=110, f1=70, dur=0.05, g=0.2)  # into the shoulder
+
+
+@sound("armor_pen", 3, "impact", peak=-6.0, desc="a round through the vest: the cover fabric tears, the plate cracks, then the wet thud", tags=["impact", "armor", "player"])
+def armor_pen(v, i):
+    click(v, f=3500, g=0.5, dur=0.003)
+    burst(v, type="white", filt="bandpass", f0=1600, f1=500, q=1, dur=0.025, g=0.6, atk=0.0006, sat=2.5)
+    burst(v, at=0.004, type="crackle_fine", filt="bandpass", f0=2500, q=1.0, dur=0.05, g=0.35, atk=0.002)  # fibres tearing
+    modal(v, at=0.003, freqs=[v.rnd(800, 1000), v.rnd(1500, 1900)], t60s=[0.05, 0.03], amps=[1, 0.5], exc=0.0015, g=0.12)  # the plate
+    thump(v, at=0.01, f0=110, f1=55, dur=0.09, g=0.7)
+    burst(v, at=0.01, type="pink", filt="bandpass", f0=450, f1=220, q=1.2, dur=0.09, g=0.5, atk=0.002, pr=1.1, pr1=0.6)  # into the body
+    burst(v, at=0.02, type="brown", filt="lowpass", f0=350, q=0.8, dur=0.08, g=0.4, atk=0.002)
+    cloth(v, at=0.02, n=2, span=0.08, g=0.14)
+
+
+# ------------------------------------------------------------------------------------------------------ "use_<kind>": the start of using a thing
+def _velcro(v: Voice, at: float, dur: float, g: float):
+    trem(v, lambda sv: burst(sv, type="white", filt="bandpass", f0=2500, f1=1500, q=1, dur=dur, g=g, atk=0.02), freq=v.rnd(35, 45), depth=0.45, jitter=0.1, at=at)
+
+
+@sound("use_med", 3, "foley", desc="a med pouch opened: velcro, the sterile wrapper torn", tags=["foley", "med"])
+def use_med(v, i):
+    cloth(v, n=2, span=0.1, g=0.15)
+    _velcro(v, 0.08, 0.25, 0.32)
+    burst(v, at=0.42, type="crackle_fine", filt="bandpass", f0=3500, q=0.9, dur=0.18, g=0.25, atk=0.01)  # the wrapper
+    burst(v, at=0.45, type="pink", filt="bandpass", f0=2600, q=0.6, dur=0.15, g=0.2, atk=0.02, pr=1.1, pr1=0.85)
+    cloth(v, at=0.6, n=2, span=0.15, g=0.12)
+
+
+@sound("use_food", 2, "foley", desc="a tin of tushonka: the lid levered up with a knife, the wrapper of the bread", tags=["foley", "food"])
+def use_food(v, i):
+    cloth(v, n=2, span=0.1, g=0.12)
+    click(v, at=0.1, f=3000, g=0.3, dur=0.004)  # the blade set on the rim
+    for k in range(v.irnd(4, 6)):  # the lid cut round in stages
+        t = 0.18 + k * v.rnd(0.11, 0.15)
+        burst(v, at=t, type="white", filt="bandpass", f0=v.rnd(1800, 2400), f1=v.rnd(1400, 1900), q=2, dur=0.06, g=0.2, atk=0.005)
+        modal(v, at=t, freqs=[v.rnd(2600, 3400), v.rnd(4200, 5200)], t60s=[0.05, 0.03], amps=[1, 0.5], exc=0.001, g=0.12)
+    burst(v, at=0.85, type="pink", filt="bandpass", f0=800, f1=400, q=1.2, dur=0.08, g=0.2, atk=0.005)  # the lid bent back
+    modal(v, at=0.86, freqs=[v.rnd(700, 900), v.rnd(1400, 1800), v.rnd(2600, 3200)], t60s=[0.12, 0.08, 0.05], amps=[1, 0.6, 0.3], exc=0.002, g=0.2)
+    burst(v, at=1.0, type="crackle_fine", filt="highpass", f0=3000, q=0.7, dur=0.2, g=0.15, atk=0.02)  # the paper round the bread
+
+
+@sound("use_tool", 2, "foley", desc="a tool kit unrolled: cloth, the brushes and the oil bottle clinking", tags=["foley", "tool"])
+def use_tool(v, i):
+    cloth(v, n=4, span=0.4, g=0.2, dur=0.1)
+    rattle(v, at=0.15, n=v.irnd(3, 5), span=0.3, freqs=[2600, 3900, 5400], g=0.07, t60=0.05)
+    glass_body(v, at=v.rnd(0.25, 0.4), f=v.rnd(2400, 3000), g=0.1, t60=0.15)  # the oil bottle
+    clack(v, at=0.5, f=2400, g=0.2, dur=0.01, decay=0.05)
+
+
+@sound("use_part", 2, "foley", desc="a replacement part unwrapped: oiled paper, steel set on the bench", tags=["foley", "part"])
+def use_part(v, i):
+    burst(v, type="pink", filt="bandpass", f0=2600, q=0.6, dur=0.2, g=0.3, atk=0.02, pr=1.1, pr1=0.85)
+    burst(v, at=0.05, type="crackle_fine", filt="highpass", f0=3000, q=0.7, dur=0.15, g=0.12, atk=0.01)
+    clack(v, at=0.32, f=2000, g=0.4, dur=0.012, decay=0.08)
+    metal_body(v, at=0.32, f=v.rnd(1100, 1500), g=0.25, t60=0.2, n=7, thick=0.5)
+    wood_body(v, at=0.32, f=180, g=0.2, t60=0.1)  # the bench
+
+
+@sound("use_mission", 2, "foley", desc="a Committee device switched on: a toggle, the antenna drawn out, two confirming beeps", tags=["foley", "mission"])
+def use_mission(v, i):
+    cloth(v, n=2, span=0.1, g=0.1)
+    clack(v, at=0.1, f=2400, g=0.3, dur=0.01, decay=0.06)  # the toggle
+    burst(v, at=0.25, type="white", filt="bandpass", f0=2600, f1=3400, q=2, dur=0.2, g=0.12, atk=0.02)  # antenna sections
+    for k in range(3):
+        click(v, at=0.3 + k * 0.07, f=3200, g=0.15, dur=0.004)
+    tone(v, at=0.65, type="square", f0=1500, dur=0.08, g=0.2, atk=0.002, bp=2000, bq=1.5)
+    tone(v, at=0.8, type="square", f0=2000, dur=0.12, g=0.2, atk=0.002, bp=2600, bq=1.5)
+
+
+@sound("use_artifact", 2, "anomaly", peak=-10.0, desc="an artifact handled: its partials swell and settle", tags=["artifact"])
+def use_artifact(v, i):
+    cloth(v, n=2, span=0.1, g=0.1)
+    base = v.rnd(600, 900)
+    for k, r in enumerate([1.0, 1.5, 2.0, 2.98]):
+        tone(v, at=0.05, f0=base * r, dur=0.9 - k * 0.12, g=0.14 * 0.8 ** k, atk=0.2, hold=0.2, curve="cos", vib=dict(f=v.rnd(4, 7), depth=base * r * 0.004))
+    glass_body(v, at=0.1, f=v.rnd(3400, 4400), g=0.1, t60=0.5)
+    burst(v, at=0.05, type="white", filt="highpass", f0=6000, q=0.5, dur=0.6, g=0.04, atk=0.2)
+
+
+alias("use_battery", "battery_swap"); alias("use_filter", "filter_swap"); alias("use_grenade", "grenade_pin")
+alias("use_key", "lock_open"); alias("use_melee", "knife_draw")
+
+
+# ------------------------------------------------------------------------------------------------------ melee
+@sound("knife_draw", 3, "foley", desc="a blade drawn from a sheath: leather, the edge singing off the throat of the scabbard", tags=["foley", "melee"])
+def knife_draw(v, i):
+    cloth(v, n=2, span=0.1, f=1800, g=0.14)
+    burst(v, at=0.04, type="white", filt="bandpass", f0=3200, f1=5200, q=2.5, dur=0.16, g=0.22, atk=0.02)  # steel on the leather welt
+    burst(v, at=0.04, type="pink", filt="bandpass", f0=900, q=1.2, dur=0.14, g=0.1, atk=0.02)
+    modal(v, at=0.19, freqs=[v.rnd(4200, 5200), v.rnd(7000, 8500)], t60s=[0.25, 0.15], amps=[1, 0.4], exc=0.0008, g=0.16)  # the blade rings free
+    click(v, at=0.19, f=4500, g=0.2, dur=0.003)
+
+
+@sound("melee_swing", 3, "foley", peak=-10.0, desc="a knife thrust: a short whip of air and cloth", tags=["foley", "melee"])
+def melee_swing(v, i):
+    whoosh(v, f0=700, f1=3500, q=1.2, dur=0.2, g=0.5, peak=0.6)
+    cloth(v, n=2, span=0.12, g=0.12)
+    grunt(v, at=0.02, f0=130, f1=100, dur=0.12, g=0.12, atk=0.02)
+
+
+@sound("melee_hit", 3, "impact", peak=-6.0, desc="the blade going in: a wet punch and a tear", tags=["impact", "melee"])
+def melee_hit(v, i):
+    burst(v, type="white", filt="bandpass", f0=2000, f1=600, q=1.2, dur=0.03, g=0.5, atk=0.0008)
+    burst(v, at=0.003, type="pink", filt="bandpass", f0=500, f1=220, q=1.2, dur=0.11, g=0.6, atk=0.002, pr=1.1, pr1=0.6)
+    thump(v, f0=120, f1=60, dur=0.08, g=0.6)
+    burst(v, at=0.02, type="crackle_fine", filt="bandpass", f0=1800, q=1.0, dur=0.08, g=0.2, atk=0.005)  # cloth and fibre
+    cloth(v, at=0.03, n=2, span=0.08, g=0.12)
+
+
+@sound("melee_hit_hard", 3, "impact", peak=-8.0, desc="the blade on something hard: a skid and a chip", tags=["impact", "melee"])
+def melee_hit_hard(v, i):
+    click(v, f=4500, g=0.5, dur=0.003)
+    burst(v, type="white", filt="bandpass", f0=3500, f1=2200, q=2, dur=0.06, g=0.4, atk=0.001)
+    modal(v, freqs=[v.rnd(3800, 4600), v.rnd(6000, 7500)], t60s=[0.2, 0.1], amps=[1, 0.4], exc=0.0008, g=0.2)  # the blade
+    modal(v, at=0.002, freqs=[v.rnd(1500, 2200), v.rnd(2800, 3600)], t60s=[0.05, 0.03], amps=[1, 0.5], exc=0.001, g=0.12)  # the surface
+    thump(v, f0=160, f1=90, dur=0.03, g=0.2)

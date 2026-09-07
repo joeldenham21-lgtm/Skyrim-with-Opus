@@ -472,7 +472,7 @@ def logs(n, seed=800):
     checks = crack_mask(n, crack_lines(n, 14, seed + 6, length=(0.1, 0.5), wander=0.02, kink_every=(30, 80), kink=(0.05, 0.2), branch_p=0.1, direction=0.0, dir_spread=0.03), width=2.6, soft=0.5)
     checks = checks * N.smoothstep(0.3, 0.7, prof)
     hew = N.fbm(n, 20, 3, seed + 7, cells_y=6, min_res=512, billow=True)
-    bark = blotches(n, 3, seed + 8, threshold=0.7, softness=0.05, warp_amt=40, cells=3) * N.smoothstep(0.5, 0.7, rv[..., 0])
+    bark = blotches(n, 3, seed + 8, threshold=0.7, softness=0.05, warp_amt=40) * N.smoothstep(0.5, 0.7, rv[..., 0])
     bark_h, fissure, pv, sub = _bark_pine(n, seed + 9)
     h = prof * 0.8 + 0.1 + hew * 0.04 + fibre * 0.02 + grain * 0.01 + rings * 0.008 - checks * 0.2
     h = h * (1 - bark) + (prof * 0.8 + 0.1 + bark_h * 0.1) * bark

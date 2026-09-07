@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dgq8vtt0ym8s7"
-path="res://.godot/imported/preview_flora.png-a155d760a4772e117a2a389e9dcbfa2a.ctex"
+uid="uid://d2hemxt5d7m0"
+path="res://.godot/imported/noise.png-c22415dd8b2070a00addd6e6078c80be.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/terrain/preview_flora.png"
-dest_files=["res://.godot/imported/preview_flora.png-a155d760a4772e117a2a389e9dcbfa2a.ctex"]
+source_file="res://assets/terrain/noise.png"
+dest_files=["res://.godot/imported/noise.png-c22415dd8b2070a00addd6e6078c80be.ctex"]
 
 [params]
 
@@ -23,7 +23,7 @@ compress/rdo_quality_loss=0.0
 compress/hdr_compression=1
 compress/normal_map=2
 compress/channel_pack=0
-mipmaps/generate=false
+mipmaps/generate=true
 mipmaps/limit=-1
 roughness/mode=0
 roughness/src_normal=""
