@@ -326,7 +326,7 @@ for k in range(17):
     lobed = cr * (1.0 + 0.20 * np.sin(2 * th + p1) + 0.13 * np.sin(3 * th + p2) + 0.07 * np.sin(5 * th + p3))
     lobed *= 1.0 + 0.10 * fbm(X * 0.09, Z * 0.09, 2, seed=SEED + 80 + k)
     rr2 = dist(X, Z, cx, cz) / lobed
-    crater_field += np.where(rr2 < 1.0, -dep * (1.0 - rr2 ** 2) ** 1.15, 0.0)
+    crater_field += -dep * np.clip(1.0 - rr2 ** 2, 0.0, 1.0) ** 1.15
     crater_field += rim * np.exp(-((rr2 - 1.0) / 0.26) ** 2) * (0.75 + 0.5 * np.sin(4 * th + p2))
     # ejecta: a thin apron thrown further on one side
     crater_field += 0.35 * rim * np.exp(-((rr2 - 1.55) / 0.5) ** 2) * np.clip(np.cos(th - p1), 0.0, 1.0) ** 2

@@ -78,14 +78,17 @@ func _build_near(step: int) -> void:
 			var y := _h(i * step, j * step)
 			var nrm := get_normal(x, z)
 			verts[j * m + i] = Vector3(x, y, z); norms[j * m + i] = nrm
-			var c := Color(0.30, 0.30, 0.19)
+			var c := Color(0.055, 0.056, 0.033)   # linear-space albedo (vertex colours are not sRGB-decoded)
 			if splat:
 				var s := splat.get_pixel(clampi(i * step, 0, splat.get_width() - 1), clampi(j * step, 0, splat.get_height() - 1))
-				c = Color(0.31, 0.33, 0.17) * s.r + Color(0.30, 0.24, 0.16) * s.g + Color(0.40, 0.38, 0.35) * s.b + Color(0.36, 0.35, 0.32) * s.a
+				c = Color(0.055, 0.058, 0.028) * s.r + Color(0.045, 0.034, 0.022) * s.g + Color(0.062, 0.060, 0.056) * s.b + Color(0.070, 0.068, 0.062) * s.a
 				var tot := s.r + s.g + s.b + s.a
 				if tot > 0.05: c = c / tot
 			# dead-grass warmth on the flats, bare on steep ground
-			c = c.lerp(Color(0.38, 0.36, 0.33), 1.0 - clampf((nrm.y - 0.7) / 0.3, 0.0, 1.0))
+			c = c.lerp(Color(0.052, 0.050, 0.046), 1.0 - clampf((nrm.y - 0.7) / 0.3, 0.0, 1.0))
+			# break the flatness so the light has something to read on
+			var vj := 0.80 + 0.40 * absf(fmod(sin(float(i) * 12.9898 + float(j) * 78.233) * 43758.5453, 1.0))
+			c = Color(c.r * vj, c.g * vj, c.b * vj)
 			cols[j * m + i] = c
 	for j in m - 1:
 		for i in m - 1:
@@ -109,7 +112,7 @@ func _build_far(step: int) -> void:
 			var x := -far_half + i * step * far_cell; var z := -far_half + j * step * far_cell
 			var y: float = far_heights[clampi(j * step, 0, far_n - 1) * far_n + clampi(i * step, 0, far_n - 1)] - 0.5
 			verts[j * m + i] = Vector3(x, y, z)
-			cols[j * m + i] = Color(0.30, 0.31, 0.22)
+			cols[j * m + i] = Color(0.050, 0.052, 0.034)
 	for j in m - 1:
 		for i in m - 1:
 			var a := j * m + i; var b := a + 1; var c := a + m; var d := c + 1

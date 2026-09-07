@@ -1,6 +1,6 @@
 {
  "kind": "fabric",
- "tile_m": 0.35,
- "height_m": 0.004,
+ "tile_m": 0.2,
+ "height_m": 0.003,
  "size": 2048
 }

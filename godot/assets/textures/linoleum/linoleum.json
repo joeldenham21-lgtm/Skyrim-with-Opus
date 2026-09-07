@@ -1,6 +1,6 @@
 {
  "kind": "linoleum",
- "tile_m": 1.0,
- "height_m": 0.004,
+ "tile_m": 2.0,
+ "height_m": 0.0025,
  "size": 2048
 }

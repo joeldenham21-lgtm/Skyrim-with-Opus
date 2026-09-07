@@ -84,6 +84,7 @@ var _tide_t := 0.0
 var _rng := RandomNumberGenerator.new()
 var _placed_fog := false
 var _ground_median := 5.0
+var _ground_low := 2.0
 var _far_warned := false
 
 func _ready() -> void:
@@ -334,6 +335,7 @@ func _place_fog_volumes() -> void:
 	var sorted := hs.duplicate(); sorted.sort()
 	var median := sorted[n * n / 2]
 	_ground_median = median
+	_ground_low = sorted[n * n * 12 / 100]
 	var spread := sorted[n * n * 95 / 100] - sorted[n * n * 5 / 100]
 	var mins: Array = []
 	if spread > 0.8:
@@ -564,8 +566,10 @@ func _update(dt: float) -> void:
 	environment.fog_density = float(P.get("dist", 0.002)) * (1.0 + night * 0.35 + dawn * 0.3)
 	environment.fog_sky_affect = float(P.get("sky_affect", 0.35))
 	environment.fog_sun_scatter = 0.35 * (1.0 - coverage * 0.7) * sun_up
-	environment.fog_height_density = 0.12 + dawn * 0.25 + night * 0.15 + fog_level * 0.4 + rain * 0.1
-	environment.fog_height = _ground_level() + 1.0
+	# height fog is a layer lying on the low ground (Godot fogs fragments below fog_height): the marsh, the river
+	# and the hollows sit in it, the plain and the ridge stand out of it. It thickens at dawn, at night and in fog.
+	environment.fog_height = _ground_low + 3.0 + dawn * 3.5 + night * 1.5 + fog_level * 16.0 + rain * 1.0
+	environment.fog_height_density = 0.055 + dawn * 0.10 + night * 0.035 + fog_level * 0.32 + rain * 0.035
 	environment.fog_aerial_perspective = 0.55 - fog_level * 0.3
 	var vol := float(P.get("vol", 0.011)) * (1.0 + night * 0.45 + dawn * 0.35)
 	environment.volumetric_fog_density = vol * (1.0 - tide * 0.5)
@@ -593,10 +597,10 @@ func _update(dt: float) -> void:
 	var ap_density := 0.00016 + float(P.get("dist", 0.002)) * 0.17 + fog_level * 0.0012
 	_column.update(night, horizon_color, sun_dir, tide, lightning, t, sun_energy_clear, exposure, fog_level, sun_color, ap_density)
 
-## Height fog is anchored to the terrain's median level: the marsh and the hollows below it sit in it, the plateaus
-## and the ridge rise out of it.
+## The level the ground mist lies on: a little above the lowest twelfth of the map (the marsh, the river, the
+## hollows), so the plain and the ridge stand clear of it.
 func _ground_level() -> float:
-	return _ground_median
+	return _ground_low
 
 func _update_precipitation(dt: float) -> void:
 	var cam := get_viewport().get_camera_3d()

@@ -9,12 +9,12 @@ const STATES := {
 	# scud: ragged low cloud under the deck; vol: volumetric fog density; dist: distance fog density;
 	# rain: precipitation 0..1 (drizzle < 0.5 < rain); wind: mean wind m/s; sun: sun energy factor under the lid;
 	# sky_affect: how much the engine fog also veils the sky; ambient: sky ambient multiplier.
-	"clear":    { "coverage": 0.34, "dark": 0.00, "soft": 0.06, "haze": 0.26, "fog": 0.00, "scud": 0.00, "vol": 0.0050, "dist": 0.0010, "rain": 0.00, "wind": 1.8, "sun": 1.00, "sky_affect": 0.20, "storm": 0.0, "ambient": 1.0 },
-	"overcast": { "coverage": 0.86, "dark": 0.16, "soft": 0.30, "haze": 0.44, "fog": 0.00, "scud": 0.10, "vol": 0.0105, "dist": 0.0020, "rain": 0.00, "wind": 2.6, "sun": 0.42, "sky_affect": 0.33, "storm": 0.0, "ambient": 1.0 },
-	"drizzle":  { "coverage": 0.94, "dark": 0.30, "soft": 0.62, "haze": 0.58, "fog": 0.10, "scud": 0.38, "vol": 0.0165, "dist": 0.0031, "rain": 0.35, "wind": 3.2, "sun": 0.30, "sky_affect": 0.48, "storm": 0.0, "ambient": 0.94 },
-	"rain":     { "coverage": 0.99, "dark": 0.46, "soft": 0.70, "haze": 0.70, "fog": 0.16, "scud": 0.58, "vol": 0.0215, "dist": 0.0040, "rain": 1.00, "wind": 4.6, "sun": 0.22, "sky_affect": 0.58, "storm": 0.0, "ambient": 0.86 },
-	"fog":      { "coverage": 0.90, "dark": 0.04, "soft": 0.95, "haze": 1.00, "fog": 1.00, "scud": 0.30, "vol": 0.0460, "dist": 0.0125, "rain": 0.00, "wind": 0.8, "sun": 0.46, "sky_affect": 0.95, "storm": 0.0, "ambient": 1.5 },
-	"storm":    { "coverage": 1.00, "dark": 0.78, "soft": 0.42, "haze": 0.78, "fog": 0.20, "scud": 0.72, "vol": 0.0270, "dist": 0.0048, "rain": 1.00, "wind": 9.0, "sun": 0.14, "sky_affect": 0.62, "storm": 1.0, "ambient": 0.78 },
+	"clear":    { "coverage": 0.34, "dark": 0.00, "soft": 0.06, "haze": 0.26, "fog": 0.00, "scud": 0.00, "vol": 0.0030, "dist": 0.00070, "rain": 0.00, "wind": 1.8, "sun": 1.00, "sky_affect": 0.20, "storm": 0.0, "ambient": 1.0 },
+	"overcast": { "coverage": 0.86, "dark": 0.16, "soft": 0.30, "haze": 0.44, "fog": 0.00, "scud": 0.10, "vol": 0.0045, "dist": 0.00130, "rain": 0.00, "wind": 2.6, "sun": 0.42, "sky_affect": 0.33, "storm": 0.0, "ambient": 1.0 },
+	"drizzle":  { "coverage": 0.94, "dark": 0.30, "soft": 0.62, "haze": 0.58, "fog": 0.10, "scud": 0.38, "vol": 0.0070, "dist": 0.00220, "rain": 0.35, "wind": 3.2, "sun": 0.30, "sky_affect": 0.48, "storm": 0.0, "ambient": 0.94 },
+	"rain":     { "coverage": 0.99, "dark": 0.46, "soft": 0.70, "haze": 0.70, "fog": 0.16, "scud": 0.58, "vol": 0.0090, "dist": 0.00300, "rain": 1.00, "wind": 4.6, "sun": 0.22, "sky_affect": 0.58, "storm": 0.0, "ambient": 0.86 },
+	"fog":      { "coverage": 0.90, "dark": 0.04, "soft": 0.95, "haze": 1.00, "fog": 1.00, "scud": 0.30, "vol": 0.0300, "dist": 0.01000, "rain": 0.00, "wind": 0.8, "sun": 0.46, "sky_affect": 0.95, "storm": 0.0, "ambient": 1.5 },
+	"storm":    { "coverage": 1.00, "dark": 0.78, "soft": 0.42, "haze": 0.78, "fog": 0.20, "scud": 0.72, "vol": 0.0110, "dist": 0.00350, "rain": 1.00, "wind": 9.0, "sun": 0.14, "sky_affect": 0.62, "storm": 1.0, "ambient": 0.78 },
 }
 const NAMES := ["clear", "overcast", "drizzle", "rain", "fog", "storm"]
 

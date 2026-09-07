@@ -81,3 +81,9 @@ func run() -> void:
 	await _view("solo-quarry", 355, 120, 1.7, 95.0, -12.0)
 	await _view("solo-vista", 0, -340, 2.2, 180.0, -5.0)
 	await _view("solo-lake", -380, 205, 1.7, 250.0, -3.0)
+	# water close-ups: the marsh edge from 2 m, running water at the bridge, and a submerged camera in the quarry
+	await _view("solo-water-edge", -52, 150, 1.4, 250.0, -22.0)
+	await _view("solo-water-river", -74, 60, 1.6, 200.0, -14.0)
+	await _view("solo-underwater", 430, 130, 1.2, 20.0, -6.0)
+	var w2: Node = Game.world.get_node_or_null("Water")
+	if w2 and w2.has_method("info"): print("[water] ", w2.info())
