@@ -11,18 +11,19 @@ extends Node3D
 
 const KEYS := [
 	# hour, clear-sky sun energy, sun colour, exposure, art tint (applied to the sky and the fog)
-	[0.0, 0.0, Color(0.6, 0.66, 0.82), 2.2, Color(0.86, 0.9, 1.06)],
-	[4.2, 0.0, Color(0.6, 0.66, 0.82), 2.2, Color(0.86, 0.9, 1.06)],
-	[5.5, 0.16, Color(1.0, 0.7, 0.5), 2.0, Color(0.86, 0.93, 1.07)],
-	[6.5, 0.62, Color(1.0, 0.8, 0.62), 1.7, Color(0.9, 0.95, 1.04)],
-	[8.0, 1.25, Color(1.0, 0.9, 0.8), 1.25, Color(0.96, 0.98, 1.02)],
-	[12.0, 1.7, Color(1.0, 0.96, 0.92), 0.92, Color(1.0, 1.0, 1.0)],
-	[16.0, 1.35, Color(1.0, 0.92, 0.82), 1.0, Color(1.0, 0.98, 0.96)],
-	[18.3, 0.75, Color(1.0, 0.74, 0.5), 1.3, Color(1.03, 0.97, 0.9)],
-	[19.5, 0.3, Color(1.0, 0.55, 0.32), 2.0, Color(1.05, 0.95, 0.86)],
-	[20.4, 0.05, Color(0.9, 0.5, 0.4), 2.3, Color(0.92, 0.92, 1.02)],
-	[21.3, 0.0, Color(0.6, 0.66, 0.82), 2.2, Color(0.86, 0.9, 1.06)],
-	[24.0, 0.0, Color(0.6, 0.66, 0.82), 2.2, Color(0.86, 0.9, 1.06)],
+	[0.0, 0.0, Color(0.60, 0.66, 0.82), 2.6, Color(0.84, 0.89, 1.08)],
+	[3.8, 0.0, Color(0.60, 0.66, 0.82), 2.6, Color(0.84, 0.89, 1.08)],
+	[4.8, 0.02, Color(0.72, 0.72, 0.86), 2.5, Color(0.84, 0.91, 1.09)],
+	[5.5, 0.20, Color(1.00, 0.72, 0.54), 2.15, Color(0.86, 0.93, 1.07)],
+	[6.5, 0.66, Color(1.00, 0.81, 0.63), 1.65, Color(0.90, 0.95, 1.04)],
+	[8.0, 1.28, Color(1.00, 0.90, 0.80), 1.20, Color(0.96, 0.98, 1.02)],
+	[12.0, 1.70, Color(1.00, 0.96, 0.92), 0.90, Color(1.00, 1.00, 1.00)],
+	[16.0, 1.35, Color(1.00, 0.92, 0.82), 1.00, Color(1.00, 0.98, 0.96)],
+	[18.3, 0.78, Color(1.00, 0.75, 0.52), 1.28, Color(1.03, 0.97, 0.90)],
+	[19.5, 0.32, Color(1.00, 0.56, 0.33), 1.85, Color(1.05, 0.95, 0.86)],
+	[20.4, 0.06, Color(0.92, 0.52, 0.42), 2.30, Color(0.94, 0.93, 1.02)],
+	[21.4, 0.0, Color(0.60, 0.66, 0.82), 2.6, Color(0.84, 0.89, 1.08)],
+	[24.0, 0.0, Color(0.60, 0.66, 0.82), 2.6, Color(0.84, 0.89, 1.08)],
 ]
 const BETA_R := Vector3(5.8e-6, 13.5e-6, 33.1e-6)
 const BETA_M := 2.1e-5
@@ -133,8 +134,12 @@ func _build_environment() -> void:
 	_sky_res = Sky.new()
 	sky_mat = ShaderMaterial.new(); sky_mat.shader = load("res://shaders/sky.gdshader")
 	_sky_res.sky_material = sky_mat
-	_sky_res.process_mode = Sky.PROCESS_MODE_REALTIME
-	_sky_res.radiance_size = Sky.RADIANCE_SIZE_256
+	# INCREMENTAL: one cubemap face per frame instead of the whole thing every frame (the sky changes slowly)
+	_sky_res.process_mode = Sky.PROCESS_MODE_INCREMENTAL
+	_sky_res.radiance_size = Sky.RADIANCE_SIZE_128
+	var cloud_tex: Texture2D = load("res://assets/lut/cloud_noise.png") if ResourceLoader.exists("res://assets/lut/cloud_noise.png") else null
+	if cloud_tex: sky_mat.set_shader_parameter("cloud_tex", cloud_tex)
+	else: push_warning("sky: assets/lut/cloud_noise.png missing (run assets/lut/gen_cloud_noise.py)")
 	e.sky = _sky_res
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_SKY; e.ambient_light_sky_contribution = 1.0; e.ambient_light_energy = 1.0
 	e.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
@@ -459,7 +464,8 @@ func _update(dt: float) -> void:
 	sun_dir = compute_sun_dir(hour); moon_dir = compute_moon_dir(hour)
 	moon_phase = fmod(0.42 + float(Clock.day) * 0.055, 1.0)
 	var t: float = Game.elapsed
-	_cloud_travel += wind * dt * 0.0009
+	_cloud_travel += wind * dt * 2.6
+	_cloud_travel = Vector2(fposmod(_cloud_travel.x, 262144.0), fposmod(_cloud_travel.y, 262144.0))
 	# ---- sun
 	sun_energy_clear = float(k["energy"])
 	var sun_factor := float(P.get("sun", 0.4))
@@ -500,11 +506,18 @@ func _update(dt: float) -> void:
 	amb += Color(0.010, 0.014, 0.026) * night
 	var sun_up := smoothstep(-0.10, 0.05, sun_dir.y)
 	var direct := sun_t * sun_energy_clear * sun_up
-	var lid := (direct * 0.22 * (1.0 - dark * 0.6) + amb * 0.95) * (1.0 - dark * 0.45) * 0.91
-	# clear horizon: average of directions 70 degrees off the sun azimuth (what most of the horizon looks like)
+	# the belly of the deck, at the shader's typical optical depth: direct light through the cloud plus ambient
+	var lid := (direct * 0.30 * (1.0 - dark * 0.55) + amb * 1.05) * (1.0 - dark * 0.45) * 0.93
+	# clear horizon: 70 degrees off the sun azimuth (what most of the horizon looks like). The shader dissolves the
+	# lid into this same colour near the horizon, so the fog matches whatever the sky does there.
 	var side := Vector3(sun_dir.x, 0.0, sun_dir.z).normalized().rotated(Vector3.UP, 1.2)
 	var clear_h := _atmo(Vector3(side.x, 0.04, side.z).normalized(), sun_dir, sun_rad, haze) + Color(0.010, 0.014, 0.026) * night
-	horizon_color = clear_h.lerp(lid * 0.95 + clear_h * 0.2, coverage * 0.8)
+	horizon_color = clear_h.lerp(lid, coverage * 0.42)
+	# fog weather: the fog itself is a luminous grey lit by the whole sky, never the dark horizon colour
+	if fog_level > 0.001:
+		var day01 := clampf(sun_energy_clear / 1.4, 0.0, 1.0)
+		var lit_fog := Color(0.56, 0.585, 0.62) * (0.030 + 0.95 * day01) + Color(0.014, 0.018, 0.032) * night
+		horizon_color = horizon_color.lerp(lit_fog, fog_level * 0.8)
 	horizon_color = horizon_color * tint
 	var hl := horizon_color.get_luminance()
 	horizon_color = horizon_color.lerp(Color(hl * 0.95, hl * 0.88, hl * 0.62), sick * 0.55)
@@ -524,6 +537,11 @@ func _update(dt: float) -> void:
 	sky_mat.set_shader_parameter("fog_level", fog_level)
 	sky_mat.set_shader_parameter("fog_color", horizon_color * (1.0 + fog_level * 0.45))
 	sky_mat.set_shader_parameter("cloud_travel", _cloud_travel)
+	sky_mat.set_shader_parameter("scud", float(P.get("scud", 0.0)))
+	sky_mat.set_shader_parameter("rain_amount", rain)
+	var wd := wind.normalized() if wind.length() > 0.01 else Vector2(1.0, 0.0)
+	sky_mat.set_shader_parameter("wind_dir_x", wd.x)
+	sky_mat.set_shader_parameter("wind_dir_z", wd.y)
 	sky_mat.set_shader_parameter("storm", storm)
 	sky_mat.set_shader_parameter("lightning", lightning)
 	sky_mat.set_shader_parameter("bolt", 1.0 if _weather.bolt > 0.0 else 0.0)

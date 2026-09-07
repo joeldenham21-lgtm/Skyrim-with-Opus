@@ -193,9 +193,9 @@ func align_to_ground() -> void:
 # ------------------------------------------------------------------------------------------------------------------
 static func _hash(x: float, y: float, z: float) -> float:
 	var h := sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453
-	return h - floor(h)
+	return h - floorf(h)
 static func _vnoise3(x: float, y: float, z: float) -> float:
-	var ix := floor(x); var iy := floor(y); var iz := floor(z)
+	var ix := floorf(x); var iy := floorf(y); var iz := floorf(z)
 	var fx := x - ix; var fy := y - iy; var fz := z - iz
 	fx = fx * fx * (3.0 - 2.0 * fx); fy = fy * fy * (3.0 - 2.0 * fy); fz = fz * fz * (3.0 - 2.0 * fz)
 	var c000 := _hash(ix, iy, iz); var c100 := _hash(ix + 1, iy, iz); var c010 := _hash(ix, iy + 1, iz); var c110 := _hash(ix + 1, iy + 1, iz)

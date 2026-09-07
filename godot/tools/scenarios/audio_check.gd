@@ -43,8 +43,15 @@ func run() -> void:
 		push_error("[audio_check] manifest is not valid JSON"); return
 	var sounds: Dictionary = man.get("sounds", {})
 	var aliases: Dictionary = man.get("aliases", {})
+	# sounds + aliases, de-duplicated: a name asked twice must resolve twice (that caught a caching bug in Audio._stream)
 	var names: Array = sounds.keys()
-	names.append_array(aliases.keys())
+	var seen := {}
+	for n in names: seen[n] = true
+	var dupes := []
+	for n in aliases.keys():
+		if seen.has(n): dupes.append(n)
+		else: seen[n] = true; names.append(n)
+	if not dupes.is_empty(): print("[audio_check] note: %d alias names are also sounds: %s" % [dupes.size(), str(dupes)])
 	var missing := []
 	var files := 0
 	for n in names:
@@ -54,6 +61,12 @@ func run() -> void:
 		else: missing.append(n)
 	print("[audio_check] manifest: %d names (%d sounds + %d aliases), %d streams resolved, %d missing" % [names.size(), sounds.size(), aliases.size(), files, missing.size()])
 	if not missing.is_empty(): failures.append("missing manifest names: " + str(missing))
+	# second pass over the same names: Audio caches on first resolve, so this exercises the cached path
+	var missing2 := []
+	for n in names:
+		if not Audio.has(n): missing2.append(n)
+	print("[audio_check] second pass (cached path): %d missing" % missing2.size())
+	if not missing2.is_empty(): failures.append("names that resolve once but not twice (Audio cache bug): " + str(missing2.slice(0, 20)))
 	var missing_expected := []
 	for n in EXPECTED:
 		if not Audio.has(n): missing_expected.append(n)

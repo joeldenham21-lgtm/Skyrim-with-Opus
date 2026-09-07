@@ -77,7 +77,8 @@ def manifest(written: dict, alias_copies: bool) -> dict:
             "loops": "entries with loop=true are seamless (crossfaded) and meant for Audio.loop(); set AudioStreamOggVorbis.loop = true at runtime",
             "voices": "mimic_radio/mimic_chatter/mimic_alert (phrases), mimic_scream, mimic_pain, mimic_death, mimic_spot, mimic_hunt, phantom_whisper, phantom_scream",
         },
-        "aliases": {k: dict(v, copied=alias_copies) for k, v in ALIASES.items()},
+        # an alias is only listed when it is not itself a registered sound, so no name appears twice
+        "aliases": {k: dict(v, copied=alias_copies) for k, v in ALIASES.items() if k not in REG},
         "weapons": weapon_map(),
         "surfaces": SURFACES, "impact_surfaces": IMPACT_SURFACES,
         "count": len(sounds),

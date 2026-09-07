@@ -152,6 +152,16 @@ def fbm(n, cells, octaves, seed, gain=0.5, lacunarity=2, ridged=False, billow=Fa
         out += layer * F32(amp)
         total += amp
         amp *= gain
+    if total <= 0.0:
+        # every octave was finer than the texture: fall back to one clamped octave so the result is never NaN
+        cx = max(1, min(int(cells), n // 2))
+        cy = max(1, min(int(cells_y), n // 2))
+        out = perlin(n, cx, seed, cells_y=cy)
+        if ridged:
+            out = (1.0 - np.abs(out)) ** 2
+        elif billow:
+            out = np.abs(out)
+        total = 1.0
     out /= F32(total)
     return out.astype(F32)
 

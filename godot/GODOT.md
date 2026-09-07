@@ -175,3 +175,21 @@ godot/
   first interaction Loot fills them and opens the loot panel via `Events.open_panel("loot", data)`.
 - **Panels/HUD** (front-end wave): `Events.open_panel(name, data)` / `Events.close_panel()`; HUD reads
   `Game.player.focus_prompt`, `weapons.ammo_text()`, `Game.state`.
+
+## Performance and shipping (owned by the orchestrator)
+- `scripts/render/perf.gd` is autoloaded as **Perf**. It picks a quality preset at boot (`mobile low medium high
+  ultra`, auto-detected from the GPU name / mobile feature, overridable via `Game.state.settings.quality`), applies
+  it (render scale + FSR2, MSAA, TAA, shadow atlas and split count, soft-shadow quality, mesh LOD threshold,
+  anisotropy) and then holds the target frame rate (`settings.targetFps`, default 100) by moving
+  `Viewport.scaling_3d_scale` between the preset's min and max with hysteresis and a cooldown, emitting
+  `Events.render_scale`. FSR2 replaces TAA (the engine refuses both).
+  **Every other system must read Perf instead of hard-coding budgets**: `Perf.flora_density`,
+  `Perf.clutter_density`, `Perf.particle_scale`, `Perf.shadow_distance`, `Perf.view_distance`, `Perf.decal_budget`,
+  `Perf.light_budget`, `Perf.entity_budget`, `Perf.lod_threshold`, and the permissions `Perf.allow_sdfgi`,
+  `allow_ssao`, `allow_ssil`, `allow_ssr`, `allow_glow`, `allow_volumetric_fog`, `volumetric_fog_length`.
+  Perf only switches features off and clamps distances; densities, colours and energies stay with their owner
+  (the Sky module owns fog values, the flora module owns its instancing). `Perf.stats()` returns fps, frame time,
+  render scale, preset, draw calls, primitives and VRAM for the F3 overlay and the scenarios.
+- `export_presets.cfg` + `tools/export.sh [linux|windows|android|all]` build releases into `builds/` (gitignored).
+  Export templates for 4.5.stable are installed in this container. Android also needs the SDK/NDK and a keystore,
+  which this container does not have; the preset is committed so it builds on a machine that does.

@@ -15,6 +15,7 @@ Clock="*res://autoload/clock.gd"
 Audio="*res://autoload/audio.gd"
 Director="*res://autoload/director.gd"
 Game="*res://autoload/game.gd"
+Perf="*res://scripts/render/perf.gd"
 
 [debug]
 gdscript/warnings/inference_on_variant=1

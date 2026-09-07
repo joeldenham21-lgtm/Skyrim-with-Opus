@@ -13,7 +13,8 @@ func _ready() -> void:
 	for i in 12:
 		var p := AudioStreamPlayer.new(); p.bus = "SFX"; add_child(p); _pool2d.append(p)
 
-func _stream(name: String) -> AudioStream:
+func _stream(name: String) -> Variant:
+	# returns an AudioStream, an Array of variant streams, or null; callers pick a variant
 	if _cache.has(name): return _cache[name]
 	var dir := "res://assets/audio/"
 	var candidates := []

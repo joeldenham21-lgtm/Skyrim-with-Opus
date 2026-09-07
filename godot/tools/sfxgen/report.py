@@ -60,6 +60,29 @@ def analyse(path: str) -> dict:
     # spectral flatness (geometric/arithmetic mean of power) — near 1 = white noise, near 0 = tonal
     p = mag ** 2 + 1e-14
     flat = float(np.exp(np.mean(np.log(p))) / np.mean(p))
+    # how much the spectrum MOVES over the sound. Flatness alone cannot tell a dead band of hiss from a skitter or a
+    # radio sweep: both are noisy. `movement` is the mean over 16 log bands of the std (in dB) of that band's energy
+    # across time — near 0 means an unmodulated, static texture (the failure we are hunting), > ~4 dB means it evolves.
+    # `tonal_ratio` is the share of spectral energy in the single loudest bin and its neighbours — near 1 is a bare sine.
+    move = 0.0
+    tonal = 0.0
+    if n >= 4096:
+        fr = np.lib.stride_tricks.sliding_window_view(mono, 2048)[::512] * np.hanning(2048)
+        S = np.abs(np.fft.rfft(fr, axis=1)) + 1e-9
+        ff = np.fft.rfftfreq(2048, 1.0 / sr)
+        edges = np.geomspace(60.0, min(16000.0, sr / 2 - 1), 17)
+        idx = [int(np.searchsorted(ff, e)) for e in edges]
+        stds = []
+        for k in range(16):
+            lo, hi = idx[k], max(idx[k + 1], idx[k] + 1)
+            band = 20 * np.log10(S[:, lo:hi].mean(axis=1))
+            if band.max() > band.max() - 60:  # ignore bands that are pure floor
+                stds.append(float(np.std(band)))
+        move = float(np.mean(stds)) if stds else 0.0
+    if len(mag) > 4:
+        k = int(np.argmax(mag))
+        near = mag[max(0, k - 2): k + 3]
+        tonal = float(np.sum(near ** 2) / (np.sum(mag ** 2) + 1e-18))
     # crest factor, and how much energy sits in the first 50 ms (transient) vs the rest
     crest = float(peak / (rms + 1e-9))
     head = mono[: int(sr * 0.05)]
@@ -79,6 +102,7 @@ def analyse(path: str) -> dict:
         "duration": round(n / sr, 3), "sr": sr, "channels": x.shape[1], "peak_db": round(20 * np.log10(peak + 1e-12), 2),
         "rms_db": round(20 * np.log10(rms + 1e-12), 2), "centroid_hz": round(cent, 1), "flatness": round(flat, 4),
         "crest": round(crest, 2), "transient_ratio": round(trans, 3), "decay40_s": t40, "clipping": clip, "dc_offset": round(dc, 6),
+        "movement_db": round(move, 2), "tonal_ratio": round(tonal, 4),
         "lead_silence_ms": round(1000.0 * silence_lead / sr, 1), "bytes": os.path.getsize(path),
     }
 
@@ -166,10 +190,15 @@ def run(audio_dir: str, only: str = None, sheet: str = None, cols: int = 8, repo
             problems.append((f, "dc offset %.3f" % a["dc_offset"]))
         if a["lead_silence_ms"] > 60:
             problems.append((f, "lead silence %.0f ms" % a["lead_silence_ms"]))
-        if a["flatness"] > 0.6 and a["duration"] > 0.3:
-            problems.append((f, "very flat spectrum (noise band?) %.2f" % a["flatness"]))
-        if a["flatness"] < 1e-4 and a["duration"] > 0.3 and a["crest"] < 2.0:
-            problems.append((f, "bare tone? flatness %.1e crest %.1f" % (a["flatness"], a["crest"])))
+        # a dead band of hiss: noisy AND barely moving over its length. Noise that evolves (skitter, radio sweep,
+        # static bursts, a shell rattling down a stairwell) is legitimate and must not be flagged.
+        if a["flatness"] > 0.45 and a["duration"] > 0.3 and a["movement_db"] < 3.0:
+            problems.append((f, "static noise band: flatness %.2f, only %.1f dB of movement" % (a["flatness"], a["movement_db"])))
+        # a bare oscillator: nearly all the energy in one partial and no transient of its own
+        if a["tonal_ratio"] > 0.85 and a["duration"] > 0.3 and a["transient_ratio"] < 0.5:
+            problems.append((f, "bare tone: %.0f%% of energy in one partial" % (100 * a["tonal_ratio"])))
+        if a["duration"] > 0.25 and a["movement_db"] < 1.2:
+            problems.append((f, "no movement (%.1f dB) — static texture" % a["movement_db"]))
     total = sum(a["bytes"] for a in rep.values())
     names = sorted(set(base_name(f) for f in files))
     summary = {"files": len(rep), "names": len(names), "total_bytes": total, "total_mb": round(total / 1e6, 2), "problems": ["%s: %s" % p for p in problems]}

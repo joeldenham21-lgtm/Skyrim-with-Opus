@@ -50,5 +50,9 @@ def define(name: str, fn: Callable, **kw):
 
 def alias(name: str, target: str, note: str = ""):
     """Names the game may ask for that resolve to another file set (documented in the manifest; Audio.gd has no alias
-    table yet, so gen_sfx writes real copies for these unless --no-alias-copies)."""
+    table yet, so gen_sfx writes real copies for these unless --no-alias-copies).
+    A self-alias (name == target) is a no-op: the generated loops that build alias tables from id lists can land on a
+    name that is already its own recipe, and listing it as an alias would make it appear twice in the manifest."""
+    if name == target:
+        return
     ALIASES[name] = {"to": target, "note": note}

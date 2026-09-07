@@ -14,19 +14,199 @@
  "brick": {
   "kind": "brick",
   "tile_m": 1.0,
-  "height_m": 0.018,
+  "height_m": 0.02,
+  "size": 2048
+ },
+ "rust": {
+  "kind": "rust",
+  "tile_m": 1.0,
+  "height_m": 0.006,
+  "size": 2048
+ },
+ "painted_metal": {
+  "kind": "painted_metal",
+  "tile_m": 1.0,
+  "height_m": 0.0025,
+  "size": 2048
+ },
+ "gunmetal": {
+  "kind": "gunmetal",
+  "tile_m": 0.5,
+  "height_m": 0.0006,
+  "size": 2048
+ },
+ "wood": {
+  "kind": "wood",
+  "tile_m": 2.0,
+  "height_m": 0.012,
+  "size": 2048
+ },
+ "logs": {
+  "kind": "logs",
+  "tile_m": 2.0,
+  "height_m": 0.08,
+  "size": 2048
+ },
+ "birch_bark": {
+  "kind": "birch_bark",
+  "tile_m": 1.0,
+  "height_m": 0.006,
+  "size": 2048
+ },
+ "pine_bark": {
+  "kind": "pine_bark",
+  "tile_m": 1.0,
+  "height_m": 0.03,
+  "size": 2048
+ },
+ "fabric": {
+  "kind": "fabric",
+  "tile_m": 0.5,
+  "height_m": 0.0015,
+  "size": 2048
+ },
+ "leather": {
+  "kind": "leather",
+  "tile_m": 0.5,
+  "height_m": 0.0012,
+  "size": 2048
+ },
+ "rubber": {
+  "kind": "rubber",
+  "tile_m": 0.5,
+  "height_m": 0.001,
+  "size": 2048
+ },
+ "mud": {
+  "kind": "mud",
+  "tile_m": 2.0,
+  "height_m": 0.045,
+  "size": 2048
+ },
+ "gravel": {
+  "kind": "gravel",
+  "tile_m": 1.0,
+  "height_m": 0.03,
+  "size": 2048
+ },
+ "road": {
+  "kind": "road",
+  "tile_m": 6.0,
+  "height_m": 0.04,
+  "size": 2048
+ },
+ "asphalt": {
+  "kind": "asphalt",
+  "tile_m": 2.0,
+  "height_m": 0.015,
+  "size": 2048
+ },
+ "roof_tile": {
+  "kind": "roof_tile",
+  "tile_m": 2.0,
+  "height_m": 0.05,
+  "size": 2048
+ },
+ "roof_metal": {
+  "kind": "roof_metal",
+  "tile_m": 2.0,
+  "height_m": 0.03,
+  "size": 2048
+ },
+ "grass": {
+  "kind": "grass",
+  "tile_m": 2.0,
+  "height_m": 0.05,
+  "size": 2048
+ },
+ "dirt": {
+  "kind": "dirt",
+  "tile_m": 2.0,
+  "height_m": 0.03,
   "size": 2048
  },
  "rock": {
   "kind": "rock",
   "tile_m": 2.0,
-  "height_m": 0.12,
+  "height_m": 0.15,
+  "size": 2048
+ },
+ "sand": {
+  "kind": "sand",
+  "tile_m": 1.0,
+  "height_m": 0.01,
+  "size": 2048
+ },
+ "moss": {
+  "kind": "moss",
+  "tile_m": 1.0,
+  "height_m": 0.03,
+  "size": 2048
+ },
+ "tarp": {
+  "kind": "tarp",
+  "tile_m": 1.0,
+  "height_m": 0.01,
+  "size": 2048
+ },
+ "paper": {
+  "kind": "paper",
+  "tile_m": 0.5,
+  "height_m": 0.0006,
+  "size": 2048
+ },
+ "glass": {
+  "kind": "glass",
+  "tile_m": 1.0,
+  "height_m": 0.0002,
   "size": 2048
  },
  "tiles": {
   "kind": "tiles",
   "tile_m": 1.2,
   "height_m": 0.012,
+  "size": 2048
+ },
+ "wallpaper": {
+  "kind": "wallpaper",
+  "tile_m": 1.06,
+  "height_m": 0.004,
+  "size": 2048
+ },
+ "linoleum": {
+  "kind": "linoleum",
+  "tile_m": 1.0,
+  "height_m": 0.004,
+  "size": 2048
+ },
+ "sheet_metal": {
+  "kind": "sheet_metal",
+  "tile_m": 1.0,
+  "height_m": 0.008,
+  "size": 2048
+ },
+ "roof_slate": {
+  "kind": "roof_slate",
+  "tile_m": 2.0,
+  "height_m": 0.02,
+  "size": 2048
+ },
+ "camo": {
+  "kind": "camo",
+  "tile_m": 0.5,
+  "height_m": 0.0015,
+  "size": 2048
+ },
+ "bone": {
+  "kind": "bone",
+  "tile_m": 0.3,
+  "height_m": 0.002,
+  "size": 2048
+ },
+ "canvas": {
+  "kind": "canvas",
+  "tile_m": 0.5,
+  "height_m": 0.002,
   "size": 2048
  }
 }
