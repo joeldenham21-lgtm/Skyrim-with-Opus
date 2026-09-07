@@ -145,9 +145,9 @@ func _build_material() -> void:
 			var arr: Array = d.get("layers", [])
 			for i in mini(arr.size(), 8): tiles[i] = float(arr[i].get("tile_m", tiles[i]))
 	material.set_shader_parameter("layer_tile", tiles)
-	var tint := [
+	var tint := PackedColorArray([
 		Color(1.02, 1.0, 0.86), Color(1.0, 0.98, 0.94), Color(0.92, 0.94, 0.96), Color(1.0, 1.0, 1.0),
-		Color(1.0, 0.99, 0.96), Color(0.95, 0.96, 1.0), Color(1.0, 0.99, 0.95), Color(0.92, 1.0, 0.86)]
+		Color(1.0, 0.99, 0.96), Color(0.95, 0.96, 1.0), Color(1.0, 0.99, 0.95), Color(0.92, 1.0, 0.86)])
 	material.set_shader_parameter("layer_tint", tint)
 	material.set_shader_parameter("rain", 0.0)
 

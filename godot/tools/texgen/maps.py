@@ -169,7 +169,7 @@ def save_set(root, kind, albedo, height, rough, metal, ao=None, normal_strength=
     orm = np.stack([ao, np.clip(rough, 0, 1), np.clip(metal, 0, 1)], axis=-1)
     d = os.path.join(root, kind)
     save_webp(os.path.join(d, f"{kind}_albedo.webp"), albedo, quality=90)
-    save_webp(os.path.join(d, f"{kind}_normal.webp"), nrm, quality=95)
+    save_webp(os.path.join(d, f"{kind}_normal.webp"), nrm, quality=92)
     save_webp(os.path.join(d, f"{kind}_orm.webp"), orm, quality=88)
     save_webp(os.path.join(d, f"{kind}_height.webp"), height, quality=85)
     info = {"kind": kind, "tile_m": tile_m, "height_m": height_scale_m, "size": n}
