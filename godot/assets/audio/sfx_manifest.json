@@ -224,11 +224,6 @@
    "note": "",
    "copied": true
   },
-  "artifact_hum_pearl": {
-   "to": "artifact_hum_pearl",
-   "note": "",
-   "copied": true
-  },
   "artifact_hum_lens": {
    "to": "artifact_hum_pearl",
    "note": "",
@@ -239,11 +234,6 @@
    "note": "",
    "copied": true
   },
-  "artifact_hum_ember": {
-   "to": "artifact_hum_ember",
-   "note": "",
-   "copied": true
-  },
   "artifact_hum_thorn": {
    "to": "artifact_hum_ember",
    "note": "",
@@ -251,11 +241,6 @@
   },
   "artifact_hum_crown": {
    "to": "artifact_hum_ember",
-   "note": "",
-   "copied": true
-  },
-  "artifact_hum_tear": {
-   "to": "artifact_hum_tear",
    "note": "",
    "copied": true
   },
@@ -10395,6 +10380,6 @@
    ]
   }
  },
- "generated_seconds": 17.6,
- "total_bytes": 16904478
+ "generated_seconds": 14.5,
+ "total_bytes": 17006265
 }
