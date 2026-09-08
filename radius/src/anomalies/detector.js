@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { grimeMaterial } from './probe.js';
+import { def } from '../data/index.js';
 import { buildHands, HAND_GRIP, handEuler } from '../weapons/gunmesh.js';
 import { clamp01, damp, lerp, easeOutCubic } from '../core/math.js';
 
@@ -126,6 +127,14 @@ export function createDetector(ctx) {
     return 0.08 + 1.92 * Math.pow(t, 1.5);
   }
 
+  // The inventory v2 rewrite moved every stack:1 tool out of the stackable `items` map and into
+  // typed instances in `inventory.gear`, but this module kept gating on inventory.has('detector'),
+  // which only reads `items`. The detector you bought was therefore invisible to slot 5 and the
+  // whole artifact-hunting loop was unreachable. Match on the def's `detect` field so every tier
+  // counts, and keep the stack lookup as a fallback for debug gives and looted copies.
+  const hasDetector = () => ctx.inventory.gear.some((g) => !!def(g.id)?.detect)
+    || ['detector', 'detector2', 'detector3'].some((id) => ctx.inventory.has(id));
+
   const api = {
     get equipped() { return equipped; },
     equip, unequip,
@@ -133,11 +142,11 @@ export function createDetector(ctx) {
       const live = ctx.mode === 'playing' && !ctx.panels.isOpen && !ctx.player.dead;
       if (live && ctx.input.pressed('slot5')) {
         if (equipped) unequip();
-        else if (ctx.inventory.has('detector')) equip();
+        else if (hasDetector()) equip();
         else ctx.audio.play('click', { gain: 0.4 });
       }
       if (!equipped) return;
-      if (ctx.player.dead || !ctx.inventory.has('detector')) { unequip(true); return; }
+      if (ctx.player.dead || !hasDetector()) { unequip(true); return; }
       if (live && ctx.input.pressed('holster')) { unequip(); return; }
       // a weapon coming out (slot 1-4, wheel) puts the meter away; the pending holster right after equip does not count
       const cur = ctx.weapons.current;

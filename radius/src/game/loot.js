@@ -225,7 +225,11 @@ export function createLoot(ctx) {
       else if (c.weapon) {
         const w = makeWeapon(c.weapon);
         w.dirt = 0.25 + rnd() * 0.45;                              // found in the zone: fouled, half loaded
-        for (let i = 0; i < w.mags.length; i++) w.mags[i] = rnd.int(0, w.mags[i]);
+        // A weapon instance has `mag` (one magazine object or null) and `tube` (an array); there is
+        // no `mags` — that is the player's magazine pool. Reading w.mags.length threw, aborting
+        // grant() mid-loop so the weapon was never added and the container never marked opened.
+        if (w.mag) { w.mag.rounds = rnd.int(0, w.mag.rounds); if (!w.mag.rounds) { w.mag.ammo = null; w.chamber = null; } }
+        else if (w.tube.length) { w.tube.length = rnd.int(0, w.tube.length); if (!w.tube.length) w.chamber = null; }
         ctx.inventory.addWeapon(w); ctx.weapons.onInventoryChanged?.();
         parts.push(WEAPON_DEFS[c.weapon].full);
       }
