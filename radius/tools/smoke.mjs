@@ -11,11 +11,33 @@
 // Inside the page, window.__radius exposes the debug API (see ARCHITECTURE.md):
 //   __radius.ctx, __radius.start(), __radius.teleport(x,z), __radius.look(yaw,pitch),
 //   __radius.setTime(h), __radius.spawn(type,x,z), __radius.setTension(v), __radius.stats()
-import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, execSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+
+// Playwright is a dev tool, not a dependency of the game, so it may live anywhere: in this
+// project, installed globally, or nowhere at all. Try the bare specifier first and fall back to
+// the global npm root, so the harness runs on a laptop and in CI without editing this file.
+// Set PLAYWRIGHT=/path/to/playwright/index.mjs to override.
+async function loadChromium() {
+  const tried = [];
+  const candidates = [process.env.PLAYWRIGHT, 'playwright'].filter(Boolean);
+  for (const c of candidates) {
+    try { const m = await import(c); return m.chromium ?? m.default?.chromium; }
+    catch (e) { tried.push(`${c}: ${e.message}`); }
+  }
+  try {
+    const globalRoot = execSync('npm root -g', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    if (globalRoot) {
+      const p = pathToFileURL(resolve(globalRoot, 'playwright/index.mjs')).href;
+      const m = await import(p); return m.chromium ?? m.default?.chromium;
+    }
+  } catch (e) { tried.push(`npm root -g: ${e.message}`); }
+  throw new Error('smoke.mjs could not load playwright.\n  ' + tried.join('\n  ')
+    + '\nInstall it (npm i -D playwright) or set PLAYWRIGHT to its index.mjs.');
+}
+const chromium = await loadChromium();
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
