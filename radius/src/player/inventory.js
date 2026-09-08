@@ -225,7 +225,7 @@ export function defaultInventory() {
 }
 
 export function createInventory(ctx) {
-  const inv = () => { const d = ctx.state.data; if (!d.inventory || !d.inventory.equipment) d.inventory = defaultInventory(); if (!d.storage) d.storage = { weapons: [], mags: [], gear: [], items: {} }; return d.inventory; };
+  const inv = () => { const d = ctx.state.data; if (!d.inventory || !d.inventory.equipment) d.inventory = defaultInventory(); if (!d.storage) d.storage = { by: {} }; return d.inventory; };   // storage is per-container now: { by: { <containerId>: {weapons,mags,gear,items} } }
   let wFrame = -1, wKg = 0;   // weight() memo, one frame deep
   const emit = (id, delta) => ctx.events.emit('inventoryChanged', { id, delta });
   const api = {
@@ -314,7 +314,9 @@ export function createInventory(ctx) {
   // keep uid above saved ids
   const bump = (list) => { for (const x of list || []) uid = Math.max(uid, (x.uid || 0) + 1); };
   const d0 = inv(); bump(d0.weapons); bump(d0.mags); bump(d0.gear); for (const w of d0.weapons) if (w.mag) uid = Math.max(uid, w.mag.uid + 1);
-  const st = ctx.state.data.storage; bump(st.weapons); bump(st.mags); bump(st.gear);
+  // stowage is fifteen containers now, plus whatever a pre-outpost save left at the root
+  const st = ctx.state.data.storage || {};
+  for (const c of [st, ...Object.values(st.by || {})]) { bump(c.weapons); bump(c.mags); bump(c.gear); }
   return api;
 }
 // compat: old modules imported these names

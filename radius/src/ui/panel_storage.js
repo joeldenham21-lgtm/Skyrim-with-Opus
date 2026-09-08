@@ -1,6 +1,12 @@
-// Locker 61: two columns, carried and stowed. Every kind moves: weapons (attachments and inserted magazine travel
-// with them), magazines, gear instances, and stacks (a quantity is chosen for stacks above one). Instances are the
-// save data: they are spliced between ctx.inventory and state.data.storage = { weapons, mags, gear, items }, never copied.
+// Vanno's stowage: two columns, carried and stowed. Every kind moves: weapons (attachments and inserted magazine
+// travel with them), magazines, gear instances, and stacks (a quantity is chosen for stacks above one). Instances are
+// the save data: they are spliced between ctx.inventory and the container's own list, never copied.
+//
+// One sheet, fifteen containers. base_scene registers a locker, shelf, rack, cabinet, crate stack or footlocker in the
+// room it stands in and opens this with { container, name }; each keeps its own { weapons, mags, gear, items } under
+// state.data.storage.by. Each also has a capacity in kilogrammes and holds only what fits, so the armoury is a room
+// you organise rather than one bottomless box: rifles live on the racks, ammunition in the cabinet, dressings in the
+// medical cabinet, and a footlocker at the end of a berth takes what a footlocker takes.
 // Panel module for ui/panels.js: { id, title, render(ctx, api, data) -> HTMLElement, onKey(e), onClose() }.
 import { WEAPONS, AMMO, MAGAZINES, def, categoryOf, weightOf, defaultAmmo } from '../data/index.js';
 import { weaponWeight, magWeight } from '../player/inventory.js';
@@ -27,17 +33,43 @@ const CSS = `
 const S = { notice: '', red: false, rerender: null };
 
 export default {
-  id: 'storage', title: 'Vanno · Locker 61', form: '61-L', keys: 'Esc close · ↑↓ select · Enter confirm · 1–9 pick',
-  render(ctx, api) {
+  id: 'storage', title: (ctx, api, data) => 'Vanno · ' + (api?.data?.name || data?.name || 'Locker 61'), form: '61-L', keys: 'Esc close · ↑↓ select · Enter confirm · 1–9 pick',
+  render(ctx, api, data) {
     ensureStyle('ui-b-storage', CSS);
     const root = document.createElement('div'); root.className = 'p-storage';
     const D = () => ctx.state.data, inv = ctx.inventory;
     const changed = () => { if (api?.weaponsChanged) api.weaponsChanged(); else ctx.weapons?.onInventoryChanged?.(); };
-    // the locker, with the old save shape folded in (v1 kept ammo by calibre)
-    const locker = () => {
-      const d = D(); if (!d.storage) d.storage = { weapons: [], mags: [], gear: [], items: {} };
-      const st = d.storage; st.weapons ||= []; st.mags ||= []; st.gear ||= []; st.items ||= {};
-      if (st.ammo) { for (const [cal, n] of Object.entries(st.ammo)) { const id = AMMO[cal] ? cal : defaultAmmo(cal); if (id && n > 0) st.items[id] = (st.items[id] || 0) + n; } delete st.ammo; }
+    // What each piece of furniture holds, in kilogrammes. A shelving bay takes more than a wall locker;
+    // a footlocker at the end of a berth takes what a footlocker takes.
+    const CAP = {
+      locker61: 90, locker60: 70, locker62: 70,
+      shelf_a: 140, shelf_b: 140, shelf_c: 140,
+      rack_a: 60, rack_b: 60,
+      ammo_cabinet: 120, crates: 200, parts_bin: 45,
+      layout_table: 35, footlocker_a: 40, footlocker_b: 40,
+      med_cabinet: 25, cage: 80,
+    };
+    const cid = () => api?.data?.container || data?.container || 'locker61';
+    const label = () => api?.data?.name || data?.name || 'Locker 61';
+    const capOf = (id) => CAP[id] || 80;
+    const blank = () => ({ weapons: [], mags: [], gear: [], items: {} });
+    // Every container's contents, keyed by id. A save from before the outpost was built has one stash at
+    // d.storage itself; it becomes Locker 61 so nothing a player owns goes missing on the upgrade.
+    const allStores = () => {
+      const d = D();
+      if (!d.storage) d.storage = { by: {} };
+      if (!d.storage.by) {
+        const legacy = (d.storage.weapons || d.storage.mags || d.storage.gear || d.storage.items) ? d.storage : null;
+        d.storage = { by: legacy ? { locker61: legacy } : {} };
+      }
+      return d.storage.by;
+    };
+    // one container, with the old save shape folded in (v1 kept ammo by calibre)
+    const locker = (id = cid()) => {
+      const by = allStores();
+      if (!by[id]) by[id] = blank();
+      const st = by[id]; st.weapons ||= []; st.mags ||= []; st.gear ||= []; st.items ||= {};
+      if (st.ammo) { for (const [cal, n] of Object.entries(st.ammo)) { const aid = AMMO[cal] ? cal : defaultAmmo(cal); if (aid && n > 0) st.items[aid] = (st.items[aid] || 0) + n; } delete st.ammo; }
       return st;
     };
     const lockerWeight = (st) => st.weapons.reduce((s, w) => s + (w.parts ? weaponWeight(w) : weightOf(w.id)), 0) + st.mags.reduce((s, m) => s + magWeight(m), 0) + st.gear.reduce((s, g) => s + weightOf(g.id), 0) + Object.entries(st.items).reduce((s, [id, n]) => s + weightOf(id, n), 0);
@@ -77,16 +109,34 @@ export default {
       const none = '<div class="empty">None.</div>';
       return `<div><div class="col-t">${title}<span>${right}</span></div>` + sec('Weapons', src.weapons.length, w || none) + sec('Magazines', src.mags.length, m || none) + sec('Gear', src.gear.length, g || none) + sec('Items', stacks.length, i || none) + '</div>';
     }
+    const totalStowed = () => { const by = allStores(); let kgAll = 0; for (const k in by) kgAll += lockerWeight(locker(k)); return kgAll; };
     function fill() {
-      const st = locker(), over = inv.overweight(), lw = lockerWeight(st);
-      return `<div class="strip"><span>Carried <b class="${over > 0 ? 'red' : ''}">${inv.weight().toFixed(1)} / ${inv.capacity()} kg</b>${over > 0 ? ` <b class="red">· over by ${over.toFixed(1)} kg</b>` : ''}</span><span>Locker <b>${lw.toFixed(1)} kg</b> · no limit</span></div>` +
-        `<div class="scroll"><div class="cols">${column('Carried', `${inv.weight().toFixed(1)} kg`, inv.data, 'in')}${column('Locker', `${lw.toFixed(1)} kg`, st, 'out')}</div></div>` +
-        '<div class="note">Locker contents are not subject to the Tide and are not carried into the Radius. Everything on the Explorer\'s person is forfeit on incident. Worn armour and rig magazines can be stowed; the slot empties.</div>' +
-        '';
+      const st = locker(), over = inv.overweight(), lw = lockerWeight(st), cap = capOf(cid());
+      const full = lw >= cap - 1e-6;
+      const across = totalStowed();
+      return `<div class="strip"><span>Carried <b class="${over > 0 ? 'red' : ''}">${inv.weight().toFixed(1)} / ${inv.capacity()} kg</b>${over > 0 ? ` <b class="red">· over by ${over.toFixed(1)} kg</b>` : ''}</span>` +
+        `<span>${esc(label())} <b class="${full ? 'red' : ''}">${lw.toFixed(1)} / ${cap} kg</b></span>` +
+        `<span>Stowed at Vanno <b>${across.toFixed(1)} kg</b></span></div>` +
+        `<div class="scroll"><div class="cols">${column('Carried', `${inv.weight().toFixed(1)} kg`, inv.data, 'in')}${column(label(), `${lw.toFixed(1)} / ${cap} kg`, st, 'out')}</div></div>` +
+        `<div class="note">Stowed contents are not subject to the Tide and are not carried into the Radius. Everything on the Explorer's person is forfeit on incident. Worn armour and rig magazines can be stowed; the slot empties. ${esc(label())} holds ${cap} kg — the rest of the outpost has its own shelves, racks and cabinets.</div>`;
     }
     // ---- moves: the instance itself changes lists ----
     function move(dir, kind, id, qty) {
       const st = locker();
+      // A container holds what it holds: check before anything leaves the Explorer's hands, because the
+      // move splices the live instance across and there is nothing to put back if it fails halfway.
+      if (dir === 'in') {
+        const cap = capOf(cid()), have = lockerWeight(st);
+        const add = kind === 'w' ? (inv.weaponByUid?.(+id) ? weaponWeight(inv.weaponByUid(+id)) : 0)
+          : kind === 'm' ? (inv.magByUid?.(+id) ? magWeight(inv.magByUid(+id)) : 0)
+          : kind === 'g' ? weightOf((inv.gear.find((g) => g.uid === +id) || {}).id || '')
+          : weightOf(id, Math.min(qty || 1, inv.count(id)));
+        if (have + add > cap + 1e-6) {
+          // plain numbers: kg() returns markup, and the notice line is escaped before it is shown
+          say(`${label()} is full. ${add.toFixed(1)} kg will not fit in the ${Math.max(0, cap - have).toFixed(1)} kg left — try another locker, shelf or rack.`, true);
+          return false;
+        }
+      }
       if (kind === 'w') {
         if (dir === 'in') { const w = inv.removeWeapon(+id); if (!w) return false; st.weapons.push(w); say(`${WEAPONS[w.id]?.full || w.id} stowed.`); }
         else { const i = st.weapons.findIndex((w) => w.uid === +id); if (i < 0) return false; const [w] = st.weapons.splice(i, 1); inv.addWeapon(w); say(`${WEAPONS[w.id]?.full || w.id} taken.`); }

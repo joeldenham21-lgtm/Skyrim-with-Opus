@@ -12,15 +12,18 @@ import { createBuilder, material, colorize, placeMatrix, normalizeGeo, instanced
 import { START } from '../world/map.js';
 
 // ---------------------------------------------------------------------------------------------- layout
-const FY = 7.3;                     // interior floor top (unchanged: ctx.base.floorY, main.js load spawn)
+// The Vanno plateau is not flat: the ground climbs from 5.8 at the road to 8.15 under the back of the
+// outpost. The floor has to clear that everywhere or the hillside grows through it, so it sits at 8.9 —
+// 0.75 m above the highest ground the shell covers — and the approach climbs a flight of steps to reach it.
+const FY = 8.9;                     // interior floor top (ctx.base.floorY; main.js spawns the load save on it)
 const DOOR_Z = 296.2;               // the steel door plane (unchanged: the fade transition anchor)
 const T = 0.30;                     // wall thickness (perimeter and partitions alike)
 const WY0 = 4.0;                    // walls start below grade so the plinth closes to the ground
-const DECK0 = 10.90, DECK1 = 11.30; // roof deck slab over the low rooms
+const DECK0 = FY + 3.60, DECK1 = FY + 4.00;   // roof deck slab over the low rooms
 const LOW_TOP = DECK1;              // low-room wall top
-const HALL_CY = FY + 4.50;          // 11.80 — the hall ceiling
-const HALL_TOP = HALL_CY + 0.40;    // 12.20 — the hall roof, a raised clerestory box above the deck
-const GRADE = 5.5;                  // nominal plateau height outside
+const HALL_CY = FY + 4.50;          // the hall ceiling
+const HALL_TOP = HALL_CY + 0.40;    // the hall roof: a raised clerestory box standing above the deck
+const GRADE = 6.4;                  // nominal ground at the gate; real heights are sampled per point
 
 const CONC = [0.44, 0.43, 0.41], CONC_IN = [0.53, 0.52, 0.49], DECKC = [0.40, 0.39, 0.37];
 const STEEL = [0.34, 0.36, 0.34], DARK = [0.26, 0.27, 0.26], WOOD = [0.42, 0.37, 0.27];
@@ -34,9 +37,10 @@ const RM = {
   workshop: { x0: 7.50, x1: 13.90,  z0: 300.15, z1: 304.90, cy: FY + 3.10 },
   genset:   { x0: 7.50, x1: 13.90,  z0: 305.20, z1: 310.50, cy: FY + 2.70 },
   corridor: { x0: -13.90, x1: 7.20, z0: 308.70, z1: 310.50, cy: FY + 2.35 },
-  range:    { x0: -13.90, x1: -8.55, z0: 310.80, z1: 319.20, cy: FY + 3.20 },
-  bunk:     { x0: -8.25, x1: -1.05, z0: 310.80, z1: 315.60, cy: FY + 2.60 },
-  med:      { x0: -0.75, x1: 5.40,  z0: 310.80, z1: 314.40, cy: FY + 2.55 },
+  // the back of the outpost is one shallow row, because the hillside behind it climbs fast
+  range:    { x0: -13.90, x1: -4.20, z0: 310.80, z1: 314.40, cy: FY + 2.90 },
+  bunk:     { x0: -3.90, x1: 1.50,  z0: 310.80, z1: 314.40, cy: FY + 2.60 },
+  med:      { x0: 1.80,  x1: 5.40,  z0: 310.80, z1: 314.40, cy: FY + 2.55 },
 };
 const DH = FY + 2.30;               // door head height
 const dr = (a, b) => [a, b, FY, DH];         // a doorway opening
@@ -54,7 +58,7 @@ const WALLS = [
   ['x', 300.00, -7.35, 7.35, WY0, HALL_TOP, [cl(-6.60, -4.80), cl(-3.60, -1.80), dr(-0.85, 0.85), cl(1.80, 3.60), cl(4.80, 6.60)]],
   ['x', 300.00, 7.35, 14.20, WY0, LOW_TOP, []],
   // perimeter
-  ['z', -14.05, 299.85, 319.50, WY0, LOW_TOP, []],
+  ['z', -14.05, 299.85, 314.70, WY0, LOW_TOP, []],
   ['z', 14.05, 299.85, 310.80, WY0, LOW_TOP, []],
   // hall flanks (clerestory above the deck on both sides)
   ['z', -7.35, 300.00, 308.55, WY0, HALL_TOP, [dr(302.10, 303.90), cl(304.60, 306.20), cl(306.70, 308.20)]],
@@ -66,26 +70,22 @@ const WALLS = [
   // workshop / generator divider
   ['x', 305.05, 7.35, 14.20, WY0, LOW_TOP, [dr(9.30, 10.80)]],
   // corridor south wall: three doorways into the range, the bunks and the med corner
-  ['x', 310.65, -14.20, 14.20, WY0, LOW_TOP, [dr(-12.70, -11.20), dr(-5.80, -4.30), dr(1.50, 3.00)]],
+  ['x', 310.65, -14.20, 14.20, WY0, LOW_TOP, [dr(-10.00, -8.50), dr(-2.40, -0.90), dr(3.00, 4.50)]],
   // south block partitions
-  ['z', -8.40, 310.50, 319.50, WY0, LOW_TOP, []],
-  ['z', -0.90, 310.50, 315.90, WY0, LOW_TOP, []],
+  ['z', -4.05, 310.50, 314.70, WY0, LOW_TOP, []],
+  ['z', 1.65, 310.50, 314.70, WY0, LOW_TOP, []],
   ['z', 5.55, 310.50, 314.70, WY0, LOW_TOP, []],
-  ['x', 314.55, -1.05, 5.70, WY0, LOW_TOP, []],
-  ['x', 315.75, -8.55, -0.75, WY0, LOW_TOP, []],
-  ['x', 319.35, -14.20, -8.25, WY0, LOW_TOP, []],
+  ['x', 314.55, -14.20, 5.70, WY0, LOW_TOP, []],
 ];
 
 // berms: [x0, x1, z0, z1, innerTop, side] — side says which edge is the tall one ('w','e','s')
 // Each is drawn as a wedge and blocked by ONE box with exactly the same footprint; every one of them starts
 // on the outer face of a wall, so no earth is ever solid inside a room.
 const BERMS = [
-  [-19.0, -14.20, 295.0, 322.0, 11.1, 'e'],
-  [14.20, 19.0, 295.0, 313.0, 11.1, 'w'],
-  [5.70, 19.0, 310.80, 322.0, 10.7, 'n'],
-  [-0.75, 5.70, 314.70, 322.0, 10.5, 'n'],
-  [-8.55, -0.75, 315.90, 322.0, 10.5, 'n'],
-  [-19.0, -8.25, 319.50, 325.0, 10.9, 'n'],
+  [-19.0, -14.20, 295.0, 316.0, DECK1 - 0.2, 'e'],
+  [14.20, 19.0, 295.0, 313.0, DECK1 - 0.2, 'w'],
+  [5.70, 19.0, 310.80, 317.0, DECK1 - 0.7, 'n'],
+  [-14.20, 5.70, 314.70, 319.0, DECK1 - 0.9, 'n'],
 ];
 
 export function createBase(ctx) {
@@ -156,7 +156,7 @@ export function createBase(ctx) {
     B.box('concrete', x1 - x0, 0.12, z1 - z0, (x0 + x1) / 2, FY - 0.06, (z0 + z1) / 2, [0.37, 0.37, 0.36], { jitter: 0.035, segs: 2 });
     world.addBox((x0 + x1) / 2, FY - 0.85, (z0 + z1) / 2, x1 - x0, 1.7, z1 - z0, { tag, surface: 'concrete' });
   };
-  floorSlab(-14.20, 14.20, 299.85, 319.50);
+  floorSlab(-14.20, 14.20, 299.85, 314.70);
   floorSlab(-2.65, 2.65, 296.05, 299.90);
   world.addBox(0, FY - 0.5, 296.0, 2.7, 1.0, 0.8, { tag, surface: 'concrete' });   // the sill under the door
   for (const k in RM) {
@@ -167,12 +167,12 @@ export function createBase(ctx) {
     B.box('concrete', x1 - x0, DECK1 - DECK0, z1 - z0, (x0 + x1) / 2, (DECK0 + DECK1) / 2, (z0 + z1) / 2, DECKC, { jitter: 0.04 });
     world.addBox((x0 + x1) / 2, (DECK0 + DECK1) / 2, (z0 + z1) / 2, x1 - x0, DECK1 - DECK0, z1 - z0, { tag, surface: 'concrete', passable: true, blocksBullets: true });
   };
-  deck(-14.20, -7.35, 299.85, 308.55); deck(7.35, 14.20, 299.85, 308.55); deck(-14.20, 14.20, 308.55, 319.50);
+  deck(-14.20, -7.35, 299.85, 308.55); deck(7.35, 14.20, 299.85, 308.55); deck(-14.20, 14.20, 308.55, 314.70);
   B.box('concrete', 15.1, 0.40, 9.0, 0, HALL_CY + 0.20, 304.27, DECKC, { jitter: 0.04 });   // hall roof
   world.addBox(0, HALL_CY + 0.20, 304.27, 15.1, 0.40, 9.0, { tag, surface: 'concrete', passable: true, blocksBullets: true });
   for (const [x, z, w, d] of [[0, 299.6, 15.1, 0.34], [0, 308.95, 15.1, 0.34], [-7.75, 304.27, 0.34, 9.0], [7.75, 304.27, 0.34, 9.0]])
     B.box('concrete', w, 0.34, d, x, HALL_CY + 0.55, z, [0.42, 0.41, 0.39], { jitter: 0.05 });   // clerestory parapet
-  for (const [x, z, w, d] of [[-14.35, 304.2, 0.5, 9.4], [14.35, 304.2, 0.5, 9.4], [0, 319.65, 28.9, 0.5]])
+  for (const [x, z, w, d] of [[-14.35, 307.3, 0.5, 15.6], [14.35, 305.3, 0.5, 11.6], [0, 314.85, 28.9, 0.5]])
     B.box('concrete', w, 0.36, d, x, DECK1 + 0.18, z, [0.42, 0.41, 0.39], { jitter: 0.05 });     // deck parapet
 
   // ------------------------------------------------------------------ berms
@@ -193,25 +193,26 @@ export function createBase(ctx) {
     }
     g.computeVertexNormals();
     B.geo('earth', g, placeMatrix((x0 + x1) / 2, 0, (z0 + z1) / 2), [0.42, 0.40, 0.31], { jitter: 0.07, ground: GRADE, dampH: 3.0, damp: 0.3 });
-    world.addBox((x0 + x1) / 2, 8.5, (z0 + z1) / 2, w, 11.0, d, { tag, surface: 'mud', noAvoid: true });
+    world.addBox((x0 + x1) / 2, (3.0 + DECK1 + 1.6) / 2, (z0 + z1) / 2, w, DECK1 + 1.6 - 3.0, d, { tag, surface: 'mud', noAvoid: true });
   }
 
   // ------------------------------------------------------------------ north façade dressing
   // plinth, pilasters, a string course, a bricked-up loading dock, louvres, floodlight brackets
-  B.box('concrete', 28.9, 0.55, 0.9, 0, GRADE + 0.1, 299.5, CONC, { ground: GRADE - 0.6, jitter: 0.05 });
-  world.addBox(0, GRADE - 0.35, 299.5, 28.9, 1.5, 0.9, { tag, surface: 'concrete' });
+  B.box('concrete', 28.9, 2.4, 0.9, 0, 6.2, 299.5, CONC, { ground: 5.0, jitter: 0.05 });
+  world.addBox(0, 6.2, 299.5, 28.9, 2.4, 0.9, { tag, surface: 'concrete' });
   for (let i = 0; i < 9; i++) {
     const x = -12.6 + i * 3.15;
     if (Math.abs(x) < 3.2 || (x > 8.2 && x < 12.7)) continue;   // clear of the throat and the dock shutter
-    B.box('concrete', 0.55, 5.6, 0.26, x, GRADE + 2.9, 299.72, [0.47, 0.46, 0.44], { ground: GRADE, dampH: 2.5, damp: 0.3, jitter: 0.05 });
+    B.box('concrete', 0.55, 7.2, 0.26, x, 9.3, 299.72, [0.47, 0.46, 0.44], { ground: 6.4, dampH: 2.5, damp: 0.3, jitter: 0.05 });
   }
-  B.box('concrete', 28.9, 0.24, 0.18, 0, 10.55, 299.76, [0.47, 0.46, 0.44], { jitter: 0.05 });
+  B.box('concrete', 28.9, 0.24, 0.18, 0, FY + 3.3, 299.76, [0.47, 0.46, 0.44], { jitter: 0.05 });
   // loading dock: a recessed corrugated shutter, welded shut, with a concrete lip
   B.box('corrugated', 3.8, 3.0, 0.14, 10.4, FY + 1.5, 299.78, [0.40, 0.42, 0.40], { jitter: 0.05 });
   B.box('metal', 4.1, 0.22, 0.3, 10.4, FY + 3.12, 299.72, DARK, { jitter: 0.04 });
-  B.box('concrete', 4.4, 2.4, 1.5, 10.4, GRADE - 0.2, 298.9, CONC, { ground: GRADE - 1.4, jitter: 0.05 });
-  world.addBox(10.4, GRADE - 0.2, 298.9, 4.4, 2.4, 1.5, { tag, surface: 'concrete' });   // top 6.5: below the base volume floor, so it is never a way in
-  for (const s of [-1, 1]) B.box('metal', 0.5, 0.05, 1.4, 10.4 + s * 1.6, GRADE + 1.02, 298.9, DARK, { jitter: 0.04 });
+  B.box('concrete', 4.4, 2.4, 1.5, 10.4, 6.2, 298.9, CONC, { ground: 5.0, jitter: 0.05 });     // lip: top 7.4, far below the floor, so it is never a way in
+  world.addBox(10.4, 6.2, 298.9, 4.4, 2.4, 1.5, { tag, surface: 'concrete' });
+  B.box('concrete', 4.0, 1.5, 0.4, 10.4, FY - 0.75, 299.65, [0.46, 0.45, 0.43], { jitter: 0.06 });   // the opening bricked up under the shutter
+  for (const s of [-1, 1]) B.box('metal', 0.5, 0.05, 1.4, 10.4 + s * 1.6, 7.42, 298.9, DARK, { jitter: 0.04 });
   // louvre banks
   for (const lx of [-11.4, -5.6, 5.6]) {
     B.box('metal', 1.5, 1.1, 0.12, lx, FY + 2.6, 299.79, DARK, { jitter: 0.04 });
@@ -224,11 +225,36 @@ export function createBase(ctx) {
   // ------------------------------------------------------------------ the throat, steps and the steel door
   B.box('concrete', 5.6, 0.5, 4.2, 0, FY + 3.05, 297.9, DECKC, { jitter: 0.04 });                 // throat roof
   world.addBox(0, FY + 3.05, 297.9, 5.6, 0.5, 4.2, { tag, surface: 'concrete', passable: true, blocksBullets: true });
-  B.box('concrete', 3.2, 0.5, 1.4, 0, 6.25, 294.3, CONC, { ground: GRADE - 0.4, jitter: 0.05 });   // apron top 6.5
-  B.box('concrete', 2.8, 0.6, 0.8, 0, 6.6, 295.35, CONC, { ground: GRADE - 0.4, jitter: 0.05 });   // step top 6.9
-  B.box('concrete', 2.4, 0.5, 0.6, 0, 7.05, 296.0, CONC, { jitter: 0.05 });                        // sill 7.3
-  world.addBox(0, 6.25, 294.3, 3.2, 0.5, 1.4, { tag, surface: 'concrete' });
-  world.addBox(0, 6.6, 295.35, 2.8, 0.6, 0.8, { tag, surface: 'concrete' });
+  // the flight up to the door: the floor is 2.4 m above the road, so the approach is a real stair with
+  // cheek walls and a rail. Each tread is drawn and collided from the same rectangle; the rise is 0.29,
+  // inside the player's 0.55 step allowance, so it can be walked up and down without jumping.
+  const APRON_Z0 = 290.8, APRON_Z1 = 291.9, STAIR_Z0 = APRON_Z1, STAIR_Z1 = 296.05;
+  const apronY = gy(0, APRON_Z0) + 0.28;
+  B.box('concrete', 4.4, 1.1, APRON_Z1 - APRON_Z0, 0, apronY - 0.55, (APRON_Z0 + APRON_Z1) / 2, CONC, { ground: apronY - 1.1, jitter: 0.05 });
+  world.addBox(0, apronY - 0.55, (APRON_Z0 + APRON_Z1) / 2, 4.4, 1.1, APRON_Z1 - APRON_Z0, { tag, surface: 'concrete' });
+  // rise stays under half the 0.55 step allowance, so a tread two ahead never stops the walk up;
+  // every tread is the full width of the flight, so nothing can be walked off the side of it.
+  const STEPS = Math.max(4, Math.ceil((FY - apronY) / 0.26));
+  const going = (STAIR_Z1 - STAIR_Z0) / STEPS, rise = (FY - apronY) / STEPS;
+  for (let i = 0; i < STEPS; i++) {
+    const top = apronY + rise * (i + 1), z0 = STAIR_Z0 + going * i;
+    B.box('concrete', 3.4, 0.9, going + 0.06, 0, top - 0.45, z0 + going / 2, CONC, { ground: top - 0.9, jitter: 0.05, seed: i });
+    world.addBox(0, top - 0.45, z0 + going / 2, 3.4, 0.9, going, { tag, surface: 'concrete' });
+  }
+  for (const s2 of [-1, 1]) {   // cheek walls that rake with the flight, and a pipe handrail
+    for (let i = 0; i < STEPS; i++) {
+      const top = apronY + rise * (i + 1);
+      B.box('concrete', 0.3, 1.2, going + 0.04, s2 * 1.85, top - 0.35, STAIR_Z0 + going * (i + 0.5), [0.46, 0.45, 0.43], { ground: top - 1.2, jitter: 0.05, seed: i + 9 });
+      world.addBox(s2 * 1.85, top - 0.35, STAIR_Z0 + going * (i + 0.5), 0.3, 1.2, going, { tag, surface: 'concrete' });
+    }
+    const a = V3(s2 * 1.85, apronY + 0.95, STAIR_Z0), b = V3(s2 * 1.85, FY + 0.95, STAIR_Z1);
+    const len = Math.hypot(b.y - a.y, b.z - a.z);
+    B.cyl('metal', 0.035, 0.035, len, s2 * 1.85, (a.y + b.y) / 2, (a.z + b.z) / 2, [0.45, 0.45, 0.42], { rx: Math.atan2(b.z - a.z, b.y - a.y), seg: 7 });
+    for (let i = 0; i <= STEPS; i += 2) B.cyl('metal', 0.03, 0.03, 0.95, s2 * 1.85, apronY + rise * i + 0.48, STAIR_Z0 + going * i, [0.45, 0.45, 0.42], { seg: 6 });
+  }
+  // the top tread already lands on FY, so the threshold is only a steel plate: a raised sill box here
+  // would stand 0.01 m too proud for the 0.55 step allowance and wall the door off from the flight.
+  B.box('metal', 1.9, 0.03, 0.5, 0, FY + 0.015, 296.0, [0.32, 0.33, 0.31], { jitter: 0.04 });
   const doorC = [0.30, 0.33, 0.31];
   B.box('metal', 1.55, 2.35, 0.1, 0, FY + 1.17, DOOR_Z, doorC, { jitter: 0.02 });
   B.box('metal', 1.85, 2.65, 0.08, 0, FY + 1.32, DOOR_Z - 0.07, DARK, { jitter: 0.02 });
@@ -245,26 +271,26 @@ export function createBase(ctx) {
   const doorLight = new THREE.PointLight(0xffb070, 0, 26, 1.8); doorLight.position.set(0, FY + 2.45, DOOR_Z - 1.3); scene.add(doorLight); anim.doorLight = doorLight;
 
   // ------------------------------------------------------------------ roof deck furniture
-  for (const [x, z, h] of [[-10.2, 303.4, 1.7], [-10.2, 313.0, 1.3], [11.0, 302.4, 1.6], [12.45, 307.8, 2.4], [3.6, 315.5, 1.4]]) {
+  for (const [x, z, h] of [[-10.2, 303.4, 1.7], [-9.4, 312.6, 1.3], [11.0, 302.4, 1.6], [12.45, 307.8, 2.4], [3.4, 313.2, 1.4]]) {
     B.cyl('metal', 0.2, 0.2, h, x, DECK1 + h / 2, z, [0.28, 0.28, 0.26], { seg: 10 });
     B.cyl('metal', 0.31, 0.31, 0.16, x, DECK1 + h + 0.06, z, [0.28, 0.28, 0.26], { seg: 10 });
   }
-  B.cyl('metal', 1.05, 1.05, 1.9, -11.6, DECK1 + 1.35, 316.4, [0.36, 0.34, 0.30], { seg: 14 });   // water tank
-  for (const s of [-1, 1]) B.box('metal', 0.1, 1.0, 0.1, -11.6 + s * 0.9, DECK1 + 0.4, 316.4, DARK);
+  B.cyl('metal', 1.05, 1.05, 1.9, -12.0, DECK1 + 1.35, 313.2, [0.36, 0.34, 0.30], { seg: 14 });   // water tank
+  for (const s of [-1, 1]) B.box('metal', 0.1, 1.0, 0.1, -12.0 + s * 0.9, DECK1 + 0.4, 313.2, DARK);
   B.cyl('metal', 0.06, 0.09, 7.4, 12.6, DECK1 + 3.7, 308.6, [0.5, 0.5, 0.48], { seg: 8 });        // mast
   for (let i = 0; i < 4; i++) B.box('metal', 1.5, 0.03, 0.03, 12.6, DECK1 + 4.6 + i * 0.55, 308.6, [0.5, 0.5, 0.48]);
   const wires = createWires(ctx);
-  wires.span(V3(12.6, DECK1 + 7.2, 308.6), V3(12.6, DECK1 + 0.2, 312.6), 0.4, 8);
-  wires.span(V3(-11.6, DECK1 + 2.4, 316.4), V3(-13.9, DECK1 + 0.3, 313.0), 0.35, 6);
+  wires.span(V3(12.6, DECK1 + 7.2, 308.6), V3(12.6, DECK1 + 0.2, 310.6), 0.4, 8);
+  wires.span(V3(-12.0, DECK1 + 2.4, 313.2), V3(-13.9, DECK1 + 0.3, 310.6), 0.35, 6);
 
   // ------------------------------------------------------------------ the compound: gate, fence, sandbags
   const sandbags = { mats: [], tints: [] };
   const addBags = (pts, rows) => { const w = sandbagWall(world, pts, rows, rnd, { tag }); sandbags.mats.push(...w.mats); sandbags.tints.push(...w.tints); };
-  for (const s of [-1, 1]) addBags([[s * 2.6, 292.4], [s * 3.8, 295.0], [s * 5.4, 296.3]], 3);
-  addBags([[-8.4, 291.6], [-6.2, 291.0], [-5.4, 292.9]], 4);
-  addBags([[5.6, 292.6], [7.4, 291.8], [8.6, 293.2]], 4);
+  for (const s of [-1, 1]) addBags([[s * 2.6, 292.6], [s * 3.9, 295.0], [s * 5.4, 296.3]], 3);
+  addBags([[-8.4, 289.7], [-6.2, 289.1], [-5.4, 291.0]], 4);
+  addBags([[6.4, 290.7], [8.2, 289.9], [9.4, 291.3]], 4);
   // chainlink line with a vehicle gate on the road; it stops short of the barrel dump to the east
-  const FZ = 290.5, FG = gy(0, FZ);
+  const FZ = 288.6, FG = gy(0, FZ);
   const postAt = (x) => { const y = gy(x, FZ); B.cyl('metal', 0.06, 0.07, 2.5, x, y + 1.25, FZ, [0.36, 0.36, 0.34], { seg: 7 }); world.addCylinder(x, FZ, 0.09, y, y + 2.4, { tag, surface: 'metal' }); };
   const meshPanel = (w, x, y, z, ry) => {
     const g = new THREE.PlaneGeometry(w, 2.1, Math.max(2, Math.round(w)), 3);
@@ -279,24 +305,24 @@ export function createBase(ctx) {
   };
   for (let x = -13; x <= 9.0; x += 2.4) { if (x > -3.9 && x < 3.9) continue; postAt(x); }
   postAt(-3.4); postAt(3.4);
-  for (const [a, b] of [[-13, -3.4], [3.4, 9.0]]) { meshPanel(b - a, (a + b) / 2, gy((a + b) / 2, FZ) + 1.2, FZ, 0); world.addBox((a + b) / 2, FG + 1.2, FZ, b - a, 2.4, 0.16, { tag, surface: 'metal' }); }
+  for (const [a, b] of [[-13, -3.4], [3.4, 9.0]]) { meshPanel(b - a, (a + b) / 2, gy((a + b) / 2, FZ) + 1.02, FZ, 0); world.addBox((a + b) / 2, FG + 1.2, FZ, b - a, 2.4, 0.16, { tag, surface: 'metal' }); }
   // two leaves: one swung back flat against the fence, one standing half across the road
-  meshPanel(3.0, -3.4 + 0.2, FG + 1.2, FZ + 1.48, -1.44);
+  meshPanel(3.0, -3.4 + 0.2, FG + 1.02, FZ + 1.48, -1.44);
   world.addBox(-3.2, FG + 1.2, FZ + 1.48, 0.5, 2.4, 3.0, { tag, surface: 'metal' });
-  meshPanel(3.0, 3.4 - 1.42, FG + 1.2, FZ + 0.34, 0.24);
+  meshPanel(3.0, 3.4 - 1.42, FG + 1.02, FZ + 0.34, 0.24);
   world.addBox(1.98, FG + 1.2, FZ + 0.34, 2.95, 2.4, 0.8, { tag, surface: 'metal' });
   // striped barrier over the road, raised
-  const bpx = -4.4, bpy = gy(bpx, 291.8);
-  B.box('concrete', 0.9, 0.3, 0.9, bpx, bpy + 0.15, 291.8, CONC, { jitter: 0.05 });
-  B.box('metal', 0.32, 1.25, 0.32, bpx, bpy + 0.75, 291.8, STEEL, { ground: bpy, jitter: 0.04 });
-  world.addBox(bpx, bpy + 0.75, 291.8, 0.6, 1.5, 0.6, { tag, surface: 'metal' });
+  const bpx = -4.4, bpz = 289.8, bpy = gy(bpx, bpz);
+  B.box('concrete', 0.9, 0.3, 0.9, bpx, bpy + 0.15, bpz, CONC, { jitter: 0.05 });
+  B.box('metal', 0.32, 1.25, 0.32, bpx, bpy + 0.75, bpz, STEEL, { ground: bpy, jitter: 0.04 });
+  world.addBox(bpx, bpy + 0.75, bpz, 0.6, 1.5, 0.6, { tag, surface: 'metal' });
   const poleG = new THREE.CylinderGeometry(0.05, 0.06, 6.2, 8); poleG.rotateZ(Math.PI / 2); poleG.translate(2.9, 0, 0);
   colorize(poleG, [1, 1, 1], { jitter: 0, fn: (px) => (Math.floor((px + 0.3) / 0.6) % 2 === 0 ? [0.72, 0.12, 0.10] : [0.80, 0.78, 0.72]) });
   normalizeGeo(poleG);
   const barrier = new THREE.Mesh(poleG, material('paint')); barrier.castShadow = true;
-  barrier.position.set(bpx, bpy + 1.35, 291.8); barrier.rotation.set(0, 0, 1.16); scene.add(barrier); anim.barrier = barrier;
+  barrier.position.set(bpx, bpy + 1.35, bpz); barrier.rotation.set(0, 0, 1.16); scene.add(barrier); anim.barrier = barrier;
   // floodlight mast at the gate
-  const fmx = 5.2, fmz = 292.6, fmy = gy(fmx, fmz);
+  const fmx = 5.2, fmz = 290.6, fmy = gy(fmx, fmz);
   B.cyl('concrete', 0.4, 0.5, 0.5, fmx, fmy + 0.2, fmz, CONC, { seg: 10 });
   B.cyl('metal', 0.07, 0.09, 6.2, fmx, fmy + 3.3, fmz, [0.5, 0.5, 0.48], { seg: 8 });
   world.addCylinder(fmx, fmz, 0.16, fmy, fmy + 6.2, { tag, surface: 'metal' });
@@ -707,7 +733,7 @@ export function createBase(ctx) {
   const COR = RM.corridor;
   {
     for (const [a, b] of [[-13.7, -12.05], [-10.25, -0.95], [0.95, 7.0]]) dado('x', COR.z0, a, b, 1);
-    for (const [a, b] of [[-13.7, -12.85], [-11.05, -5.95], [-4.15, 1.35], [3.15, 7.0]]) dado('x', COR.z1, a, b, -1);
+    for (const [a, b] of [[-13.7, -10.15], [-8.35, -2.55], [-0.75, 2.85], [4.65, 7.0]]) dado('x', COR.z1, a, b, -1);
     for (const [z, r] of [[COR.z0 + 0.36, 0.075], [COR.z0 + 0.62, 0.05], [COR.z0 + 0.86, 0.035]])
       Bin.cyl('metal', r, r, 20.9, -3.4, COR.cy - 0.18, z, [0.36, 0.34, 0.30], { rz: Math.PI / 2, seg: 7 });
     for (let i = 0; i < 8; i++) Bin.box('metal', 0.1, 0.06, 0.7, -13.2 + i * 2.7, COR.cy - 0.06, COR.z0 + 0.6, DARK);
@@ -720,7 +746,7 @@ export function createBase(ctx) {
     Bin.box('paint', 0.2, 0.3, 0.14, -4.6, FY + 1.45, COR.z0 + 0.12, [0.20, 0.20, 0.18], { jitter: 0.03 });
     Bin.box('paint', 0.08, 0.24, 0.09, -4.6, FY + 1.62, COR.z0 + 0.2, [0.16, 0.16, 0.15]);
     // painted direction bands
-    for (const [x, w, c] of [[-10.0, 1.5, [0.62, 0.55, 0.24]], [-3.2, 1.5, [0.30, 0.42, 0.56]], [4.6, 1.5, [0.66, 0.62, 0.56]]])
+    for (const [x, w, c] of [[-11.6, 1.5, [0.62, 0.55, 0.24]], [-4.6, 1.5, [0.30, 0.42, 0.56]], [6.0, 1.5, [0.66, 0.62, 0.56]]])
       Bin.box('paint', w, 0.16, 0.03, x, FY + 1.95, COR.z1 - 0.02, c, { jitter: 0.06, noShadow: true });
     Bin.box('metal', 1.1, 0.05, 0.5, 5.6, FY + 1.7, COR.z0 + 0.28, STEEL, { jitter: 0.05 });
     for (let i = 0; i < 4; i++) Bin.box('paint', 0.22, 0.24, 0.16, 5.25 + i * 0.24, FY + 1.85, COR.z0 + 0.28, OLIVE, { jitter: 0.07, seed: i });
@@ -729,79 +755,80 @@ export function createBase(ctx) {
   // ---- BUNK ROOM: two steel bunks, the Explorer's cot, footlockers, a warm bulb.
   const BNK = RM.bunk;
   {
-    dado('x', BNK.z1, -8.0, -1.3, -1); dado('z', BNK.x0, 311.0, 315.4, 1);
+    dado('x', BNK.z1, -3.6, 1.2, -1); dado('z', BNK.x0, 311.1, 314.1, 1);
+    // two berths against the south wall
     for (let b = 0; b < 2; b++) {
-      const bx = BNK.x0 + 0.95, bz = 312.5 + b * 1.95;
+      const bx = BNK.x0 + 1.35 + b * 2.15, bz = BNK.z1 - 0.52;
       for (const [y, i] of [[FY + 0.5, 0], [FY + 1.42, 1]]) {
-        Bin.box('metal', 1.9, 0.05, 0.85, bx, y, bz, [0.30, 0.32, 0.30], { jitter: 0.03, seed: b * 2 + i });
-        Bin.box('canvas', 1.84, 0.13, 0.8, bx, y + 0.09, bz, [0.45, 0.42, 0.34], { jitter: 0.04, seed: b * 2 + i });
-        Bin.box('canvas', 1.5, 0.07, 0.84, bx + 0.15, y + 0.18, bz, [0.30, 0.34, 0.28], { jitter: 0.05, seed: b * 2 + i + 7 });
-        Bin.box('canvas', 0.38, 0.11, 0.52, bx - 0.72, y + 0.19, bz, [0.62, 0.60, 0.54], { ry: 0.1, jitter: 0.04 });
+        Bin.box('metal', 1.9, 0.05, 0.85, bx, y, bz, [0.30, 0.32, 0.30], { ry: Math.PI / 2, jitter: 0.03, seed: b * 2 + i });
+        Bin.box('canvas', 1.84, 0.13, 0.8, bx, y + 0.09, bz, [0.45, 0.42, 0.34], { ry: Math.PI / 2, jitter: 0.04, seed: b * 2 + i });
+        Bin.box('canvas', 1.5, 0.07, 0.84, bx, y + 0.18, bz + 0.12, [0.30, 0.34, 0.28], { ry: Math.PI / 2, jitter: 0.05, seed: b * 2 + i + 7 });
+        Bin.box('canvas', 0.52, 0.11, 0.38, bx, y + 0.19, bz + 0.68, [0.62, 0.60, 0.54], { ry: 0.1, jitter: 0.04 });
       }
-      for (const [a, c] of [[-0.92, -0.4], [0.92, -0.4], [-0.92, 0.4], [0.92, 0.4]]) Bin.box('metal', 0.05, 1.9, 0.05, bx + a, FY + 0.95, bz + c, [0.30, 0.32, 0.30]);
-      world.addBox(bx, FY + 0.4, bz, 1.95, 0.85, 0.9, { tag, surface: 'metal' });
-      // footlocker at the foot of each bunk, with a lid that lifts
-      const fx2 = bx + 1.25, fz2 = bz;
-      Bin.box('plank', 0.55, 0.42, 0.95, fx2, FY + 0.21, fz2, [0.40, 0.35, 0.25], { jitter: 0.05, seed: b });
-      for (const t of [-1, 1]) Bin.box('metal', 0.58, 0.05, 0.05, fx2, FY + 0.21, fz2 + t * 0.42, [0.34, 0.34, 0.32]);
-      world.addBox(fx2, FY + 0.21, fz2, 0.6, 0.44, 1.0, { tag, surface: 'wood' });
-      const lidPivot = new THREE.Group(); lidPivot.position.set(fx2, FY + 0.43, fz2 - 0.47);
-      const lidG = new THREE.BoxGeometry(0.57, 0.05, 0.96); lidG.translate(0, 0, 0.48);
+      for (const [a, c] of [[-0.4, -0.92], [0.4, -0.92], [-0.4, 0.92], [0.4, 0.92]]) Bin.box('metal', 0.05, 1.9, 0.05, bx + a, FY + 0.95, bz + c, [0.30, 0.32, 0.30]);
+      world.addBox(bx, FY + 0.4, bz, 0.9, 0.85, 1.95, { tag, surface: 'metal' });
+      // footlocker at the foot of each berth, with a lid that lifts
+      const fx2 = bx, fz2 = bz - 1.28;
+      Bin.box('plank', 0.95, 0.42, 0.55, fx2, FY + 0.21, fz2, [0.40, 0.35, 0.25], { jitter: 0.05, seed: b });
+      for (const t of [-1, 1]) Bin.box('metal', 0.05, 0.05, 0.58, fx2 + t * 0.42, FY + 0.21, fz2, [0.34, 0.34, 0.32]);
+      world.addBox(fx2, FY + 0.21, fz2, 1.0, 0.44, 0.6, { tag, surface: 'wood' });
+      const lidPivot = new THREE.Group(); lidPivot.position.set(fx2, FY + 0.43, fz2 - 0.27);
+      const lidG = new THREE.BoxGeometry(0.96, 0.05, 0.57); lidG.translate(0, 0, 0.285);
       colorize(lidG, [0.42, 0.37, 0.27], { jitter: 0.05 }); normalizeGeo(lidG);
       lidPivot.add(new THREE.Mesh(lidG, material('plank')));
       scene.add(lidPivot); openables.push({ pivot: lidPivot, open: 0, t: 0, dir: -1.25, axis: 'x' });
       stations['footlocker' + b] = V3(fx2, FY, fz2);
     }
-    // the Explorer's cot against the south wall
-    const cx = -4.4, cz = BNK.z1 - 0.62;
-    Bin.box('metal', 2.0, 0.05, 0.85, cx, FY + 0.44, cz, [0.30, 0.32, 0.30], { jitter: 0.03 });
-    for (const [a, b] of [[-0.95, -0.38], [0.95, -0.38], [-0.95, 0.38], [0.95, 0.38]]) Bin.cyl('metal', 0.022, 0.022, 0.44, cx + a, FY + 0.22, cz + b, [0.30, 0.32, 0.30], { seg: 5 });
-    Bin.box('canvas', 1.94, 0.15, 0.8, cx, FY + 0.54, cz, [0.45, 0.42, 0.34], { jitter: 0.03 });
-    const blanket = new THREE.BoxGeometry(1.6, 0.08, 0.84, 12, 1, 6);
-    { const p = blanket.attributes.position; for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i); if (y > 0) p.setY(i, y + 0.03 * Math.sin(x * 6 + 1) * Math.cos(z * 8) + 0.02 * Math.sin(x * 13)); } blanket.computeVertexNormals(); }
-    Bin.geo('canvas', blanket, placeMatrix(cx + 0.16, FY + 0.66, cz, 0, 0.02, 0), [0.30, 0.34, 0.28], { jitter: 0.03 });
-    Bin.box('canvas', 0.38, 0.11, 0.54, cx - 0.76, FY + 0.67, cz, [0.62, 0.60, 0.54], { ry: 0.1, jitter: 0.03 });
-    world.addBox(cx, FY + 0.32, cz, 2.0, 0.74, 0.88, { tag, surface: 'metal' });
-    for (const s of [0, 0.17]) Bin.box('metal', 0.12, 0.22, 0.3, cx - 0.35 + s, FY + 0.11, cz - 0.66, [0.12, 0.11, 0.10], { ry: s * 2, jitter: 0.04 });
+    // the Explorer's cot along the east wall
+    const cx = BNK.x1 - 0.55, cz = 312.6;
+    Bin.box('metal', 0.85, 0.05, 2.0, cx, FY + 0.44, cz, [0.30, 0.32, 0.30], { jitter: 0.03 });
+    for (const [a, b] of [[-0.38, -0.95], [0.38, -0.95], [-0.38, 0.95], [0.38, 0.95]]) Bin.cyl('metal', 0.022, 0.022, 0.44, cx + a, FY + 0.22, cz + b, [0.30, 0.32, 0.30], { seg: 5 });
+    Bin.box('canvas', 0.8, 0.15, 1.94, cx, FY + 0.54, cz, [0.45, 0.42, 0.34], { jitter: 0.03 });
+    const blanket = new THREE.BoxGeometry(0.84, 0.08, 1.6, 6, 1, 12);
+    { const p = blanket.attributes.position; for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i); if (y > 0) p.setY(i, y + 0.03 * Math.sin(z * 6 + 1) * Math.cos(x * 8) + 0.02 * Math.sin(z * 13)); } blanket.computeVertexNormals(); }
+    Bin.geo('canvas', blanket, placeMatrix(cx, FY + 0.66, cz + 0.16, 0, 0.02, 0), [0.30, 0.34, 0.28], { jitter: 0.03 });
+    Bin.box('canvas', 0.54, 0.11, 0.38, cx, FY + 0.67, cz - 0.76, [0.62, 0.60, 0.54], { ry: 0.1, jitter: 0.03 });
+    world.addBox(cx, FY + 0.32, cz, 0.88, 0.74, 2.0, { tag, surface: 'metal' });
+    for (const s of [0, 0.17]) Bin.box('metal', 0.3, 0.22, 0.12, cx - 0.66, FY + 0.11, cz - 0.35 + s, [0.12, 0.11, 0.10], { ry: s * 2, jitter: 0.04 });
     // a shelf of personal effects and a bulb over the cot
-    Bin.box('plank', 1.5, 0.04, 0.24, cx, FY + 1.5, BNK.z1 - 0.14, [0.42, 0.37, 0.27], { jitter: 0.06 });
-    for (let i = 0; i < 5; i++) Bin.box('paint', 0.14, 0.2, 0.13, cx - 0.55 + i * 0.28, FY + 1.62, BNK.z1 - 0.16, [[0.35, 0.28, 0.22], [0.30, 0.36, 0.32], [0.55, 0.50, 0.40]][i % 3], { ry: (rnd() - 0.5) * 0.4, jitter: 0.07, seed: i });
-    Bin.box('paint', 0.16, 0.2, 0.005, cx + 0.75, FY + 1.85, BNK.z1 - 0.03, [0.80, 0.76, 0.66], { rz: 0.05, noShadow: true });
+    Bin.box('plank', 0.24, 0.04, 1.5, BNK.x1 - 0.14, FY + 1.5, cz, [0.42, 0.37, 0.27], { jitter: 0.06 });
+    for (let i = 0; i < 5; i++) Bin.box('paint', 0.13, 0.2, 0.14, BNK.x1 - 0.16, FY + 1.62, cz - 0.55 + i * 0.28, [[0.35, 0.28, 0.22], [0.30, 0.36, 0.32], [0.55, 0.50, 0.40]][i % 3], { ry: (rnd() - 0.5) * 0.4, jitter: 0.07, seed: i });
+    Bin.box('paint', 0.005, 0.2, 0.16, BNK.x1 - 0.03, FY + 1.85, cz + 0.75, [0.80, 0.76, 0.66], { rx: 0.05, noShadow: true });
     const cordG2 = new THREE.CylinderGeometry(0.006, 0.006, 0.5, 5); cordG2.translate(0, -0.25, 0); colorize(cordG2, [0.1, 0.1, 0.1], { jitter: 0 }); normalizeGeo(cordG2);
-    Bin.geo('metal', cordG2, placeMatrix(cx + 0.2, BNK.cy, cz - 0.2), [0.12, 0.12, 0.12], { jitter: 0 });
+    Bin.geo('metal', cordG2, placeMatrix(cx - 0.2, BNK.cy, cz - 0.2), [0.12, 0.12, 0.12], { jitter: 0 });
     const bunkBulb = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), new THREE.MeshStandardMaterial({ color: 0x2a2418, emissive: 0xffbe86, emissiveIntensity: 2.2, roughness: 0.4 }));
-    bunkBulb.position.set(cx + 0.2, BNK.cy - 0.52, cz - 0.2); scene.add(bunkBulb);
-    // a curtain across the doorway bay and a bucket
-    Bin.box('canvas', 1.4, 1.9, 0.03, -5.05, FY + 1.1, BNK.z0 + 0.05, [0.34, 0.34, 0.28], { ry: 0.06, jitter: 0.07 });
-    Bin.cyl('metal', 0.15, 0.13, 0.3, BNK.x1 - 0.4, FY + 0.15, 311.4, [0.42, 0.42, 0.40], { seg: 12, open: true });
-    Bin.cyl('metal', 0.13, 0.13, 0.01, BNK.x1 - 0.4, FY + 0.005, 311.4, [0.42, 0.42, 0.40], { seg: 12 });
-    Bin.cyl('glass', 0.11, 0.11, 0.01, BNK.x1 - 0.4, FY + 0.22, 311.4, [0.2, 0.22, 0.2], { seg: 12, noShadow: true });
-    Bin.cyl('scorch', 0.5, 0.5, 0.005, BNK.x1 - 0.4, FY + 0.01, 311.4, [1, 1, 1], { seg: 16, noShadow: true });
-    world.addCylinder(BNK.x1 - 0.4, 311.4, 0.17, FY, FY + 0.3, { tag, surface: 'metal' });
+    bunkBulb.position.set(cx - 0.2, BNK.cy - 0.52, cz - 0.2); scene.add(bunkBulb);
+    // a curtain across the doorway bay and a bucket under the drip
+    Bin.box('canvas', 1.4, 1.9, 0.03, -1.65, FY + 1.1, BNK.z0 + 0.05, [0.34, 0.34, 0.28], { ry: 0.06, jitter: 0.07 });
+    const bkx = BNK.x0 + 0.45, bkz = 311.3;
+    Bin.cyl('metal', 0.15, 0.13, 0.3, bkx, FY + 0.15, bkz, [0.42, 0.42, 0.40], { seg: 12, open: true });
+    Bin.cyl('metal', 0.13, 0.13, 0.01, bkx, FY + 0.005, bkz, [0.42, 0.42, 0.40], { seg: 12 });
+    Bin.cyl('glass', 0.11, 0.11, 0.01, bkx, FY + 0.22, bkz, [0.2, 0.22, 0.2], { seg: 12, noShadow: true });
+    Bin.cyl('scorch', 0.5, 0.5, 0.005, bkx, FY + 0.01, bkz, [1, 1, 1], { seg: 16, noShadow: true });
+    world.addCylinder(bkx, bkz, 0.17, FY, FY + 0.3, { tag, surface: 'metal' });
     const drop = new THREE.Mesh(new THREE.SphereGeometry(0.014, 6, 5), new THREE.MeshStandardMaterial({ color: 0xbfd0d8, roughness: 0.1, metalness: 0.3 }));
-    drop.position.set(BNK.x1 - 0.4, BNK.cy, 311.4); drop.visible = false; scene.add(drop); anim.drop = drop;
-    anim.dripAt = V3(BNK.x1 - 0.4, FY + 0.3, 311.4); anim.dripTop = BNK.cy;
-    poster(-6.6, FY + 1.9, BNK.z1 - 0.03, Math.PI, 0.55, 0.8, [0.78, 0.72, 0.62]);
+    drop.position.set(bkx, BNK.cy, bkz); drop.visible = false; scene.add(drop); anim.drop = drop;
+    anim.dripAt = V3(bkx, FY + 0.3, bkz); anim.dripTop = BNK.cy;
+    poster(-2.6, FY + 1.9, BNK.z1 - 0.03, Math.PI, 0.55, 0.8, [0.78, 0.72, 0.62]);
     stations.bed = V3(cx, FY, cz);
   }
 
   // ---- MED CORNER: a gurney, a cabinet, a sink, cold light.
   const MED = RM.med;
   {
-    dado('z', MED.x1, 311.0, 314.2, -1);
-    Bin.box('paint', 6.0, 1.35, 0.03, 2.3, FY + 0.7, MED.z1 - 0.02, [0.74, 0.75, 0.72], { jitter: 0.03, noShadow: true });   // tiled wall
-    const gx2 = 2.4, gz2 = 313.2;
+    dado('z', MED.x0, 311.1, 314.1, 1);
+    Bin.box('paint', 3.4, 1.35, 0.03, 3.6, FY + 0.7, MED.z1 - 0.02, [0.74, 0.75, 0.72], { jitter: 0.03, noShadow: true });   // tiled wall
+    const gx2 = 3.6, gz2 = 313.4;
     Bin.box('metal', 1.9, 0.07, 0.72, gx2, FY + 0.72, gz2, [0.42, 0.44, 0.42], { jitter: 0.03 });
     Bin.box('canvas', 1.84, 0.09, 0.68, gx2, FY + 0.8, gz2, [0.58, 0.57, 0.52], { jitter: 0.03 });
     for (const [a, b] of [[-0.8, -0.28], [0.8, -0.28], [-0.8, 0.28], [0.8, 0.28]]) Bin.cyl('metal', 0.022, 0.022, 0.7, gx2 + a, FY + 0.36, gz2 + b, [0.42, 0.44, 0.42], { seg: 5 });
     for (const a of [-0.82, 0.82]) Bin.geo('metal', new THREE.TorusGeometry(0.03, 0.008, 4, 8), placeMatrix(gx2 + a, FY + 0.08, gz2 + 0.28, Math.PI / 2, 0, 0), [0.2, 0.2, 0.2], { jitter: 0 });
     world.addBox(gx2, FY + 0.4, gz2, 1.95, 0.85, 0.78, { tag, surface: 'metal' });
-    // drip stand
-    Bin.cyl('metal', 0.015, 0.015, 1.7, gx2 - 1.15, FY + 0.85, gz2 - 0.4, [0.6, 0.6, 0.58], { seg: 6 });
+    Bin.cyl('metal', 0.015, 0.015, 1.7, gx2 - 1.15, FY + 0.85, gz2 - 0.4, [0.6, 0.6, 0.58], { seg: 6 });   // drip stand
     Bin.cyl('metal', 0.16, 0.16, 0.02, gx2 - 1.15, FY + 0.02, gz2 - 0.4, [0.5, 0.5, 0.48], { seg: 10 });
     Bin.box('glass', 0.1, 0.2, 0.08, gx2 - 1.15, FY + 1.6, gz2 - 0.4, [0.6, 0.62, 0.58], { noShadow: true });
-    // cabinet with glass doors (a container)
-    const mcx = MED.x1 - 0.32, mcz = 313.2;
+    // cabinet with a glass door (a container)
+    const mcx = MED.x1 - 0.32, mcz = 312.4;
     Bin.box('paint', 0.5, 1.75, 1.35, mcx, FY + 0.88, mcz, [0.74, 0.75, 0.72], { jitter: 0.03 });
     for (let i = 0; i < 3; i++) Bin.box('paint', 0.44, 0.04, 1.25, mcx, FY + 0.45 + i * 0.45, mcz, [0.66, 0.67, 0.64], { jitter: 0.04 });
     for (let i = 0; i < 9; i++) Bin.cyl('glass', 0.045, 0.045, 0.14, mcx - 0.1, FY + 0.55 + (i % 3) * 0.45, mcz - 0.45 + Math.floor(i / 3) * 0.42, [0.7, 0.72, 0.66], { seg: 8, jitter: 0.1, seed: i });
@@ -812,60 +839,59 @@ export function createBase(ctx) {
     mcPivot.add(new THREE.Mesh(mcG, material('glass')));
     scene.add(mcPivot); openables.push({ pivot: mcPivot, open: 0, t: 0, dir: 1.4, axis: 'y' });
     stations.medcab = V3(mcx, FY, mcz);
-    // sink and mirror
-    const skx = MED.x0 + 0.55;
-    Bin.box('paint', 0.6, 0.28, 0.5, skx, FY + 0.78, 311.4, [0.78, 0.79, 0.76], { jitter: 0.03 });
-    Bin.cyl('paint', 0.2, 0.16, 0.1, skx, FY + 0.9, 311.4, [0.7, 0.71, 0.68], { seg: 12, open: true });
-    Bin.cyl('metal', 0.018, 0.018, 0.22, skx - 0.2, FY + 1.02, 311.4, [0.55, 0.55, 0.52], { seg: 6 });
-    Bin.cyl('metal', 0.018, 0.018, 0.16, skx - 0.13, FY + 1.12, 311.4, [0.55, 0.55, 0.52], { rz: Math.PI / 2, seg: 6 });
-    Bin.box('glass', 0.02, 0.5, 0.4, MED.x0 + 0.03, FY + 1.55, 311.4, [0.3, 0.34, 0.34], { noShadow: true });
-    world.addBox(skx, FY + 0.5, 311.4, 0.65, 1.0, 0.55, { tag, surface: 'metal' });
-    Bin.box('paint', 0.03, 0.5, 0.4, MED.x0 + 0.05, FY + 1.55, 313.4, [0.82, 0.80, 0.72], { noShadow: true });
-    fixture(2.3, 312.6, MED.cy - 0.1, 1.3);
+    // sink and mirror on the west wall
+    const skx = MED.x0 + 0.42;
+    Bin.box('paint', 0.5, 0.28, 0.6, skx, FY + 0.78, 311.5, [0.78, 0.79, 0.76], { jitter: 0.03 });
+    Bin.cyl('paint', 0.18, 0.15, 0.1, skx, FY + 0.9, 311.5, [0.7, 0.71, 0.68], { seg: 12, open: true });
+    Bin.cyl('metal', 0.018, 0.018, 0.22, skx - 0.16, FY + 1.02, 311.5, [0.55, 0.55, 0.52], { seg: 6 });
+    Bin.cyl('metal', 0.018, 0.018, 0.16, skx - 0.09, FY + 1.12, 311.5, [0.55, 0.55, 0.52], { rz: Math.PI / 2, seg: 6 });
+    Bin.box('glass', 0.02, 0.5, 0.4, MED.x0 + 0.03, FY + 1.55, 311.5, [0.3, 0.34, 0.34], { noShadow: true });
+    world.addBox(skx, FY + 0.5, 311.5, 0.55, 1.0, 0.65, { tag, surface: 'metal' });
+    Bin.box('paint', 0.03, 0.5, 0.4, MED.x0 + 0.05, FY + 1.55, 313.6, [0.82, 0.80, 0.72], { noShadow: true });
+    fixture(3.6, 312.3, MED.cy - 0.1, 1.3);
   }
 
-  // ---- RANGE: a lane, a rest, target frames on a carriage, an earth backstop.
+  // ---- RANGE: a lane running the width of the outpost, targets on a carriage, an earth backstop.
+  //      The firing point is at the east end by the door; the shot goes west into banked earth.
   const RNG = RM.range;
   {
-    dado('z', RNG.x0, 311.0, 318.8, 1); dado('z', RNG.x1, 311.0, 318.8, -1);
-    for (const z of [312.0, 315.4]) fixture(-11.2, z, RNG.cy - 0.12, 1.4);
-    // firing line: a plank rest on trestles and a bench
-    const flz = 312.4;
-    Bin.box('plank', 3.4, 0.1, 0.55, -12.0, FY + 1.1, flz, [0.42, 0.36, 0.26], { jitter: 0.05 });
-    for (const s of [-1.3, 0, 1.3]) Bin.box('plank', 0.1, 1.05, 0.5, -12.0 + s, FY + 0.55, flz, [0.36, 0.30, 0.22]);
-    world.addBox(-12.0, FY + 0.58, flz, 3.5, 1.15, 0.6, { tag, surface: 'wood' });
-    Bin.box('canvas', 1.0, 0.06, 0.5, -12.9, FY + 1.18, flz, [0.36, 0.36, 0.28], { jitter: 0.06 });
-    Bin.box('paint', 0.34, 0.16, 0.2, -11.0, FY + 1.23, flz, OLIVE, { ry: 0.2, jitter: 0.06 });
-    for (const z2 of [flz - 1.0, flz + 1.0]) Bin.box('metal', 0.04, 0.12, 0.04, RNG.x0 + 0.09, FY + 1.75, z2, [0.3, 0.3, 0.28]);
-    Bin.box('paint', 0.16, 0.18, 0.1, RNG.x0 + 0.16, FY + 1.6, 311.6, [0.20, 0.24, 0.22], { jitter: 0.05 });   // ear defenders on a hook
-    // lane markings
-    for (let i = 0; i < 3; i++) Bin.box('paint', 0.06, 0.004, 5.6, -12.6 + i * 1.4, FY + 0.012, 315.6, [0.62, 0.55, 0.24], { jitter: 0.1, noShadow: true });
-    // spent brass
-    for (let i = 0; i < 26; i++) Bin.cyl('metal', 0.006, 0.006, 0.025, -11.2 + (rnd() - 0.5) * 3.2, FY + 0.01, flz + 0.5 + rnd() * 1.2, [0.52, 0.42, 0.18], { rz: Math.PI / 2, ry: rnd() * 3, seg: 5, jitter: 0.2, seed: i });
-    // backstop: banked earth and a rail of steel plate
-    Bin.box('earth', 5.2, 1.5, 1.5, -11.2, FY + 0.65, RNG.z1 - 0.75, [0.40, 0.36, 0.28], { rx: -0.35, ground: FY, dampH: 1.0, damp: 0.3, jitter: 0.08 });
-    Bin.box('metal', 5.2, 1.4, 0.1, -11.2, FY + 0.9, RNG.z1 - 1.5, [0.28, 0.28, 0.26], { rx: -0.3, jitter: 0.05 });
-    world.addBox(-11.2, FY + 0.75, RNG.z1 - 1.0, 5.3, 1.6, 2.0, { tag, surface: 'metal' });
-    // the target carriage on a rail
-    Bin.cyl('metal', 0.03, 0.03, 6.6, -11.2, RNG.cy - 0.35, 315.4, [0.45, 0.45, 0.42], { rx: Math.PI / 2, seg: 6 });
-    const carriage = new THREE.Group(); carriage.position.set(-11.2, 0, 316.8); scene.add(carriage);
+    dado('x', RNG.z0, -13.6, -4.5, 1); dado('x', RNG.z1, -13.6, -4.5, -1);
+    for (const x of [-11.6, -6.8]) fixture(x, 312.6, RNG.cy - 0.12, 1.4);
+    // firing point: a plank rest on trestles, set across the lane at the east end
+    const flx = -5.5;
+    Bin.box('plank', 0.55, 0.1, 2.0, flx, FY + 1.1, 312.0, [0.42, 0.36, 0.26], { jitter: 0.05 });
+    for (const s of [-0.8, 0, 0.8]) Bin.box('plank', 0.5, 1.05, 0.1, flx, FY + 0.55, 312.0 + s, [0.36, 0.30, 0.22]);
+    world.addBox(flx, FY + 0.58, 312.0, 0.6, 1.15, 2.1, { tag, surface: 'wood' });   // 1.4 m of walking room south of it, so the target line stays reachable
+    Bin.box('canvas', 0.5, 0.06, 1.0, flx, FY + 1.18, 311.4, [0.36, 0.36, 0.28], { jitter: 0.06 });
+    Bin.box('paint', 0.2, 0.16, 0.34, flx, FY + 1.23, 312.8, OLIVE, { ry: 0.2, jitter: 0.06 });
+    for (const x2 of [flx - 0.9, flx + 0.5]) Bin.box('metal', 0.12, 0.12, 0.04, x2, FY + 1.75, RNG.z0 + 0.09, [0.3, 0.3, 0.28]);
+    Bin.box('paint', 0.1, 0.18, 0.16, -4.9, FY + 1.6, RNG.z0 + 0.16, [0.20, 0.24, 0.22], { jitter: 0.05 });   // ear defenders on a hook
+    // lane markings and spent brass
+    for (let i = 0; i < 3; i++) Bin.box('paint', 6.4, 0.004, 0.06, -9.6, FY + 0.012, 311.6 + i * 1.2, [0.62, 0.55, 0.24], { jitter: 0.1, noShadow: true });
+    for (let i = 0; i < 26; i++) Bin.cyl('metal', 0.006, 0.006, 0.025, flx - 0.6 - rnd() * 1.3, FY + 0.01, 312.6 + (rnd() - 0.5) * 2.4, [0.52, 0.42, 0.18], { rz: Math.PI / 2, ry: rnd() * 3, seg: 5, jitter: 0.2, seed: i });
+    // backstop: banked earth and a steel plate against the west wall
+    Bin.box('earth', 1.5, 1.5, 3.4, RNG.x0 + 0.75, FY + 0.65, 312.6, [0.40, 0.36, 0.28], { rz: 0.35, ground: FY, dampH: 1.0, damp: 0.3, jitter: 0.08 });
+    Bin.box('metal', 0.1, 1.4, 3.4, RNG.x0 + 1.5, FY + 0.9, 312.6, [0.28, 0.28, 0.26], { rz: 0.3, jitter: 0.05 });
+    world.addBox(RNG.x0 + 1.0, FY + 0.75, 312.6, 2.0, 1.6, 3.5, { tag, surface: 'metal' });
+    // the target carriage on a rail, run out to the far end or drawn back for a paste-up
+    Bin.cyl('metal', 0.03, 0.03, 7.4, -9.6, RNG.cy - 0.35, 312.6, [0.45, 0.45, 0.42], { rz: Math.PI / 2, seg: 6 });
+    const carriage = new THREE.Group(); carriage.position.set(-12.2, 0, 312.6); scene.add(carriage);
     const frameG = [];
-    for (const s of [-1.35, 0, 1.35]) {
-      const g1 = new THREE.BoxGeometry(0.05, 1.5, 0.05); g1.translate(s - 0.42, FY + 0.75, 0); frameG.push(g1);
-      const g2 = new THREE.BoxGeometry(0.05, 1.5, 0.05); g2.translate(s + 0.42, FY + 0.75, 0); frameG.push(g2);
-      const g3 = new THREE.BoxGeometry(0.92, 0.05, 0.05); g3.translate(s, FY + 1.48, 0); frameG.push(g3);
+    for (const s of [-1.1, 0, 1.1]) {
+      for (const t of [-0.42, 0.42]) { const g1 = new THREE.BoxGeometry(0.05, 1.5, 0.05); g1.translate(0, FY + 0.75, s + t); frameG.push(g1); }
+      const g3 = new THREE.BoxGeometry(0.05, 0.05, 0.92); g3.translate(0, FY + 1.48, s); frameG.push(g3);
     }
     const fm = new THREE.Mesh(mergeAll(frameG.map((g) => { colorize(g, [0.35, 0.36, 0.34], { jitter: 0.05 }); return normalizeGeo(g); })), material('metal'));
     carriage.add(fm);
-    for (const s of [-1.35, 0, 1.35]) {
-      // the faces look back up the lane at the firing line, so they are turned to -z
+    for (const s of [-1.1, 0, 1.1]) {
+      // the faces look back down the lane at the firing point, so they are turned to +x
       const pg = new THREE.PlaneGeometry(0.72, 0.98); colorize(pg, [0.86, 0.84, 0.78], { jitter: 0.03 }); normalizeGeo(pg);
-      const pm = new THREE.Mesh(pg, material('poster')); pm.position.set(s, FY + 0.95, -0.04); pm.rotation.y = Math.PI; carriage.add(pm);
+      const pm = new THREE.Mesh(pg, material('poster')); pm.position.set(0.04, FY + 0.95, s); pm.rotation.y = Math.PI / 2; carriage.add(pm);
       const rg = new THREE.CircleGeometry(0.17, 16); colorize(rg, [0.24, 0.22, 0.20], { jitter: 0 }); normalizeGeo(rg);
-      const rm = new THREE.Mesh(rg, material('poster')); rm.position.set(s, FY + 1.0, -0.05); rm.rotation.y = Math.PI; carriage.add(rm);
+      const rm = new THREE.Mesh(rg, material('poster')); rm.position.set(0.05, FY + 1.0, s); rm.rotation.y = Math.PI / 2; carriage.add(rm);
     }
     anim.carriage = carriage; anim.carriageOut = true;
-    stations.range = V3(-12.0, FY, flz);
+    stations.range = V3(flx, FY, 312.6);
   }
 
   // ------------------------------------------------------------------ lights
@@ -881,10 +907,10 @@ export function createBase(ctx) {
     [3, 0xffc98a, 5.0, 10, WKS.x1 - 1.05, WKS.cy - 1.15, 302.5, 'bench'],
     [4, 0xffb070, 3.6, 10, 11.0, GEN.cy - 0.4, 307.4, 'genset'],
     [5, 0xff9a70, 2.6, 8, 0, RM.entry.cy - 0.3, 298.0, 'entry'],
-    [6, 0xffbe86, 3.0, 9, -4.2, BNK.cy - 0.5, 314.6, 'bunk'],
-    [7, 0xeaf0ea, 3.4, 9, 2.3, MED.cy - 0.3, 312.6, 'med'],
+    [6, 0xffbe86, 3.0, 9, -1.4, BNK.cy - 0.5, 312.8, 'bunk'],
+    [7, 0xeaf0ea, 3.4, 9, 3.6, MED.cy - 0.3, 312.3, 'med'],
     [8, 0xdfe8d6, 3.0, 12, 3.6, HALL.cy - 0.4, 306.4, 'hallB'],
-    [9, 0xd8e0d0, 3.2, 12, -11.2, RNG.cy - 0.3, 313.6, 'range'],
+    [9, 0xd8e0d0, 3.2, 13, -9.2, RNG.cy - 0.3, 312.6, 'range'],
     [10, 0xcfd8cc, 2.0, 11, -6.4, COR.cy - 0.25, 309.6, 'corridor'],
   ];
   const budget = ctx.quality === 'low' ? 5 : ctx.quality === 'medium' ? 8 : 11;
@@ -899,8 +925,8 @@ export function createBase(ctx) {
   Bin.finish(); B.finish();
 
   // ------------------------------------------------------------------ base volume, door, stations, containers
-  world.baseVolume.min.set(-14.4, FY - 0.5, 296.3);   // above the dock lip and the apron: only the bunker floor is inside
-  world.baseVolume.max.set(14.4, FY + 5.4, 321.4);
+  world.baseVolume.min.set(-14.4, FY - 0.5, 296.3);   // above the dock lip and the stair: only the bunker floor is inside
+  world.baseVolume.max.set(14.4, FY + 5.4, 314.8);
   const player = ctx.player;
   const insideDoor = () => player.position.z > DOOR_Z;
   let transition = null;
@@ -968,9 +994,9 @@ export function createBase(ctx) {
   });
   // the range target line
   ctx.interact.register({
-    position: V3(-11.2, FY + 1.2, 312.4), radius: 2.2,
+    position: V3(-4.9, FY + 1.2, 312.6), radius: 2.2,
     prompt: () => (anim.carriageOut ? '[E] TARGET LINE · RUN BACK' : '[E] TARGET LINE · RUN OUT'),
-    onInteract() { anim.carriageOut = !anim.carriageOut; ctx.audio.play('ui_slip', { pos: V3(-11.2, FY + 1.2, 315.0), gain: 0.6 }); },
+    onInteract() { anim.carriageOut = !anim.carriageOut; ctx.audio.play('ui_slip', { pos: V3(-10.0, FY + 1.2, 312.6), gain: 0.6 }); },
   });
 
   // ------------------------------------------------------------------ update
@@ -980,7 +1006,7 @@ export function createBase(ctx) {
   const tmpV = new THREE.Vector3();
   const inside = () => {
     const p = player.position;
-    return p.z > DOOR_Z + 0.05 && p.z < 322 && p.x > -14.6 && p.x < 14.6 && p.y > FY - 2.2 && p.y < FY + 6;
+    return p.z > DOOR_Z + 0.05 && p.z < 315.2 && p.x > -14.6 && p.x < 14.6 && p.y > FY - 1.0 && p.y < FY + 6;
   };
   const setLights = (on) => {
     if (lightsOn === on) return;
@@ -1062,8 +1088,8 @@ export function createBase(ctx) {
       }
       // ---- target carriage
       if (anim.carriage) {
-        const target = anim.carriageOut ? 316.8 : 313.8;
-        anim.carriage.position.z += (target - anim.carriage.position.z) * Math.min(1, dt * 2.2);
+        const target = anim.carriageOut ? -12.2 : -7.6;
+        anim.carriage.position.x += (target - anim.carriage.position.x) * Math.min(1, dt * 2.2);
       }
       if (!here) { if (anim.sirenLight) anim.sirenLight.intensity = 0; return; }
 
