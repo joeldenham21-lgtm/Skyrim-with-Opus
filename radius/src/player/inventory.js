@@ -202,7 +202,17 @@ export function weaponHandling(w) {
     barrel, bolt, frame, dirt, fx: e,
   };
 }
-export function weaponWeight(w) { let kg = weightOf(w.id); for (const id of [...Object.values(w.attachments || {}), ...(w.rails || [])]) kg += weightOf(id); for (const id of Object.values(w.upgrades || {})) kg += UPGRADES[id]?.dw || 0; if (w.mag) kg += magWeight(w.mag); kg += (w.tube?.length || 0) * 0.02; return Math.max(0.1, kg); }
+// Walked once per frame per weapon by the player controller, so it allocates nothing: the spreads and
+// Object.values here built four throwaway arrays per weapon, every frame, for a number that is a sum.
+export function weaponWeight(w) {
+  let kg = weightOf(w.id);
+  const at = w.attachments; if (at) for (const k in at) kg += weightOf(at[k]);
+  const rl = w.rails; if (rl) for (let i = 0; i < rl.length; i++) kg += weightOf(rl[i]);
+  const up = w.upgrades; if (up) for (const k in up) kg += UPGRADES[up[k]]?.dw || 0;
+  if (w.mag) kg += magWeight(w.mag);
+  kg += (w.tube?.length || 0) * 0.02;
+  return Math.max(0.1, kg);
+}
 export const magWeight = (m) => weightOf(m.id) + (m.rounds || 0) * (m.ammo ? weightOf(m.ammo) : 0.012);
 
 export function defaultInventory() {
@@ -216,6 +226,7 @@ export function defaultInventory() {
 
 export function createInventory(ctx) {
   const inv = () => { const d = ctx.state.data; if (!d.inventory || !d.inventory.equipment) d.inventory = defaultInventory(); if (!d.storage) d.storage = { weapons: [], mags: [], gear: [], items: {} }; return d.inventory; };
+  let wFrame = -1, wKg = 0;   // weight() memo, one frame deep
   const emit = (id, delta) => ctx.events.emit('inventoryChanged', { id, delta });
   const api = {
     get data() { return inv(); },
@@ -273,7 +284,18 @@ export function createInventory(ctx) {
     // armour pieces covering the player, for resolveHit
     armorPieces() { const out = []; for (const s of ['helmet', 'vest', 'rig']) { const g = api.equipped(s); if (!g) continue; const d = def(g.id); if (d && (d.cls || d.armor)) out.push({ def: d.cls ? d : { cls: d.armor, zones: ['torso'], durability: 40 }, inst: g, slot: s }); } return out; },
     // ---- weight ----
-    weight() { const d = inv(); let kg = 0; for (const w of d.weapons) kg += weaponWeight(w); for (const m of d.mags) kg += magWeight(m); for (const g of d.gear) kg += weightOf(g.id); for (const [id, n] of Object.entries(d.items)) kg += weightOf(id, n); return kg; },
+    // Memoised per frame, not per event: rounds leave a magazine without any inventoryChanged, so an
+    // event-invalidated cache would keep charging the Explorer for ammo they had already fired. The
+    // controller, the HUD and any open panel all ask for this in the same frame; now only the first walks.
+    weight() {
+      if (wFrame === ctx.frame) return wKg;
+      const d = inv(); let kg = 0;
+      for (const w of d.weapons) kg += weaponWeight(w);
+      for (const m of d.mags) kg += magWeight(m);
+      for (const g of d.gear) kg += weightOf(g.id);
+      const it = d.items; for (const id in it) kg += weightOf(id, it[id]);
+      wFrame = ctx.frame; wKg = kg; return kg;
+    },
     capacity() { const p = api.equippedDef('backpack'); return BASE_CAPACITY + (p?.capacity || 0); },
     overweight() { return Math.max(0, api.weight() - api.capacity()); },
     // ---- money ----

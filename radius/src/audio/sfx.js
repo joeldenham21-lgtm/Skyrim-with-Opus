@@ -187,13 +187,15 @@ const LEVEL = {
   door_open: 0.85, door_close: 0.85, death: 0.95, ui_stamp: 0.8,
   crow: 5, bird: 3, slider_screech: 3, slider_click: 1.8, slider_death: 2.2, slider_lunge: 1.8, slider_step: 1.8, mimic_radio: 2.2, mimic_skip: 3,
   spawn_skitter: 3, spawn_death: 1.6, spawn_bite: 1.4, seeker_hiss: 1.4, reflector_whip: 1.3, bullet_whiz: 1.4, impact_concrete: 1.3, drip: 1.4, gas_cough: 2.5,
-  phantom_hiss: 1.5, phantom_scream: 0.9, phantom_grab: 1.1,
-  armor_hit: 1.1, armor_pen: 1.2, helmet_ring: 1.0, ricochet: 2.2, thunder: 1.4,
+  phantom_hiss: 1.5, phantom_scream: 1.25, phantom_grab: 0.9,
+  armor_hit: 0.75, armor_pen: 0.8, helmet_ring: 0.68, ricochet: 2.2, thunder: 1.0,
   ads_in: 4, ads_out: 3.8, click: 4.5, jump: 3.2, ui_slip: 3, ui_click: 1.8, ui_open: 1.3, hurt: 1.3,
   mag_load_round: 3, probe_throw: 3, probe_land: 2, weapon_holster: 2.8, weapon_draw: 2.2, pickup_item: 3, pickup_ammo: 2.2, reload_magout: 2.6,
   bandage_use: 2.5, medkit_use: 1.6, stim_use: 1.3, step_grass: 2, dry_click: 1.8, bolt_open: 2, shell_insert: 1.5, break_open: 1.5, unjam: 1.5,
   container_open: 1.5, artifact_pickup: 1.6, step_road: 1.5, step_concrete: 1.4,
   wind: 1.6, drizzle: 1.5, fragment_chime: 0.8, breath: 1.8,
+  // The eight above were calibrated the same way, against shot_pm's 0.70 peak on the master bus: an
+  // armour plate has no business being louder than the rifle whose round it just stopped.
 };
 
 export function registerSfx(audio) {

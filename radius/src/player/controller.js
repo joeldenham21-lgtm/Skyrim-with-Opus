@@ -70,7 +70,13 @@ export function createPlayer(ctx) {
       const world = ctx.world;
       // ---- look ----
       if (!dead) {
-        const sens = 0.0021 * (state.data.settings.sensitivity || 1) * (ctx.weapons?.adsBlend ? lerp(1, 0.6, ctx.weapons.adsBlend) : 1);
+        // weapons.lookScale is the view's actual narrowing (current fov / settings fov) and nothing had
+        // ever read it, so a 4x PSO was exactly as twitchy as a red dot — both got the same flat 0.6.
+        // Take whichever damps more: irons and collimators keep the 0.6 they have always had, and a
+        // magnified optic slows the mouse by its real magnification.
+        const ads = ctx.weapons?.adsBlend || 0;
+        const zoomK = ctx.weapons?.lookScale ?? 1;
+        const sens = 0.0021 * (state.data.settings.sensitivity || 1) * (ads ? Math.min(lerp(1, 0.6, ads), zoomK) : 1);
         yaw -= input.dx * sens; pitch -= input.dy * sens;
       }
       // recoil: kick then spring back
