@@ -41,6 +41,13 @@ export function createPerf(ctx) {
   const S = () => ctx.state.data.settings;
   const steps = [1.0, 0.9, 0.8, 0.7, 0.62, 0.55, 0.5];
   let stepIdx = 0, ema = 1000 / 60, since = 0, cool = 0, lastApplied = -1;
+  // Work time (simulate + issue the frame) and the presented interval are different measurements.
+  // The old governor fed the presented interval into `ema` and compared it against a 10 ms budget,
+  // but that interval INCLUDES the vsync wait: on a 60 Hz display it sits at ~16.7 ms however idle
+  // the GPU is, so it stepped down every 0.75 s to the 0.5 floor and could never recover, because
+  // the recovery test (< 8 ms) is unreachable when frames are quantised to 16.7 ms.
+  let refreshMs = 1000 / 60;   // learned from the fastest frames seen: a frame cannot beat vsync
+  let presentEma = 1000 / 60;
   const fxaa = new ShaderPass(FXAAShader);
   const cas = new ShaderPass(CASShader);
   let overlay = null;
@@ -76,16 +83,27 @@ export function createPerf(ctx) {
     },
     setScale(s) { api.scale = Math.max(0.5, Math.min(1, s)); stepIdx = steps.findIndex((v) => v <= api.scale + 1e-6); if (stepIdx < 0) stepIdx = steps.length - 1; api.applyScale(); },
     toggleOverlay() { if (!overlay) { overlay = document.createElement('div'); overlay.id = 'perf'; overlay.style.cssText = 'position:fixed;left:10px;top:10px;z-index:50;font:11px/1.5 IBM Plex Mono,monospace;color:#e0a458;background:rgba(0,0,0,.55);padding:6px 8px;pointer-events:none;white-space:pre'; document.body.appendChild(overlay); } else { overlay.remove(); overlay = null; } },
-    update(dt, rawMs) {
+    update(dt, rawMs, workMs) {
       const s = S();
-      const target = s.targetFps || 100;
-      const budget = 1000 / target;
-      ema = ema * 0.9 + rawMs * 0.1;
+      // The display cannot present faster than its refresh, so the minimum interval observed is the
+      // cadence rather than a measure of load. Track it and never ask for a budget shorter than it.
+      if (rawMs > 1 && rawMs < 200) refreshMs = Math.min(refreshMs, rawMs);
+      const target = s.targetFps || 60;
+      const budget = Math.max(1000 / target, refreshMs);
+      // Prefer measured frame work; fall back to the presented interval if main.js did not pass it.
+      const work = Number.isFinite(workMs) && workMs > 0 ? workMs : rawMs;
+      ema = ema * 0.9 + work * 0.1;
+      presentEma = presentEma * 0.9 + rawMs * 0.1;
       const maxScale = s.resolutionScale ?? 1;
       if (s.dynamicResolution !== false) {
         cool -= dt;
-        if (ema > budget * 1.08 && cool <= 0 && stepIdx < steps.length - 1) { stepIdx++; cool = 0.75; since = 0; }
-        else if (ema < budget * 0.8) { since += dt; if (since > 2.0 && stepIdx > 0 && cool <= 0) { stepIdx--; cool = 1.0; since = 0; } }
+        // Overloaded when the work itself approaches the budget, or when frames are visibly being
+        // missed (the presented interval running well past a single refresh). Comfortable needs
+        // both: cheap frames AND a presentation cadence that is keeping up.
+        const overloaded = ema > budget * 0.9 || presentEma > refreshMs * 1.6;
+        const comfortable = ema < budget * 0.55 && presentEma < refreshMs * 1.25;
+        if (overloaded && cool <= 0 && stepIdx < steps.length - 1) { stepIdx++; cool = 0.75; since = 0; }
+        else if (comfortable) { since += dt; if (since > 2.0 && stepIdx > 0 && cool <= 0) { stepIdx--; cool = 1.0; since = 0; } }
         else since = 0;
       } else stepIdx = 0;
       const want = Math.min(maxScale, steps[stepIdx]);
@@ -94,7 +112,7 @@ export function createPerf(ctx) {
       if (api.scale !== lastApplied) api.applyScale();
       if (overlay) {
         const info = ctx.renderer.info; const { w, h, full } = api.internalSize();
-        overlay.textContent = `${(1000 / ema).toFixed(0)} fps  ${ema.toFixed(1)} ms  target ${target}\nrender ${w}×${h} of ${full.x}×${full.y}  scale ${api.scale.toFixed(2)}\ncalls ${info.render.calls}  tris ${(info.render.triangles / 1000).toFixed(0)}k  ent ${ctx.enemies?.list.length ?? 0}\nquality ${s.quality}`;
+        overlay.textContent = `${(1000 / presentEma).toFixed(0)} fps  work ${ema.toFixed(1)} ms  refresh ${refreshMs.toFixed(1)} ms  budget ${budget.toFixed(1)} ms\nrender ${w}×${h} of ${full.x}×${full.y}  scale ${api.scale.toFixed(2)}\ncalls ${info.render.calls}  tris ${(info.render.triangles / 1000).toFixed(0)}k  ent ${ctx.enemies?.list.length ?? 0}\nquality ${s.quality}`;
       }
     },
   };

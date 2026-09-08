@@ -240,6 +240,10 @@ const game = {
 ctx.game = game;
 
 let last = performance.now(), fpsAcc = 0, fpsN = 0, fps = 0, lastReal = performance.now();
+// Time actually spent simulating and issuing a frame, excluding the vsync wait. perf.update runs
+// before post.render, so it is handed the previous frame's figure — one frame of lag, which is
+// irrelevant next to the governor's 0.75 s cooldown, and far better than timing the vsync block.
+let workMs = 1000 / 60;
 const errs = new Map();
 function step(name, fn) {
   try { fn(); } catch (e) {
@@ -287,9 +291,10 @@ function loop(now) {
     step('vfx', () => ctx.vfx.update(dt, t)); step('post', () => ctx.post.update(dt, t)); step('audio', () => ctx.audio.update(dt));
     step('hud', () => ctx.hud.update(dt)); step('music', () => ctx.music.update(dt)); step('ambience', () => ctx.ambience.update(dt)); step('menus', () => ctx.menus.update(dt)); step('panels', () => ctx.panels.update(dt)); step('touch', () => ctx.touch.update(dt));
     step('materials', () => ctx.materials.update?.(dt, t));
-    step('perf', () => ctx.perf.update(dt, rawMs));
+    step('perf', () => ctx.perf.update(dt, rawMs, workMs));
     ctx.renderer.info.reset();
     ctx.post.render();
+    workMs = performance.now() - now;
   } catch (e) {
     // log each distinct error once so a broken module is visible in smoke tests without flooding the console
     ctx._errors = ctx._errors || new Set();
