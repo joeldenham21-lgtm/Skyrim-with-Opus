@@ -18,7 +18,7 @@ export const GEAR_CURVE = {
   spares: [-1, 2],          // added to the class `mags` count
   grenade: [0.3, 1.6],      // multiplier on the class grenade chance
   attach: [0.3, 1.5],       // multiplier on every attachment chance
-  optic: 0.62,              // above this progress a class that owns optics is certain to have one fitted
+  optic: 0.62,              // above this progress a class reaches for glass; the more it lists, the surer it is
   ammo: [0.0, 0.7],         // chance of reaching for the better round
   condition: [[25, 55], [55, 96]],      // weapon condition band, percent
   dirt: [[0.25, 0.7], [0.05, 0.35]],
@@ -51,7 +51,7 @@ export const DROPS = {
 export const MIMIC_CLASSES = {
   recruit: {
     name: 'Mimic', hp: 80, accuracy: 1.25, bare: 1.4, mags: 2, grenades: 0.05,
-    weapons: ['pm', 'tt', 'toz', 'obrez', 'sks', 'mosin', 'ppsh', 'kedr', 'akm'],
+    weapons: ['pm', 'tt', 'toz', 'obrez', 'sks', 'ppsh', 'kedr', 'akm'],
     armor: ['vest_paca', 'vest_6b2'], helmet: ['helm_ssh68'], kit: ['rig_belt', 'pack_tortilla'],
     attachments: { light_klesch: 0.08 },
     drops: ['bandage', 'cigarettes', 'bread', 'probe', 'water'],

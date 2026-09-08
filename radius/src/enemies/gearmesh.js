@@ -324,13 +324,14 @@ function ribbon(B, pts, w, t, up = [0, 1, 0]) {
       [P.x + Sd.x * hw - N.x * ht, P.y + Sd.y * hw - N.y * ht, P.z + Sd.z * hw - N.z * ht],
     ]);
   }
+  // ring corners run +side+up, -side+up, -side-up, +side-up; this winding puts the outward face out
   for (let i = 0; i < n - 1; i++) for (let k = 0; k < 4; k++) {
     const k2 = (k + 1) % 4;
-    B.quad(rings[i][k], rings[i][k2], rings[i + 1][k2], rings[i + 1][k]);
+    B.quad(rings[i][k], rings[i + 1][k], rings[i + 1][k2], rings[i][k2]);
   }
-  B.quad(rings[0][3], rings[0][2], rings[0][1], rings[0][0]);
-  const L = rings[n - 1];
-  B.quad(L[0], L[1], L[2], L[3]);
+  const F = rings[0], L = rings[n - 1];
+  B.quad(F[0], F[1], F[2], F[3]);
+  B.quad(L[3], L[2], L[1], L[0]);
   return B;
 }
 // a quadratic path sampler for ribbons
@@ -496,16 +497,16 @@ function buildVestGeo(id) {
     const gh = 0.13 * sp.groin;
     band(B, { y0: yBot - gh, y1: yBot + 0.012, a0: -0.62, a1: 0.62, t: t * 0.7, seg: 6, rows: 2, out: off + 0.004, sag: 0.012, jit: sp.jit, seed: 71 });
   }
-  // ---- shoulder pads for the vests that cover 'arms' ----
+  // ---- shoulder pads for the vests that cover 'arms'. The deltoid is 29 cm across, so these ride on their own
+  // wider ellipse: on a torso-radius band they would vanish inside the arm. ----
   if (sp.arms > 0 || zones.includes('arms')) {
     const k = sp.arms || 1;
-    B.tint(F.shell2, S.fabricStiff);
     for (const sgn of [1, -1]) {
-      const ac = sgn * 1.30;
-      band(B, { y0: yTop - 0.10 * k, y1: yTop + 0.055, a0: ac - 0.34, a1: ac + 0.34, t: 0.030 * k, seg: 5, rows: 2, out: off + 0.014, bulge: 0.010, jit: 0.004, seed: 80 + sgn });
-      B.tint(F.plate, S.plate);
-      band(B, { y0: yTop - 0.085 * k, y1: yTop + 0.030, a0: ac - 0.24, a1: ac + 0.24, t: 0.010, seg: 4, rows: 2, out: off + 0.044 * k, bulge: 0.005, seed: 88 + sgn });
+      const ac = sgn * 1.52;
       B.tint(F.shell2, S.fabricStiff);
+      band(B, { y0: yTop - 0.135 * k, y1: yTop + 0.040, a0: ac - 0.36, a1: ac + 0.36, t: 0.028 * k, seg: 5, rows: 3, out: 0.010, bulge: 0.010, jit: 0.004, rx: 0.250, rz: 0.165, sag: 0.010, seed: 80 + sgn });
+      B.tint(F.plate, S.plate);
+      band(B, { y0: yTop - 0.115 * k, y1: yTop + 0.020, a0: ac - 0.25, a1: ac + 0.25, t: 0.009, seg: 4, rows: 3, out: 0.010 + 0.028 * k + 0.002, bulge: 0.005, rx: 0.250, rz: 0.165, seed: 88 + sgn });
     }
   }
 
@@ -737,10 +738,7 @@ function buildHelmetGeo(id) {
     // the glass itself, on its own material so the face blot burns through it
     G.tint(0x141a1d, S.plate);
     const gTop = ring(vy1 - 0.012, 0.0), gBot = ring(vy0 + 0.010, 0.0);
-    for (let i = 0; i < seg; i++) {
-      G.quad(gTop[i], gBot[i], gBot[i + 1], gTop[i + 1]);
-      G.quad(gTop[i + 1], gBot[i + 1], gBot[i], gTop[i]);
-    }
+    for (let i = 0; i < seg; i++) G.quad(gTop[i], gTop[i + 1], gBot[i + 1], gBot[i]);
   }
   return { shell: B.finish(), glass: G.empty ? null : G.finish() };
 }
@@ -780,7 +778,7 @@ function buildRigGeo(id) {
     const n = r === rows - 1 ? sp.mags - perRow * r : perRow;
     const y1 = sp.y + (rows === 1 ? sp.h : (r === 0 ? sp.h + 0.055 : sp.h - 0.075));
     const y0 = y1 - sp.h;
-    const spread = n <= 2 ? 0.40 : n <= 3 ? 0.60 : 0.86;
+    const spread = n <= 2 ? 0.40 : n <= 3 ? 0.58 : 0.74;   // wider than this and the outer pouch sits where the arm swings
     for (let i = 0; i < n; i++) {
       const a = n === 1 ? 0 : lerp(-spread, spread, i / (n - 1));
       B.tint(F.pouch, S.fabricStiff);
@@ -864,8 +862,8 @@ function buildPackGeo(id) {
   // a bedroll strapped under the lid
   if (sp.roll) {
     B.tint(F.cover, S.fabricStiff);
-    const g = new THREE.CylinderGeometry(0.050, 0.050, sp.w * 0.86, 10, 1); g.rotateZ(HALF_PI);
-    B.geo(g, new THREE.Matrix4().makeTranslation(0, sp.y - sp.h * 0.42, zc + sp.d / 2 + 0.030));
+    const g = new THREE.CylinderGeometry(0.042, 0.042, sp.w * 0.86, 10, 1); g.rotateZ(HALF_PI);
+    B.geo(g, new THREE.Matrix4().makeTranslation(0, sp.y - sp.h * 0.42, zc + sp.d / 2 + 0.024));
   }
   // compression straps across the back of the pack
   B.tint(F.strap, S.webbing);
@@ -934,7 +932,7 @@ function buildMaskGeo(id) {
       rim.rotateX(HALF_PI);
       B.geo(rim, new THREE.Matrix4().makeTranslation(SKULL.cx + x, eyeY, z - 0.004));
       G.tint(0x1a2226, S.plate);
-      const disc = new THREE.CircleGeometry(twin ? 0.030 : 0.060, 12);
+      const disc = new THREE.CircleGeometry(twin ? 0.030 : 0.060, 12); disc.rotateY(Math.PI);
       G.geo(disc, new THREE.Matrix4().makeTranslation(SKULL.cx + x, eyeY, z - 0.008));
     }
   }
@@ -982,7 +980,8 @@ function buildHeadgearGeo(id) {
     const bez = new THREE.CylinderGeometry(sp.lens + 0.004, sp.lens + 0.002, 0.012, 12, 1, true); bez.rotateX(HALF_PI);
     B.geo(bez, new THREE.Matrix4().makeTranslation(SKULL.cx, browY, browZ - 0.032));
     G.tint(0x2a2c22, S.plate);
-    G.geo(new THREE.CircleGeometry(sp.lens, 12), new THREE.Matrix4().makeTranslation(SKULL.cx, browY, browZ - 0.037));
+    const lens = new THREE.CircleGeometry(sp.lens, 12); lens.rotateY(Math.PI);
+    G.geo(lens, new THREE.Matrix4().makeTranslation(SKULL.cx, browY, browZ - 0.037));
   } else {
     // the bracket, then the tubes on it
     B.tint(F.hard, S.plate);
@@ -996,7 +995,8 @@ function buildHeadgearGeo(id) {
       const ring = new THREE.CylinderGeometry(sp.r * 1.16, sp.r * 1.10, 0.010, 12, 1, true); ring.rotateX(HALF_PI);
       B.geo(ring, new THREE.Matrix4().makeTranslation(x, SKULL.cy + 0.018, browZ - 0.030 - sp.len));
       G.tint(0x101a14, S.plate);
-      G.geo(new THREE.CircleGeometry(sp.r * 0.94, 12), new THREE.Matrix4().makeTranslation(x, SKULL.cy + 0.018, browZ - 0.032 - sp.len));
+      const obj = new THREE.CircleGeometry(sp.r * 0.94, 12); obj.rotateY(Math.PI);
+      G.geo(obj, new THREE.Matrix4().makeTranslation(x, SKULL.cy + 0.018, browZ - 0.032 - sp.len));
     }
     // the battery pack on the back of the strap: the reason a mimic keeps walking into the dark
     if (sp.bulk > 0.8) {
@@ -1012,7 +1012,19 @@ function buildHeadgearGeo(id) {
 // squad of eight in matching 6B23s costs eight Object3Ds and no new GPU memory.
 // =====================================================================================================
 const CACHE = new Map();
+// main.js is not ours to edit, so the builders publish themselves on the debug handle the first time anything
+// asks for a piece (by then window.__radius exists). Tools and any module that needs a piece before ctx is
+// threaded through can reach them at ctx-free `window.__radius.gearmesh`.
+let published = false;
+function publish() {
+  if (published) return;
+  const r = typeof globalThis !== 'undefined' ? globalThis.__radius : null;
+  if (!r) return;
+  published = true;
+  if (!r.gearmesh) r.gearmesh = { buildVest, buildHelmet, buildPack, buildRig, buildMask, buildHeadgear, buildGear, gearBone, setGearGrime, gearMaterial };
+}
 function assemble(key, build) {
+  publish();
   if (!CACHE.has(key)) {
     let g = null;
     try {

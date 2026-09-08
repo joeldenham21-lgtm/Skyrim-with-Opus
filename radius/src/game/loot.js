@@ -480,10 +480,10 @@ export function createLoot(ctx) {
     return { kind: 'item', id: d.id, count: clamp(n, 1, d.stack || 1) };
   }
   // the whole contents of one container, rolled from its seed so it is the same every time it is looked at
-  function rollContents(kind, tier, rnd) {
+  function rollContents(kind, tier, rnd, keptShut = false) {
     const c = CONTAINERS[kind];
     if (!c) return [];
-    if (c.empty && rnd() < c.empty) return [];
+    if (c.empty && !keptShut && rnd() < c.empty) return [];   // a lock means somebody thought it was worth locking
     const n = Math.round(c.rolls[0] + (c.rolls[1] - c.rolls[0]) * rnd());
     const out = [];
     for (let i = 0; i < n; i++) {
@@ -561,12 +561,13 @@ export function createLoot(ctx) {
     const o = {
       type: 'container', root, lid: hinge, openAngle: g.open, axis: g.axis || 'x', mats: [mat], kind, cont: kind, cull: g.cull,
       x: root.position.x, z: root.position.z, t: -1, unregister: null, pile: null, seen: false, emptied: false, opened: false,
-      locked: !!(c.locked && rnd() < c.locked), pickable: null,
+      locked: false, wasLocked: false, pickable: null,
       tier: tierOf(poi ? poi.kind : 'field'),
       name: c.name.toUpperCase() + (poi ? ' · ' + poi.name.toUpperCase() : ' · FIELD'),
       seed: (Math.round(spot.position.x * 7) * 131 + Math.round(spot.position.z * 7) * 17 + D().tideLevel * 977) >>> 0,
       keep: null,
     };
+    o.wasLocked = o.locked = !!(c.locked && rnd() < c.locked);
     registerContainer(o);
     objects.push(o);
     return o;
@@ -574,7 +575,7 @@ export function createLoot(ctx) {
   function ensureContents(o) {
     if (o.pile) return o.pile;
     const rr = mulberry32(o.seed);
-    let entries = rollContents(o.cont, o.tier, rr);
+    let entries = rollContents(o.cont, o.tier, rr, o.wasLocked);
     if (Array.isArray(o.keep)) { const keep = new Set(o.keep); entries = entries.filter((e) => keep.has(e.slot)); }
     o.pile = { name: o.name, entries, onChange: () => persist(o) };
     return o.pile;
@@ -675,8 +676,8 @@ export function createLoot(ctx) {
     });
     objects.push(o);
     // the zone does not keep every body: past the cap the oldest emptied pile goes first
-    let piles = objects.filter((p) => p.type === 'pile');
-    while (piles.length > MAX_PILES) {
+    let piles = objects.filter((p) => p.type === 'pile' && p !== o);
+    while (piles.length >= MAX_PILES) {
       piles.sort((a, b) => (a.emptied === b.emptied ? a.seq - b.seq : a.emptied ? -1 : 1));
       const old = piles.shift();
       disposeObject(old); const i = objects.indexOf(old); if (i >= 0) objects.splice(i, 1);
@@ -818,7 +819,7 @@ export function createLoot(ctx) {
     dropItem,
     tierAt(poiKind) { return tierOf(poiKind); },
   };
-  ctx.events.on('gameStart', () => { const f = D().flags; if (!Array.isArray(f.lootOpened)) f.lootOpened = []; f.lootLeft = {}; api.populate(); });
+  ctx.events.on('gameStart', () => { const f = D().flags; if (!Array.isArray(f.lootOpened)) f.lootOpened = []; if (!f.lootLeft || typeof f.lootLeft !== 'object') f.lootLeft = {}; api.populate(); });
   // the Tide rearranges the zone: opened containers, half-searched crates and every body on the ground go with it
   ctx.events.on('tide', () => { const f = D().flags; f.lootOpened = []; f.lootLeft = {}; api.populate(); });
   return api;

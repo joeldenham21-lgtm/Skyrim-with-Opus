@@ -85,8 +85,8 @@ function rollAttachments(weapon, table, p) {
     return attach(weapon, id);
   };
   for (const [id, chance] of entries) { if (rnd() < chance * mult) fitOne(id); }
-  if (p >= CURVE.optic && !weapon.attachments.top) {
-    const glass = Object.keys(table).filter((id) => def(id)?.slot === 'top');
+  const glass = Object.keys(table).filter((id) => def(id)?.slot === 'top');
+  if (p >= CURVE.optic && !weapon.attachments.top && rnd() < Math.min(0.9, 0.3 + 0.16 * glass.length)) {
     for (let i = 0; i < 3 && !weapon.attachments.top && glass.length; i++) {
       const id = gradedPick(glass, p); if (!id) break;
       if (!fitOne(id)) { const k = glass.indexOf(id); if (k >= 0) glass.splice(k, 1); }
@@ -113,7 +113,7 @@ export function rollLoadout(className = 'regular', tide = zone.tide, opts = {}) 
   const mags = [];
   let loose = 0;
   const want = Math.max(0, (c.mags || 2) + Math.round(lerp(CURVE.spares[0], CURVE.spares[1], p)));
-  const spare = Math.min(6, Math.max(wdef.defaultMag && !wdef.clip ? 0 : 1, int(Math.max(0, want - 1), want)));
+  const spare = Math.min(5, Math.max(wdef.defaultMag && !wdef.clip ? 0 : 1, int(Math.max(0, want - 1), want)));
   if (wdef.defaultMag && !wdef.clip) {
     const cap = MAGAZINES[wdef.defaultMag].cap;
     for (let i = 0; i < spare; i++) mags.push(makeMag(wdef.defaultMag, ammoId, Math.max(1, Math.round(cap * band(CURVE.magFill, p)))));
