@@ -3,6 +3,8 @@
 import { resolveHit, zoneFromHit, def } from '../data/index.js';
 import { clamp01 } from '../core/math.js';
 
+const QUICK_SOUND = { bandage: 'bandage_use', hemostat: 'bandage_use', medkit: 'medkit_use', medkit_ai2: 'medkit_use', stim: 'stim_use', adrenaline: 'stim_use', morphine: 'stim_use', energy: 'stim_use' };
+
 export function createDamage(ctx) {
   const st = { painkiller: 0, steady: 0, speedT: 0, speedMul: 1, staminaRegenT: 0, staminaRegenMul: 1, healQueue: [] };
   const api = {
@@ -47,11 +49,38 @@ export function createDamage(ctx) {
       ctx.events.emit('itemUsed', itemId);
       return true;
     },
+    /**
+     * Use whatever sits in quick slot n (keys 6..9). The inventory panel has always let you bind an
+     * item here and tells you "on key 6", and the HUD has always had a bar to draw them in — but
+     * nothing ever read the keys or filled the bar, so the binding did nothing. A new explorer
+     * starts with a bandage on key 6, which is the difference between noticing you are bleeding and
+     * dying of it five minutes later.
+     */
+    quickUse(n) {
+      const inv = ctx.inventory;
+      const id = inv.quick?.[n];
+      if (!id) return false;
+      const d = def(id);
+      if (!d) return false;
+      if (!inv.has(id, 1)) { ctx.hud?.notify?.(`No ${d.name.toLowerCase()} left.`, { ms: 2200 }); return false; }
+      if (api.use(id) === false) return false;
+      inv.remove(id, 1);
+      if (d.use) ctx.player.lockMovement?.(d.use);
+      ctx.audio?.play?.(QUICK_SOUND[id] || 'pickup_item', { gain: 0.7 });
+      ctx.hud?.notify?.(`${d.name} used.`, { ms: 2200 });
+      return true;
+    },
     get speedMul() { return st.speedT > 0 ? st.speedMul : 1; },
     get staminaRegenMul() { return st.staminaRegenT > 0 ? st.staminaRegenMul : 1; },
     get steadyMul() { return st.steady > 0 ? 0.6 : 1; },      // spread/sway multiplier
     get painkiller() { return st.painkiller > 0; },
     update(dt) {
+      // quick slots 6..9
+      if (ctx.mode === 'playing' && !ctx.panels?.isOpen) {
+        for (let n = 0; n < 4; n++) if (ctx.input.pressed('quick' + (n + 1))) { api.quickUse(n); break; }
+      }
+      const q = ctx.inventory.quick;
+      if (q) ctx.hud?.setQuick?.(q.map((id) => { const d = id && def(id); return d ? { id, name: d.name, count: ctx.inventory.count(id) } : null; }));
       st.painkiller = Math.max(0, st.painkiller - dt); st.steady = Math.max(0, st.steady - dt); st.speedT = Math.max(0, st.speedT - dt); st.staminaRegenT = Math.max(0, st.staminaRegenT - dt);
       for (let i = st.healQueue.length - 1; i >= 0; i--) { const h = st.healQueue[i]; const step = Math.min(h.left, (h.total / h.dur) * dt); if (step > 0) ctx.player.heal(step); h.left -= step; if (h.left <= 0.001) st.healQueue.splice(i, 1); }
     },

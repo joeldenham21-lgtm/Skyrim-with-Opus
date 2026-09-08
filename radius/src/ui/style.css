@@ -226,3 +226,4 @@ body.portrait #rotate { display: flex; }
   .title-card h1.big { font-size: 40px; }
   .title-card .ctl-list { display: none; }
 }
+#touch .b-meds { left: calc(174px * var(--touch-scale) + var(--safe-l)); bottom: calc(112px * var(--touch-scale) + var(--safe-b)); width: calc(52px * var(--touch-scale)); height: calc(52px * var(--touch-scale)); font-size: calc(9px * var(--touch-scale)); border-color: rgba(162, 59, 42, 0.5); }

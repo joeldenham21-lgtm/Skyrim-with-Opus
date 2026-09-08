@@ -24,6 +24,7 @@ const PADS = [
   ['flashlight', 'TORCH', 'b-torch'],
   ['probe', 'PROBE', 'b-probe'],
   ['loadMag', 'LOAD', 'b-loadmag'],
+  ['quick1', 'MEDS', 'b-meds'],   // quick slot 6: a bandage by default, and the answer to bleeding
 ];
 // The top strip: screens and weapon selection, smaller and out of the way of the thumbs.
 const TABS = [

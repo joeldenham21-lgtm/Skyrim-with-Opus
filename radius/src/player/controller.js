@@ -19,7 +19,7 @@ export function createPlayer(ctx) {
   let crouched = false, sprinting = false, grounded = true, eyeH = EYE, bobT = 0, bobAmt = 0, stepAcc = 0, speedNow = 0;
   let lean = 0, rollKick = 0, kickPitch = 0, kickYaw = 0, recoilPitch = 0, recoilYaw = 0;
   let landDip = 0, landVel = 0, strafeRoll = 0;   // camera feel: a dip on landing, a lean into strafes
-  let bleedT = 0, hurtT = 0, breathe = 0, moveLock = 0, dead = false, lastSurface = 'grass', wading = 0;
+  let bleedT = 0, bleedTick = 0, hurtT = 0, breathe = 0, moveLock = 0, dead = false, lastSurface = 'grass', wading = 0;
   let noiseLevel = 0;         // how loud the player is right now (0..1), read by enemies
   let heartLoop = null, breathLoop = null;   // body sounds: heartbeat under 30 HP, breath under 20 stamina
   const tmp = new THREE.Vector3(), fwd = new THREE.Vector3(), right = new THREE.Vector3(), shake = new THREE.Vector3();
@@ -171,7 +171,25 @@ export function createPlayer(ctx) {
       noiseLevel = damp(noiseLevel, crouched ? 0.15 * bobSpeed : sprinting ? 1 : 0.45 * bobSpeed, 4, dt);
 
       // ---- bleeding / regen / hurt ----
-      if (state.data.bleeding && !dead) { bleedT += dt; if (bleedT > 3) { bleedT = 0; state.data.hp = Math.max(1, state.data.hp - 1); if (state.data.hp <= 1 && !api.inBase) { api.damage(1, { kind: 'bleed', bleed: false }); } } }
+      if (state.data.bleeding && !dead) {
+        bleedT += dt;
+        if (bleedT > 3) {
+          bleedT = 0;
+          // A bleed tick used to write hp straight into state, so ninety-nine points of damage
+          // arrived with no flash, no sound and no event: you were shot once, walked away, and
+          // fell over five minutes later of "exsanguination" having seen nothing at all. Each tick
+          // now reports itself the way any other wound does — quieter, and heavier as you empty.
+          if (state.data.hp <= 1) { if (!api.inBase) api.damage(1, { kind: 'bleed', bleed: false }); }
+          else {
+            state.data.hp = Math.max(1, state.data.hp - 1);
+            const severity = 1 - clamp01(state.data.hp / 100);
+            ctx.post.damageFlash(0.12 + 0.22 * severity);
+            bleedTick++;
+            if (bleedTick % 3 === 0 || state.data.hp < 25) ctx.audio.play('hurt', { gain: 0.18 + 0.22 * severity });
+            events.emit('playerDamaged', 1, { kind: 'bleed', bleed: false });
+          }
+        }
+      }
       hurtT = damp(hurtT, 0, 2, dt);
 
       // ---- body sounds ----
