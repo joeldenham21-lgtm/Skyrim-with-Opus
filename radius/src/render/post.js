@@ -303,6 +303,12 @@ export function createPost(ctx) {
     const samples = window.__radiusFast ? 0 : T.samples;
     target = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples, depthTexture: new THREE.DepthTexture(size.x, size.y), stencilBuffer: false });
     composer = new EffectComposer(renderer, target);
+    // EffectComposer captures renderer.getPixelRatio() in its constructor and multiplies every
+    // setSize() by it. post.js already hands it DEVICE pixel sizes from getDrawingBufferSize(), so
+    // that multiplication applied the ratio twice: at pixel ratio 2 the whole chain — scene target,
+    // AO, bloom, shafts, FXAA, CAS — ran at four times the intended pixels for no visual gain, and
+    // the dynamic-resolution governor then clawed the render scale back to pay for it.
+    composer.setPixelRatio(1);
     // the composer clones the target, and a cloned DepthTexture shares its Source (so its GL texture) with the original:
     // both buffers would attach one depth texture and any pass sampling it would form a feedback loop. Give it its own.
     composer.renderTarget2.depthTexture = new THREE.DepthTexture(size.x, size.y);

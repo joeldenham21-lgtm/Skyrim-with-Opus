@@ -83,7 +83,11 @@ export function createVfx(ctx) {
   // pooled point lights (muzzle, explosions, arcs)
   const LIGHTS = 6;
   const lights = [];
-  for (let i = 0; i < LIGHTS; i++) { const l = new THREE.PointLight(0xffffff, 0, 30, 1.8); l.visible = false; scene.add(l); lights.push({ l, t: 0, life: 0, peak: 0 }); }
+  // These stay visible for the life of the scene and are gated by intensity alone. Toggling
+  // Object3D.visible removes a light from the render state, which changes NUM_POINT_LIGHTS — part of
+  // three's program cache key — so every muzzle flash and spark made every lit material swap shader
+  // programs, and the first firefight was a burst of multi-millisecond compile stalls.
+  for (let i = 0; i < LIGHTS; i++) { const l = new THREE.PointLight(0xffffff, 0, 30, 1.8); l.visible = true; scene.add(l); lights.push({ l, t: 0, life: 0, peak: 0 }); }
   let lHead = 0;
   // muzzle flash sprite
   const flashTex = (() => {
@@ -101,7 +105,7 @@ export function createVfx(ctx) {
     get now() { return now; },
     light(pos, color, intensity, life = 0.12, distance = 25) {
       const e = lights[lHead]; lHead = (lHead + 1) % LIGHTS;
-      e.l.position.copy(pos); e.l.color.set(color); e.l.intensity = intensity; e.l.distance = distance; e.l.visible = true; e.t = 0; e.life = life; e.peak = intensity;
+      e.l.position.copy(pos); e.l.color.set(color); e.l.intensity = intensity; e.l.distance = distance; e.t = 0; e.life = life; e.peak = intensity;
     },
     spark(pos, normal, n = 12, color = [1.0, 0.75, 0.35]) {
       for (let i = 0; i < n; i++) {
@@ -175,7 +179,7 @@ export function createVfx(ctx) {
       sparks.mat.uniforms.uScale.value = h * 0.9; dust.mat.uniforms.uScale.value = h * 0.9;
       sparks.flush(); dust.flush();
       for (const e of tracers) { if (!e.m.visible) continue; e.t += dt; e.m.material.opacity = Math.max(0, 0.9 * (1 - e.t / e.life)); if (e.t >= e.life) e.m.visible = false; }
-      for (const e of lights) { if (!e.l.visible) continue; e.t += dt; const k = 1 - e.t / e.life; e.l.intensity = e.peak * k * k; if (e.t >= e.life) { e.l.visible = false; e.l.intensity = 0; } }
+      for (const e of lights) { if (e.life <= 0) continue; e.t += dt; const k = 1 - e.t / e.life; e.l.intensity = e.peak * k * k; if (e.t >= e.life) { e.life = 0; e.l.intensity = 0; } }
       if (flashT > 0) { flashT -= dt; flashSprite.material.opacity = Math.max(0, flashT / 0.05); if (flashT <= 0) flashSprite.material.opacity = 0; }
     },
   };
