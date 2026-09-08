@@ -118,3 +118,111 @@ html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
 #statusx { left: 34px; bottom: 96px; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--paper-dim); line-height: 1.8; }
 #statusx .warn { color: var(--red); }
 #statusx .on { color: var(--amber); }
+
+/* ============================================================================
+   TOUCH CONTROLS
+   Landscape-first, sized off --touch-scale, kept inside the safe area so a notch
+   or a home indicator never sits on a button. The layer is hidden whenever a
+   panel or menu is open, because those are real DOM and take real taps.
+   ========================================================================= */
+#touch {
+  position: fixed; inset: 0; z-index: 8; pointer-events: none;
+  --touch-scale: 1;
+  --pad: calc(64px * var(--touch-scale));
+  --safe-l: env(safe-area-inset-left, 0px); --safe-r: env(safe-area-inset-right, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px); --safe-t: env(safe-area-inset-top, 0px);
+  font-family: var(--mono);
+  -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+}
+#touch[hidden] { display: none !important; }
+
+/* the two halves that take drags: move on the left, look on the right */
+#touch .t-move, #touch .t-look { position: absolute; top: 0; bottom: 0; pointer-events: auto; touch-action: none; }
+#touch .t-move { left: 0; width: 42%; }
+#touch .t-look { right: 0; width: 58%; }
+
+/* the stick only exists while a thumb is down, and appears wherever that thumb landed */
+#touch .t-stick { position: absolute; width: 0; height: 0; pointer-events: none; }
+#touch .t-base, #touch .t-knob { position: absolute; border-radius: 50%; transform: translate(-50%, -50%); }
+#touch .t-base {
+  width: calc(124px * var(--touch-scale)); height: calc(124px * var(--touch-scale));
+  border: 1px solid rgba(217, 211, 196, 0.28); background: rgba(20, 19, 17, 0.22);
+  box-shadow: inset 0 0 22px rgba(0, 0, 0, 0.35);
+}
+#touch .t-knob {
+  width: calc(52px * var(--touch-scale)); height: calc(52px * var(--touch-scale));
+  border: 1px solid rgba(224, 164, 88, 0.6); background: rgba(224, 164, 88, 0.16);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+
+/* action pads: round, hairline, amber when pressed — the Committee's own stencil style */
+#touch .t-btn {
+  position: absolute; pointer-events: auto; touch-action: none;
+  width: var(--pad); height: var(--pad); border-radius: 50%;
+  border: 1px solid rgba(217, 211, 196, 0.34); background: rgba(20, 19, 17, 0.42);
+  color: var(--paper); font-family: var(--mono); font-size: calc(10px * var(--touch-scale));
+  letter-spacing: 0.1em; text-transform: uppercase; padding: 0; cursor: pointer;
+  backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.15;
+}
+#touch .t-btn.on { color: var(--amber); border-color: var(--amber); background: rgba(224, 164, 88, 0.22); }
+
+/* right thumb: fire under the thumb tip, the rest on an arc around it */
+#touch .b-fire { right: calc(20px + var(--safe-r)); bottom: calc(22px + var(--safe-b)); width: calc(92px * var(--touch-scale)); height: calc(92px * var(--touch-scale)); font-size: calc(12px * var(--touch-scale)); border-color: rgba(224, 164, 88, 0.5); }
+#touch .b-aim { right: calc(122px * var(--touch-scale) + var(--safe-r)); bottom: calc(34px + var(--safe-b)); }
+#touch .b-use { right: calc(26px + var(--safe-r)); bottom: calc(126px * var(--touch-scale) + var(--safe-b)); }
+#touch .b-reload { right: calc(112px * var(--touch-scale) + var(--safe-r)); bottom: calc(116px * var(--touch-scale) + var(--safe-b)); }
+#touch .b-loadmag { right: calc(186px * var(--touch-scale) + var(--safe-r)); bottom: calc(30px + var(--safe-b)); width: calc(52px * var(--touch-scale)); height: calc(52px * var(--touch-scale)); font-size: calc(9px * var(--touch-scale)); }
+
+/* left thumb: movement modifiers along the bottom edge, clear of the stick */
+#touch .b-sprint { left: calc(18px + var(--safe-l)); bottom: calc(112px * var(--touch-scale) + var(--safe-b)); }
+#touch .b-crouch { left: calc(96px * var(--touch-scale) + var(--safe-l)); bottom: calc(24px + var(--safe-b)); }
+#touch .b-jump { left: calc(18px + var(--safe-l)); bottom: calc(24px + var(--safe-b)); }
+#touch .b-torch { left: calc(174px * var(--touch-scale) + var(--safe-l)); bottom: calc(24px + var(--safe-b)); width: calc(52px * var(--touch-scale)); height: calc(52px * var(--touch-scale)); font-size: calc(9px * var(--touch-scale)); }
+#touch .b-probe { left: calc(96px * var(--touch-scale) + var(--safe-l)); bottom: calc(112px * var(--touch-scale) + var(--safe-b)); width: calc(52px * var(--touch-scale)); height: calc(52px * var(--touch-scale)); font-size: calc(9px * var(--touch-scale)); }
+
+/* strips: weapons bottom-centre, screens top-right, both small and square */
+#touch .t-tabs, #touch .t-screens { position: absolute; display: flex; gap: calc(6px * var(--touch-scale)); }
+#touch .t-tabs { left: 50%; transform: translateX(-50%); bottom: calc(10px + var(--safe-b)); }
+#touch .t-screens { right: calc(14px + var(--safe-r)); top: calc(52px + var(--safe-t)); }
+#touch .t-tab {
+  pointer-events: auto; touch-action: none;
+  min-width: calc(42px * var(--touch-scale)); height: calc(30px * var(--touch-scale)); padding: 0 calc(7px * var(--touch-scale));
+  border: 1px solid rgba(217, 211, 196, 0.26); background: rgba(20, 19, 17, 0.42); color: var(--paper-dim);
+  font-family: var(--mono); font-size: calc(10px * var(--touch-scale)); letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer;
+}
+#touch .t-tab.on { color: var(--amber); border-color: var(--amber); background: rgba(224, 164, 88, 0.2); }
+
+/* HUD readouts live in the corners the thumbs now occupy: lift them clear */
+#ui.touch #ammo { bottom: calc(150px * var(--touch-scale) + env(safe-area-inset-bottom, 0px)); right: calc(24px + env(safe-area-inset-right, 0px)); }
+#ui.touch #watch, #ui.touch #status { bottom: calc(150px * var(--touch-scale) + env(safe-area-inset-bottom, 0px)); left: calc(24px + env(safe-area-inset-left, 0px)); }
+#ui.touch #notify { top: calc(14px + env(safe-area-inset-top, 0px)); left: calc(16px + env(safe-area-inset-left, 0px)); width: min(380px, 42vw); }
+#ui.touch #objective { top: calc(14px + env(safe-area-inset-top, 0px)); right: calc(16px + env(safe-area-inset-right, 0px)); max-width: 40vw; }
+#ui.touch #prompt { bottom: 26%; }
+
+/* portrait: the game is landscape-only, so say so rather than rendering a letterbox */
+#rotate {
+  position: fixed; inset: 0; z-index: 99; display: none; background: #0b0a09; color: var(--paper);
+  align-items: center; justify-content: center; text-align: center; font-family: var(--mono); padding: 8vw;
+}
+#rotate .r-in { max-width: 30em; }
+#rotate .glyph { font-size: 44px; margin-bottom: 18px; display: block; animation: rotHint 2.4s ease-in-out infinite; }
+#rotate h2 { font-family: var(--display); font-weight: 300; font-size: 26px; letter-spacing: 0.2em; text-transform: uppercase; margin: 0 0 10px; }
+#rotate p { color: var(--paper-dim); font-size: 12px; line-height: 1.6; margin: 0; }
+@keyframes rotHint { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(-90deg); } }
+body.portrait #rotate { display: flex; }
+
+/* short landscape viewports (a phone on its side): tighten the paperwork so it still fits */
+@media (max-height: 520px) {
+  .sheet { padding: 12px 16px 10px; font-size: 11px; max-height: 96vh; max-width: 96vw; }
+  .sheet h1 { font-size: 21px; margin-bottom: 6px; }
+  .sheet h1 small { font-size: 10px; margin-left: 8px; }
+  .sheet .hd { padding-bottom: 5px; margin-bottom: 8px; font-size: 9px; }
+  .sheet .ft { padding-top: 6px; margin-top: 8px; font-size: 9px; }
+  .sheet .btn { padding: 7px 6px; }
+  .inv-card, .term-card, .store-card, .supply-card, .bench-card { width: 94vw; }
+  .settings-card, .pause-card, .death-card { width: min(560px, 94vw); }
+  .title-card { width: min(430px, 62vw); left: 5vw; }
+  .title-card h1.big { font-size: 40px; }
+  .title-card .ctl-list { display: none; }
+}

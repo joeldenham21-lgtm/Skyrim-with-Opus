@@ -84,7 +84,10 @@ export function createPlayer(ctx) {
       if (input.pressed('crouch')) crouched = !crouched;
       moveLock = Math.max(0, moveLock - dt);
       let mx = 0, mz = 0;
-      if (!dead && moveLock <= 0) { mx = (input.down('right') ? 1 : 0) - (input.down('left') ? 1 : 0); mz = (input.down('back') ? 1 : 0) - (input.down('forward') ? 1 : 0); }
+      if (!dead && moveLock <= 0) {
+        if (input.hasAxis) { mx = input.axisX; mz = input.axisZ; }        // thumbstick: partial deflection is partial speed
+        else { mx = (input.down('right') ? 1 : 0) - (input.down('left') ? 1 : 0); mz = (input.down('back') ? 1 : 0) - (input.down('forward') ? 1 : 0); }
+      }
       const hasInput = mx !== 0 || mz !== 0;
       sprinting = wantSprint && hasInput && mz < 0;
       const ads = ctx.weapons?.adsBlend || 0;
@@ -102,7 +105,9 @@ export function createPlayer(ctx) {
       api.loadFactor = gearStamina * (1 + overK * 0.8);
       if (over > cap * 0.5) sprinting = false;
       fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw)); right.set(fwd.z, 0, -fwd.x);
-      const len = Math.hypot(mx, mz) || 1;
+      // Clamp to unit length rather than normalising to it: a diagonal on the keys is still capped at
+      // full speed, but a half-deflected stick stays half speed instead of being snapped to a run.
+      const len = Math.max(1, Math.hypot(mx, mz));
       tmp.set(0, 0, 0).addScaledVector(fwd, -mz / len).addScaledVector(right, mx / len);
       // acceleration with different rates for ground/air
       const accel = grounded ? 22 : 4;

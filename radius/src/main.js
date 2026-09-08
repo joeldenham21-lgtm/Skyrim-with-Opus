@@ -46,6 +46,7 @@ import { createAmbience } from './audio/ambience.js';
 import { createHud } from './ui/hud.js';
 import { createMenus } from './ui/menus.js';
 import { createPanels } from './ui/panels.js';
+import { createTouch, detectTouch, installMobileChrome } from './ui/touch.js';
 import { createMissions } from './game/missions.js';
 import { createLoot } from './game/loot.js';
 import { createBase } from './game/base_scene.js';
@@ -67,10 +68,50 @@ const STUB = {
 function safe(name, fn) {
   try { return fn(); } catch (e) { console.error(`[boot:${name}]`, e); ctx._bootErrors = (ctx._bootErrors || []).concat(name + ': ' + (e && e.message)); return (STUB[name] || STUB.generic)(); }
 }
+
+/**
+ * Should the on-screen controls drive this session?
+ * settings.touchControls: 'auto' (default — on for a touch device) | 'on' | 'off'.
+ */
+function wantsTouch() {
+  if (window.__radiusForceTouch !== undefined) return !!window.__radiusForceTouch;   // harness override
+  const mode = ctx.state.data.settings.touchControls;
+  if (mode === 'on') return true;
+  if (mode === 'off') return false;
+  return detectTouch();
+}
+
+/**
+ * Phone defaults, applied once and then never again so they can be overridden and stay overridden.
+ * A handset fills a tenth of the pixels a desktop GPU does, so start it somewhere it can actually
+ * hold a frame rate and let the player raise it. Must run BEFORE createRenderer, which reads
+ * settings.quality when it builds the context.
+ */
+function applyMobileDefaults() {
+  const s = ctx.state.data.settings;
+  if (!wantsTouch() || s.mobileTuned) return;
+  s.mobileTuned = true;
+  s.quality = 'low';
+  s.targetFps = 60;
+  s.resolutionScale = Math.min(s.resolutionScale ?? 1, 0.75);
+  s.dynamicResolution = true;
+  s.touchScale = s.touchScale ?? 1;
+  s.touchLook = s.touchLook ?? 1;
+  try { ctx.state.saveSettings(); } catch {}
+}
+
+/** Switch the control layer on or off and tell the HUD to move out from under the thumbs. */
+function applyTouchMode() {
+  const on = wantsTouch();
+  ctx.touch.setEnabled(on);
+  document.getElementById('ui')?.classList.toggle('touch', on);
+}
+
 function boot() {
   installFog();
   ctx.events = createEvents();
   ctx.state = createState(); ctx.state.loadSettingsOnly();
+  applyMobileDefaults();
   ctx.quality = ctx.state.data.settings.quality;
   const r = createRenderer(canvas, ctx.state.data.settings); ctx.renderer = r.renderer; ctx.renderApi = r;
   ctx.scene = new THREE.Scene();
@@ -117,10 +158,14 @@ function boot() {
   ctx.ambience = safe('ambience', () => createAmbience(ctx));
   ctx.panels = safe('panels', () => createPanels(ctx));
   ctx.menus = safe('menus', () => createMenus(ctx));
+  ctx.touch = safe('touch', () => createTouch(ctx));
+  applyTouchMode();
+  safe('mobile', () => installMobileChrome(ctx));
 
   window.addEventListener('resize', () => { r.resize(); ctx.camera.aspect = window.innerWidth / window.innerHeight; ctx.camera.updateProjectionMatrix(); ctx.post.resize(); ctx.perf.applyScale(); });
   ctx.events.on('canvasClick', () => { ctx.audio.resume(); if (ctx.mode === 'playing') ctx.input.lock(); });
   ctx.events.on('keydown', () => ctx.audio.resume());
+  addEventListener('pointerdown', () => ctx.audio.resume(), { passive: true });
   let wasLocked = false;
   ctx.events.on('pointerlock', (locked) => { if (!locked && wasLocked && ctx.mode === 'playing' && !ctx.panels.isOpen) game.pause(); wasLocked = locked; });
   ctx.events.on('playerDied', (info) => game.onDeath(info));
@@ -232,7 +277,7 @@ function loop(now) {
     ctx.hands.root.visible = ctx.mode !== 'title';
     step('lighting', () => ctx.lighting.update(dt)); step('sky', () => ctx.sky.update(dt, t)); step('world', () => ctx.world.update(dt, t));
     step('vfx', () => ctx.vfx.update(dt, t)); step('post', () => ctx.post.update(dt, t)); step('audio', () => ctx.audio.update(dt));
-    step('hud', () => ctx.hud.update(dt)); step('music', () => ctx.music.update(dt)); step('ambience', () => ctx.ambience.update(dt)); step('menus', () => ctx.menus.update(dt)); step('panels', () => ctx.panels.update(dt));
+    step('hud', () => ctx.hud.update(dt)); step('music', () => ctx.music.update(dt)); step('ambience', () => ctx.ambience.update(dt)); step('menus', () => ctx.menus.update(dt)); step('panels', () => ctx.panels.update(dt)); step('touch', () => ctx.touch.update(dt));
     step('materials', () => ctx.materials.update?.(dt, t));
     step('perf', () => ctx.perf.update(dt, rawMs));
     ctx.renderer.info.reset();

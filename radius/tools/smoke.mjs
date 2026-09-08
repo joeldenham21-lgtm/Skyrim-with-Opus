@@ -7,6 +7,7 @@
 //   node tools/smoke.mjs --seconds 10          # how long to run before final screenshot
 //   node tools/smoke.mjs --w 1280 --h 720
 //   node tools/smoke.mjs --full                # production render settings (default is a fast headless mode: no MSAA, 1024 shadows)
+//   node tools/smoke.mjs --phone               # 844x390 handset viewport, touch events, on-screen controls forced on
 //
 // Inside the page, window.__radius exposes the debug API (see ARCHITECTURE.md):
 //   __radius.ctx, __radius.start(), __radius.teleport(x,z), __radius.look(yaw,pitch),
@@ -48,6 +49,7 @@ const W = +opt('--w', 1280), H = +opt('--h', 720);
 const scenarioPath = opt('--scenario', null);
 const prebuilt = opt('--html', null);   // run an existing bundle instead of building
 const fast = !args.includes('--full');   // --full: production render settings (MSAA, full shadow map, device pixel ratio)
+const phone = args.includes('--phone');  // --phone: handset viewport with touch events and the on-screen controls forced on
 mkdirSync(outDir, { recursive: true });
 
 const html = prebuilt ? resolve(prebuilt) : resolve(outDir, 'game.html');
@@ -61,8 +63,12 @@ const browser = await chromium.launch({
   args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-webgl',
          '--autoplay-policy=no-user-gesture-required', '--mute-audio'],
 });
-const page = await browser.newPage({ viewport: { width: W, height: H } });
+const page = phone
+  // a handset held in landscape: touch events, mobile UA hints, and a 3x display
+  ? await browser.newPage({ viewport: { width: 844, height: 390 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true })
+  : await browser.newPage({ viewport: { width: W, height: H } });
 if (fast) await page.addInitScript(() => { window.__radiusFast = true; });
+if (phone) await page.addInitScript(() => { window.__radiusForceTouch = true; });
 const errors = [], logs = [];
 page.on('console', (m) => { const t = m.type(); const s = `[${t}] ${m.text()}`; logs.push(s); if (t === 'error' && !/Failed to load resource/.test(s)) errors.push(s); });
 page.on('pageerror', (e) => errors.push('[pageerror] ' + (e.stack || e.message)));
