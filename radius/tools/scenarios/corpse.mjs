@@ -5,7 +5,7 @@
 export default async function (page, api) {
   await api.start();
   await api.run(`window.__radius.god(true); window.__radius.teleport(30, 170);`);
-  await api.frames(4);
+  await api.frames(2);
 
   const spawned = await api.run(`(() => {
     const ctx = window.__radius.ctx;
@@ -14,10 +14,17 @@ export default async function (page, api) {
   })()`);
   console.log('SPAWNED ' + JSON.stringify(spawned));
 
-  // kill it, then let real frames run: deathDuration is 2.2 s and dt is clamped to 0.05, so the pile
-  // only appears after ~45 frames of simulation, not after one big step.
-  await api.run(`(() => { const ctx = window.__radius.ctx; for (const e of ctx.enemies.list) if (e.alive) e.damage(9999, { kind: 'bullet' }); })()`);
-  await api.frames(90);
+  // Kill it, then advance the simulation directly. deathDuration is 2.2 s and main.js clamps dt to
+  // 0.05, so the pile needs ~45 ticks — waiting on 45 *rendered* frames instead makes the test hostage
+  // to software-rendering throughput, which is under half a frame a second on a loaded box.
+  const killed = await api.run(`(() => {
+    const ctx = window.__radius.ctx;
+    let n = 0;
+    for (const e of ctx.enemies.list) if (e.alive) { e.damage(9999, { kind: 'bullet' }); n++; }
+    for (let i = 0; i < 80; i++) { ctx.elapsed += 0.05; ctx.enemies.update(0.05); }
+    return n;
+  })()`);
+  console.log('KILLED ' + killed);
 
   const pile = await api.run(`(() => {
     const ctx = window.__radius.ctx;
@@ -40,18 +47,17 @@ export default async function (page, api) {
     return { standAt: [+sx.toFixed(2), +sz.toFixed(2)] };
   })()`);
   console.log('FACING ' + JSON.stringify(facing));
-  await api.frames(6);
+  await api.frames(3);   // interact.update reads the camera, so this needs real frames — but only a few
 
   const prompt = await api.run(`(() => {
     const ctx = window.__radius.ctx, c = ctx.interact.current;
     return { hasTarget: !!c, prompt: c ? (typeof c.prompt === 'function' ? c.prompt() : c.prompt) : '' };
   })()`);
   console.log('PROMPT ' + JSON.stringify(prompt));
-  await api.screenshot('facing-corpse');
 
   // press use and see what the panel is holding
   await api.run(`window.__radius.press('interact');`);
-  await api.frames(8);
+  await api.frames(4);
   const panel = await api.run(`(() => {
     const ctx = window.__radius.ctx;
     const open = ctx.panels.isOpen, id = ctx.panels.current, data = ctx.panels.data;
@@ -60,6 +66,5 @@ export default async function (page, api) {
              entries: entries.map((e) => ({ kind: e.kind, id: e.id, count: e.count || 1 })) };
   })()`);
   console.log('PANEL ' + JSON.stringify(panel, null, 1));
-  await api.screenshot('loot-panel');
   console.log(`SUMMARY pile=${!!pile} prompt=${prompt.hasTarget} panel=${panel.open} items=${panel.entries.length}`);
 }

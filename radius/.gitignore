@@ -6,3 +6,4 @@ dist/bundle.js.map
 # agent scratch: dot-prefixed probes written at the repo root while self-testing
 .*.mjs
 .loottest/
+.tmp-audit/
