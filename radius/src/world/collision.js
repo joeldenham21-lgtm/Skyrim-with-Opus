@@ -101,7 +101,11 @@ export function createCollision(terrain) {
         const list = grid.get(key(Math.floor(x / CELL), Math.floor(z / CELL)));
         if (!list) continue;
         for (const c of list) {
-          if (c.dead || seen.has(c) || (opts.ignorePassable !== false && c.passable && !c.blocksBullets)) continue; seen.add(c);
+          // blocksBullets, when set, decides on its own: a chain-link fence or a picket rail is solid to walk into
+          // and open to shoot through, while a catwalk deck is passable to walk through and solid to shoot at.
+          // Unset, a collider stops bullets exactly when it stops feet.
+          const stops = c.blocksBullets != null ? c.blocksBullets : !c.passable;
+          if (c.dead || seen.has(c) || (opts.ignorePassable !== false && !stops)) continue; seen.add(c);
           let hitT = -1; let nx = 0, ny = 0, nz = 0;
           if (c.kind === 'box') {
             let tmin = 0, tmax = maxDist, axis = -1, sgn = 0;

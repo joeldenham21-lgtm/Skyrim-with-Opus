@@ -187,6 +187,7 @@ const LEVEL = {
   door_open: 0.85, door_close: 0.85, death: 0.95, ui_stamp: 0.8,
   crow: 5, bird: 3, slider_screech: 3, slider_click: 1.8, slider_death: 2.2, slider_lunge: 1.8, slider_step: 1.8, mimic_radio: 2.2, mimic_skip: 3,
   spawn_skitter: 3, spawn_death: 1.6, spawn_bite: 1.4, seeker_hiss: 1.4, reflector_whip: 1.3, bullet_whiz: 1.4, impact_concrete: 1.3, drip: 1.4, gas_cough: 2.5,
+  phantom_hiss: 1.5, phantom_scream: 0.9, phantom_grab: 1.1,
   ads_in: 4, ads_out: 3.8, click: 4.5, jump: 3.2, ui_slip: 3, ui_click: 1.8, ui_open: 1.3, hurt: 1.3,
   mag_load_round: 3, probe_throw: 3, probe_land: 2, weapon_holster: 2.8, weapon_draw: 2.2, pickup_item: 3, pickup_ammo: 2.2, reload_magout: 2.6,
   bandage_use: 2.5, medkit_use: 1.6, stim_use: 1.3, step_grass: 2, dry_click: 1.8, bolt_open: 2, shell_insert: 1.5, break_open: 1.5, unjam: 1.5,
@@ -401,6 +402,36 @@ export function registerSfx(audio) {
     pulses(v, { n: 3, at: 0.7, span: 0.3, type: 'white', f0: 1200, f1: 1600, q: 4, dur: 0.012, g: 0.3, decay: 0.7 });
   });
   def('slider_step', (v) => seq(v, 2, 0, 0.1, (at) => { burst(v, { at, type: 'brown', filt: 'lowpass', f0: 500, q: 0.7, dur: 0.03, g: 0.4, atk: 0.002 }); burst(v, { at, type: 'pink', filt: 'highpass', f0: 900, q: 0.6, dur: 0.03, g: 0.25, atk: 0.003 }); }));
+
+  // The phantom had three sounds in its code and none of them in this file: every vanish, flinch, scream
+  // and grab played nothing, so the one enemy that is meant to be heard before it is seen was silent.
+  // An indrawn hiss that swells rather than strikes: the long attack against a short body is what reads
+  // as a sound running backwards, and the filter closing down under it is the breath being taken.
+  def('phantom_hiss', (v) => {
+    burst(v, { type: 'white', filt: 'bandpass', f0: 900, f1: 3400, q: 0.9, dur: 0.42, g: 0.5, atk: 0.3, pr: 0.8, pr1: 1.25 });
+    burst(v, { type: 'pink', filt: 'highpass', f0: 1600, q: 0.6, dur: 0.42, g: 0.22, atk: 0.34 });
+    tone(v, { type: 'sawtooth', f0: 58, f1: 44, dur: 0.5, g: 0.16, atk: 0.18, lp: 180, shape: 10 });
+    clack(v, { at: 0.4, f: 2600, g: 0.3, dur: 0.014, decay: 0.05, ringMul: 0.15 });
+  });
+  // The tell before the rush, and the death. Two detuned FM voices an octave apart, driven hard enough
+  // to shred, sliding up into the scream and falling out of it; the sub underneath is what you feel.
+  def('phantom_scream', (v) => {
+    fm(v, { type: 'sawtooth', f0: 310, f1: 620, ratio: 1.41, index: 3, index1: 5, dur: 0.5, g: 0.5, atk: 0.02, shape: 26, bp: 1800, bq: 0.7 });
+    fm(v, { at: 0.01, type: 'sawtooth', f0: 156, f1: 300, ratio: 2.51, index: 2.2, index1: 4, dur: 0.55, g: 0.35, atk: 0.03, shape: 22, bp: 900, bq: 0.8, detune: 14 });
+    burst(v, { at: 0.02, type: 'white', filt: 'bandpass', f0: 2600, f1: 5200, q: 0.8, dur: 0.5, g: 0.3, atk: 0.05 });
+    tone(v, { type: 'sine', f0: 78, f1: 34, dur: 0.7, g: 0.5, atk: 0.01, curve: 'lin' });
+    fm(v, { at: 0.5, type: 'sawtooth', f0: 620, f1: 180, ratio: 1.41, index: 5, index1: 1, dur: 0.35, g: 0.32, atk: 0.005, shape: 24, bp: 1500, bq: 0.7 });
+    tail(v, { at: 0.5, dur: 0.8, g: 0.2, f0: 3000, f1: 260 });
+  });
+  // Contact: the weight lands first, then cloth and a choked-off fragment of the scream.
+  def('phantom_grab', (v) => {
+    thump(v, { f0: 120, f1: 38, dur: 0.16, g: 1.0 });
+    burst(v, { type: 'brown', filt: 'lowpass', f0: 700, f1: 200, q: 0.9, dur: 0.14, g: 0.7, atk: 0.001, pr: 1.2, pr1: 0.6 });
+    burst(v, { at: 0.01, type: 'white', filt: 'bandpass', f0: 1800, f1: 600, q: 1.1, dur: 0.09, g: 0.45, atk: 0.001 });
+    cloth(v, { at: 0.02, n: 4, span: 0.22, f: 2200, g: 0.3 });
+    fm(v, { at: 0.03, type: 'sawtooth', f0: 420, f1: 150, ratio: 1.41, index: 4, index1: 0.8, dur: 0.22, g: 0.34, atk: 0.004, shape: 24, bp: 1400, bq: 0.8 });
+    tail(v, { at: 0.06, dur: 0.45, g: 0.16, f0: 2200, f1: 200 });
+  });
 
   defLoop('fragment_chime', (L) => {
     const a = L.a, amp = L.keep(a.gain(0.55)), pulseG = L.keep(a.gain(1)), bright = L.keep(a.gain(0.12));

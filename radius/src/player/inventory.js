@@ -1,6 +1,7 @@
 // Inventory v2. Plain data in state.data.inventory so it saves. Everything speaks catalogue ids from src/data.
 //   weapons: [WeaponInst]   WeaponInst = { uid, id, parts:{barrel,bolt,frame} 0..100, dirt 0..1, jammed, chamber: ammoId|null,
-//                            mag: MagInst|null (inserted), tube: [ammoId] (internal magazines/tubes/clips), fireMode, attachments:{slot:id}, rails:[id] }
+//                            mag: MagInst|null (inserted), tube: [ammoId] (internal magazines/tubes/clips), fireMode,
+//                            attachments:{slot:id}, rails:[id], upgrades:{slot:upgradeId}, factory:{slot:condition} }
 //   mags: [MagInst]         MagInst = { uid, id (magazine def), cal, ammo: ammoId|null, rounds }
 //   gear: [GearInst]        GearInst = { uid, id, durability?, charge? }   (armour, helmets, packs, rigs, headgear, masks, tools with charge)
 //   items: { id: count }    stackables (ammo by ammo id, meds, food, grenades, parts, artifacts, mission objects)
@@ -17,6 +18,24 @@ const lerp = (a, b, t) => a + (b - a) * t;
 
 let uid = 1;
 const nextUid = () => uid++;
+// The counter is module state and a loaded save is not: without this, the first item picked up after
+// a reload reuses uid 1, and every lookup by uid (equipment slots, mag selection, removeWeapon)
+// silently addresses the wrong instance. Walks the whole save because uids live in the inventory,
+// the storage rooms, the footlocker and anything a container holds.
+export function syncUid(data) {
+  let max = 0;
+  const seen = new Set();
+  const walk = (v) => {
+    if (!v || typeof v !== 'object' || seen.has(v)) return;
+    seen.add(v);
+    if (Array.isArray(v)) { for (const x of v) walk(x); return; }
+    if (typeof v.uid === 'number' && v.uid > max) max = v.uid;
+    for (const k in v) walk(v[k]);
+  };
+  walk(data);
+  uid = max + 1;
+  return uid;
+}
 export const SLOTS = ['primary', 'secondary', 'sidearm', 'melee'];
 export const BASE_CAPACITY = 10;   // kg carried without a backpack
 

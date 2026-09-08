@@ -109,10 +109,11 @@ export function createWeapons(ctx) {
   function buildMesh(w) {
     let g = null;
     try { g = gunmesh.buildGun(w.id, { lod: 'hi', inst: w }); } catch (e) { console.warn('[weapons] buildGun failed for', w.id, e); }
-    if (!g) g = gunmesh.buildGun(w.id);
-    if (typeof gunmesh.applyAttachments === 'function') {
-      try { const r = gunmesh.applyAttachments(g, w); if (r && r.opticEye) g.userData.opticEye = r.opticEye; } catch (e) { console.warn('[weapons] applyAttachments failed', e); }
-    }
+    if (g) return g;
+    // The fallback build carries no instance, so buildGun installed the stock furniture: fit this weapon's
+    // attachments onto it by hand. The instanced path above already ran applyAttachments internally.
+    g = gunmesh.buildGun(w.id);
+    try { gunmesh.applyAttachments(g, w); } catch (e) { console.warn('[weapons] applyAttachments failed', e); }
     return g;
   }
   function meshFor(w) {

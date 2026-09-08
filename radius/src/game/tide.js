@@ -26,12 +26,13 @@ export function createTide(ctx) {
       ctx.audio.play('tide_chord', { gain: 1.0 });
       ctx.events.emit('tideRising');
     },
-    // after the white-out: the zone rearranges itself
-    reset() {
+    // after the white-out: the zone rearranges itself. quiet skips the all-clear for a player who is
+    // watching it from the death screen.
+    reset(opts = {}) {
       const d = ctx.state.data;
       d.tideLevel = Math.min(3, d.tideLevel + 1); d.tideDay += 3; d.stats.tides++;
       ctx.events.emit('tide', d.tideLevel);   // every module re-rolls its content on this
-      ctx.hud.notify(`The Tide has passed. Anomalous activity index ${d.tideLevel}.`, { code: 'UNPSC · ZONE STATUS', ms: 8000 });
+      if (!opts.quiet) ctx.hud.notify(`The Tide has passed. Anomalous activity index ${d.tideLevel}.`, { code: 'UNPSC · ZONE STATUS', ms: 8000 });
       ctx.state.save();
     },
     update(dt) {
@@ -49,7 +50,12 @@ export function createTide(ctx) {
         ctx.lighting.storm = v;
         if (t >= 1) {
           phase = 'white'; t = 0;
-          if (ctx.player.inBase) { api.reset(); } else { ctx.player.die({ kind: 'tide' }); }
+          const caught = !ctx.player.inBase;
+          // The zone rearranges whether or not you lived through it. Resetting only for a player who
+          // made it back left tideDay where it was, so tideIn() stayed at zero: the moment the
+          // white-out cleared the Tide arrived again, and respawning walked straight into the next one.
+          api.reset({ quiet: caught });
+          if (caught) ctx.player.die({ kind: 'tide' });
         }
       } else if (phase === 'white') {
         t += dt / 4;

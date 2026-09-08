@@ -19,7 +19,7 @@ import { createProps } from './world/props.js';
 import { createFlora } from './world/flora.js';
 import { createDebris } from './world/debris.js';
 import { createPlayer } from './player/controller.js';
-import { createInventory, makeWeapon } from './player/inventory.js';
+import { createInventory, makeWeapon, syncUid } from './player/inventory.js';
 import { createDamage } from './player/damage.js';
 import { createGear } from './player/gear.js';
 import { registerPhantom } from './enemies/phantom.js';
@@ -188,7 +188,7 @@ function boot() {
 const game = {
   start(newGame = true) {
     if (newGame) { ctx.state.reset(); ctx.inventory.giveStarterKit(); }
-    else { ctx.state.load(); }
+    else { ctx.state.load(); syncUid(ctx.state.data); }
     ctx.events.emit('gameStart', newGame);
     const M = ctx.world.map;
     ctx.player.revive();

@@ -80,7 +80,8 @@ function setLaserOn(m, on) { switchEmitters(m, on, ['laser', 'ir']); }
 // left over from a previous loadout does nothing.
 function registerEmitters(gun, att) {
   if (!gun) return;
-  if (gun._emitGen !== gun.installed) { gun._emitGen = gun.installed; gun._emitters = []; }
+  // A standalone buildAttachment() has no ud.installed to stamp against, so an absent list means a fresh generation too.
+  if (!gun._emitters || gun._emitGen !== gun.installed) { gun._emitGen = gun.installed; gun._emitters = []; }
   gun._emitters.push(att);
   const gen = gun.installed;
   gun.setLightOn = (on) => { if (gun._emitGen !== gen) return; for (const a of gun._emitters) setLightOn(a, on); };
@@ -878,12 +879,26 @@ const ART_TINT = {
   art_thorn: [0x2a1a18, 0xff4a6a], art_knot: [0x6a5a48, 0xd8a060], art_egg: [0xd8cbb0, 0xff8a3c],
   art_crown: [0xb0a488, 0xffd070], art_heart: [0x5a1a20, 0xff3050], art_snow: [0xdfe8f0, 0x9fe0ff],
 };
+// Artifact materials depend only on the tint, and weathered() marks them shared, so one pair per artifact type is
+// enough: building a dozen pickups no longer means a dozen shader-compiling MeshStandardMaterials.
+const ART_MATS = new Map();
+function artMats(id) {
+  let m = ART_MATS.get(id);
+  if (!m) {
+    const tint = ART_TINT[id] || [0xcfc3a5, 0xff6fa8];
+    m = {
+      tint,
+      shell: weathered({ color: tint[0], roughness: 0.35, metalness: 0.1, wear: [0.5, 0.4, 0.2, 0], bare: 0xffffff, seed: 22.7 }),
+      inner: weathered({ color: 0x101014, roughness: 0.4, metalness: 0, wear: [0, 0, 0, 0], bare: 0x222222, seed: 22.9, emissive: tint[1], emissiveIntensity: 1.8 }),
+    };
+    ART_MATS.set(id, m);
+  }
+  return m;
+}
 function artifactMesh(id) {
   const g = new THREE.Group(); g.name = id;
   const P = new Parts();
-  const tint = ART_TINT[id] || [0xcfc3a5, 0xff6fa8];
-  const shell = weathered({ color: tint[0], roughness: 0.35, metalness: 0.1, wear: [0.5, 0.4, 0.2, 0], bare: 0xffffff, seed: 22.7 });
-  const inner = weathered({ color: 0x101014, roughness: 0.4, metalness: 0, wear: [0, 0, 0, 0], bare: 0x222222, seed: 22.9, emissive: tint[1], emissiveIntensity: 1.8 });
+  const { tint, shell, inner } = artMats(id);
   let coreY = 0.030;
   if (id === 'art_spine' || id === 'art_knot') {
     for (let i = 0; i < 6; i++) { const s = 1 - i * 0.09; P.add(shell, at(sphere(0.017 * s, hi() ? 12 : 6), Math.sin(i * 1.6) * 0.006, 0.018 + i * 0.020, Math.cos(i * 1.9) * 0.006)); }

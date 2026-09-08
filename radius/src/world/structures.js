@@ -530,15 +530,28 @@ export function addHide(world, poiId, x, z, y) { world.hidingSpots.push({ positi
 // [{u0,u1,y0,y1}] cut out (door: y0 = floor). Emits geometry + colliders for every solid piece.
 export function wall(B, world, F, kind, rgb, u0, u1, v, y0, y1, t, openings = [], o = {}) {
   const pieces = [];   // [ua, ub, ya, yb]
-  const ops = openings.slice().sort((a, b) => a.u0 - b.u0);
-  let cur = u0;
-  for (const op of ops) {
-    if (op.u0 > cur) pieces.push([cur, op.u0, y0, y1]);
-    if (op.y0 > y0) pieces.push([op.u0, op.u1, y0, op.y0]);
-    if (op.y1 < y1) pieces.push([op.u0, op.u1, op.y1, y1]);
-    cur = Math.max(cur, op.u1);
+  // Openings clipped to the wall; anything wholly outside it is not an opening.
+  const ops = [];
+  for (const op of openings) {
+    const a = Math.max(u0, op.u0), b = Math.min(u1, op.u1), c = Math.max(y0, op.y0), d = Math.min(y1, op.y1);
+    if (b - a > 0.01 && d - c > 0.01) ops.push({ u0: a, u1: b, y0: c, y1: d });
   }
-  if (cur < u1) pieces.push([cur, u1, y0, y1]);
+  // Split into columns at every opening edge, so the set of openings crossing a column is constant, then
+  // fill each column with the bands between them. Sweeping left to right with one cursor instead only ever
+  // cut one opening per column: on a two-storey wall the upper window's sill ran from the floor all the way
+  // up to it, bricking the window below solid behind its own frame and glass.
+  const cuts = [u0, u1];
+  for (const op of ops) cuts.push(op.u0, op.u1);
+  cuts.sort((a, b) => a - b);
+  for (let i = 0; i < cuts.length - 1; i++) {
+    const ua = cuts[i], ub = cuts[i + 1];
+    if (ub - ua <= 0.01) continue;
+    const um = (ua + ub) / 2;
+    const bands = ops.filter((op) => op.u0 <= um && op.u1 >= um).map((op) => [op.y0, op.y1]).sort((a, b) => a[0] - b[0]);
+    let ya = y0;
+    for (const [ba, bb] of bands) { if (ba > ya) pieces.push([ua, ub, ya, ba]); ya = Math.max(ya, bb); }
+    if (ya < y1) pieces.push([ua, ub, ya, y1]);
+  }
   for (const [ua, ub, ya, yb] of pieces) {
     const w = ub - ua, h = yb - ya; if (w <= 0.01 || h <= 0.01) continue;
     const um = (ua + ub) / 2;
