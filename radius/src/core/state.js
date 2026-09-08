@@ -16,7 +16,13 @@ export function defaultData() {
     flags: {},             // arbitrary story/tutorial flags
     settings: {
       sensitivity: 1.0, fov: 75, volume: 0.8, music: 0.8, quality: 'high', grain: 1.0, motion: 1.0,
-      targetFps: 100, resolutionScale: 1.0, dynamicResolution: true,
+      // 60, not 100. The governor's budget is max(1000/targetFps, the learned refresh interval), so on a
+      // 60 Hz display the floor hid the 100 — but on a 120 or 144 Hz one the budget became 10 ms, and a
+      // machine doing a comfortable 11 ms of work per frame was judged overloaded and had its internal
+      // resolution cut. Measured: an enemy at 30 m is a 27 px silhouette at 37 % contrast when the scale
+      // is 1.0, and about 17 px of drawn detail at the 0.62 the governor was picking. Native pixels are
+      // worth more here than frames past 60; a player who disagrees can raise it in Settings.
+      targetFps: 60, resolutionScale: 1.0, dynamicResolution: true,
       // touch: 'auto' turns the on-screen controls on for a coarse-pointer device. mobileTuned
       // records that the one-time phone quality defaults have been applied, so a player's own
       // choices are never overwritten on a later boot.

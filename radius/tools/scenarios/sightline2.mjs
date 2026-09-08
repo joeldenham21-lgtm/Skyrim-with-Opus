@@ -18,7 +18,14 @@ export default async function (page, api) {
       const p = ctx.player.position;
       for (const e of ctx.enemies.list) if (e.alive) e.removeMe = true;
       const e = r.spawn('mimic', p.x, p.z - ${metres}, { cls: 'regular' });
-      if (e) { e.aware = true; e.setEngaged?.(true); }
+      if (e) {
+        e.aware = true;
+        // Freeze him. He is a live AI: between projecting his chest to screen space and the screenshot
+        // landing he walks a metre or more, which at twenty metres is twenty pixels — enough for the
+        // sample to land on the ground beside him and read as no contrast at all.
+        e.update = () => {};
+        e.speed = 0;
+      }
       r.setLook(0, 0);
     })()`);
     await api.frames(25);
@@ -33,7 +40,7 @@ export default async function (page, api) {
       return { W, H, feet, head, chest, heightPx: Math.abs(feet.y - head.y) };
     })()`);
     if (!at) { console.log(label + ' {"found":false}'); return { found: false }; }
-    const png = (await page.screenshot()).toString('base64');
+    const png = (await page.screenshot({ timeout: 180000 })).toString('base64');
     const m = await page.evaluate(async ([b64, at]) => {
       const img = new Image();
       await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = 'data:image/png;base64,' + b64; });

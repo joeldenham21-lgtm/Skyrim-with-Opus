@@ -101,6 +101,8 @@ const SETTINGS = [
   { key: 'grain', label: 'Film grain', min: 0, max: 1, step: 0.05, fmt: (v) => `${Math.round(v * 100)} %` },
   { key: 'motion', label: 'Head motion', sub: 'bob and breathing', min: 0, max: 1, step: 0.05, fmt: (v) => `${Math.round(v * 100)} %` },
   { key: 'quality', label: 'Render quality', tiers: QUALITY_TIERS, options: ['low', 'medium', 'high'] },
+  { key: 'targetFps', label: 'Frame rate target', sub: 'the dynamic resolution governor aims at this; higher trades sharpness for frames', min: 30, max: 144, step: 6, fmt: (v) => `${Math.round(v)} fps` },
+  { key: 'dynamicResolution', label: 'Dynamic resolution', sub: 'let the 3D chain render below native to hold the target; off is always native, and always sharpest', options: ['off', 'on'], bool: true },
 ];
 
 export function createMenus(ctx) {
@@ -196,7 +198,10 @@ export function createMenus(ctx) {
 
   // ---------- settings ----------
   function applySetting(key, v) {
-    const s = S(); s[key] = v;
+    const s = S();
+    const d = SETTINGS.find((x) => x.key === key);
+    if (d && d.bool) v = v === 'on' || v === true;   // the segment hands back a string
+    s[key] = v;
     if (key === 'sensitivity') ctx.input.sensitivity = v;
     else if (key === 'fov') { ctx.camera.fov = v; ctx.camera.updateProjectionMatrix(); }
     else if (key === 'volume') ctx.audio.setVolume(v);
@@ -207,13 +212,15 @@ export function createMenus(ctx) {
   function stepSetting(key, dir) {
     const def = SETTINGS.find((x) => x.key === key); if (!def) return;
     const s = S();
-    if (def.options) { const i = def.options.indexOf(s[key]); applySetting(key, def.options[Math.max(0, Math.min(def.options.length - 1, (i < 0 ? 2 : i) + dir))]); }
+    if (def.options) { const i = def.options.indexOf(shown(def)); applySetting(key, def.options[Math.max(0, Math.min(def.options.length - 1, (i < 0 ? def.options.length - 1 : i) + dir))]); }
     else { const v = Math.max(def.min, Math.min(def.max, Math.round((s[key] + dir * def.step) / def.step) * def.step)); if (v === s[key]) { snd('ui_deny', 0.3); return; } applySetting(key, +v.toFixed(3)); }
     snd('ui_click', 0.3); refreshSetting(key);
   }
   const subOf = (def, v) => def.tiers ? (def.tiers[v] || '') : def.sub || '';
+  // a bool setting stores true/false but is chosen from an off/on pair, so it maps both ways here
+  const shown = (def) => (def.bool ? (S()[def.key] === false ? 'off' : 'on') : S()[def.key]);
   function settingRow(def) {
-    const v = S()[def.key];
+    const v = shown(def);
     const ctl = def.options
       ? `<div class="seg">${def.options.map((o) => `<button class="${o === v ? 'on' : ''}" data-a="set:${def.key}:${o}" tabindex="-1">${o}</button>`).join('')}</div>`
       : `<div class="ctl"><button class="pm" data-a="step:${def.key}:-1" tabindex="-1">−</button><div class="trk" data-key="${def.key}"><i style="width:${(((v - def.min) / (def.max - def.min)) * 100).toFixed(1)}%"></i><b style="left:${(((v - def.min) / (def.max - def.min)) * 100).toFixed(1)}%"></b></div><button class="pm" data-a="step:${def.key}:1" tabindex="-1">+</button></div>`;
@@ -222,7 +229,7 @@ export function createMenus(ctx) {
   }
   function refreshSetting(key) {
     const rowEl = card.querySelector(`.stp[data-key="${key}"]`); if (!rowEl) return;
-    const def = SETTINGS.find((x) => x.key === key), v = S()[key];
+    const def = SETTINGS.find((x) => x.key === key), v = shown(def);
     if (def.options) { for (const b of rowEl.querySelectorAll('.seg button')) b.classList.toggle('on', b.dataset.a.endsWith(':' + v)); const sm = rowEl.querySelector('.lab small'); if (sm) sm.textContent = subOf(def, v); }
     else { const p = (((v - def.min) / (def.max - def.min)) * 100).toFixed(1) + '%'; rowEl.querySelector('.trk i').style.width = p; rowEl.querySelector('.trk b').style.left = p; rowEl.querySelector('.val').textContent = def.fmt(v); }
   }
