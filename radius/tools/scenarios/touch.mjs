@@ -32,6 +32,24 @@ export default async function (page, api) {
     }
     return { viewport: vw + 'x' + vh, controls: items.length, percentOfScreen: +(px / (vw * vh) * 100).toFixed(1), items };`)));
 
+  // ---- placement: no pad may sit inside the stick's landing zone ----
+  console.log('PAD_OVERLAP', JSON.stringify(await R(`
+    const mz = document.querySelector('#touch .t-move').getBoundingClientRect();
+    const hits = [];
+    for (const el of document.querySelectorAll('#touch .t-pad')) {
+      if (el.hidden) continue;
+      const b = el.getBoundingClientRect();
+      if (b.right > mz.left && b.left < mz.right && b.bottom > mz.top && b.top < mz.bottom) {
+        hits.push(el.className.replace('t-pad ', ''));
+      }
+    }
+    return { moveZone: [Math.round(mz.left), Math.round(mz.top), Math.round(mz.width), Math.round(mz.height)], overlapping: hits };`)));
+
+  // ---- contextual: USE must be absent when nothing is in reach ----
+  console.log('CONTEXTUAL_USE', JSON.stringify(await R(`
+    const u = document.querySelector('#touch .p-use');
+    return { exists: !!u, hiddenWithNoTarget: !!u && u.hidden, interactTarget: !!(c.interact && c.interact.current) };`)));
+
   // ---- failure 4: icons, not words ----
   console.log('ICONS_NOT_WORDS', JSON.stringify(await R(`
     const pads = [...document.querySelectorAll('#touch .t-pad')];

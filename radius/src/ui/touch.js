@@ -35,11 +35,10 @@ const PADS = [
   ['interact', 'use', 'p-use'],
   ['quick1', 'meds', 'p-meds'],
   ['crouch', 'crouch', 'p-crouch'],
-  ['jump', 'jump', 'p-jump'],
 ];
 // Behind the tray button: everything you reach for deliberately, not in a firefight.
 const TRAY = [
-  ['slot1', null, '1'], ['slot2', null, '2'], ['slot3', null, '3'], ['slot4', null, '4'],
+  ['jump', 'jump', null], ['slot1', null, '1'], ['slot2', null, '2'], ['slot3', null, '3'], ['slot4', null, '4'],
   ['slot5', 'det', null], ['holster', 'stow', null], ['flashlight', 'torch', null], ['probe', 'probe', null],
   ['loadMag', 'mag', null], ['watch', 'watch', null], ['inventory', 'bag', null], ['map', 'map', null],
   ['pause', 'menu', null],
@@ -78,6 +77,8 @@ export function createTouch(ctx) {
   const tray = root.querySelector('.t-tray');
   const moreBtn = root.querySelector('[data-tray]');
   const medsPad = root.querySelector('.p-meds');
+  const usePad = root.querySelector('.p-use');
+  const reloadPad = root.querySelector('.p-reload');
 
   const pointers = new Map();   // pointerId -> { kind, ... }
   const held = new Set();       // actions currently held by a finger
@@ -226,6 +227,17 @@ export function createTouch(ctx) {
       root.style.setProperty('--touch-scale', String(scale()));
       // The quick-slot bar is hidden on touch (it sat across the middle of a phone screen), so the
       // meds pad carries the count itself rather than losing it.
+      // USE only exists when there is something to use. A permanent button for a contextual action is
+      // clutter for the 95% of the time nothing is in reach, and it was one of the pads sitting idle.
+      if (usePad) {
+        const target = !!(ctx.interact && ctx.interact.current);
+        if (usePad.hidden !== !target) {
+          usePad.hidden = !target;
+          if (!target) hold('interact', false);   // never leave it held as it disappears
+        }
+      }
+      // reload dims when there is no weapon in hand to reload
+      if (reloadPad) reloadPad.classList.toggle('spent', !(ctx.weapons && ctx.weapons.current));
       if (medsPad) {
         const id = ctx.inventory?.quick?.[0];
         const n = id ? ctx.inventory.count(id) : 0;

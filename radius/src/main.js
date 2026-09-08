@@ -91,9 +91,13 @@ function applyMobileDefaults() {
   const s = ctx.state.data.settings;
   if (!wantsTouch() || s.mobileTuned) return;
   s.mobileTuned = true;
-  s.quality = 'low';
+  // 'low' used to cap the pixel ratio to 1, which on a 3x phone display threw away nine tenths of
+  // the pixels before render scale even applied. Start at medium and full render scale: the
+  // dynamic-resolution governor pulls the 3D chain back only if this device genuinely cannot hold
+  // 60, and it now scales back UP again, which it previously never did.
+  s.quality = 'medium';
   s.targetFps = 60;
-  s.resolutionScale = Math.min(s.resolutionScale ?? 1, 0.75);
+  s.resolutionScale = 1.0;
   s.dynamicResolution = true;
   s.touchScale = s.touchScale ?? 1;
   s.touchLook = s.touchLook ?? 1;
