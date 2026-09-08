@@ -6,7 +6,14 @@
 //   items: { id: count }    stackables (ammo by ammo id, meds, food, grenades, parts, artifacts, mission objects)
 //   equipment: { primary, secondary, sidearm, melee, vest, helmet, backpack, rig, headgear, mask } -> uid|null
 //   quick: [itemId|null x4] hotkeys 6..9; readyMags: uids of magazines in the rig pouches
+// Weapon instances also carry the bench's work: `upgrades: {slot:upgradeId}` are the parts fitted in place of the
+// factory ones (data/upgrades.js) and `factory: {slot:condition}` remembers what the part they displaced was worth,
+// so pulling an upgrade back off does not launder condition. Both are optional: an old save without them still runs.
 import { def, WEAPONS, MAGAZINES, ARMOR, ITEMS, AMMO, magsFor, weightOf, defaultAmmo } from '../data/index.js';
+import { UPGRADES, SLOT_BY_ID, upgradeFits, slotsFor, slotApplies } from '../data/upgrades.js';
+
+const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+const lerp = (a, b, t) => a + (b - a) * t;
 
 let uid = 1;
 const nextUid = () => uid++;
@@ -15,11 +22,12 @@ export const BASE_CAPACITY = 10;   // kg carried without a backpack
 
 export function makeWeapon(id, opts = {}) {
   const d = WEAPONS[id]; if (!d) throw new Error('unknown weapon ' + id);
-  const w = { uid: nextUid(), id, parts: { barrel: 100, bolt: 100, frame: 100 }, dirt: 0, jammed: false, chamber: null, mag: null, tube: [], fireMode: d.modes[0], attachments: {}, rails: [] };
+  const w = { uid: nextUid(), id, parts: { barrel: 100, bolt: 100, frame: 100 }, dirt: 0, jammed: false, chamber: null, mag: null, tube: [], fireMode: d.modes[0], attachments: {}, rails: [], upgrades: {}, factory: {} };
   const ammo = opts.ammo || defaultAmmo(d.cal);
   if (opts.condition != null) { const c = opts.condition; w.parts = { barrel: c, bolt: c, frame: c }; }
   if (d.internal) { const n = opts.loaded === false ? 0 : d.internal - (d.modes[0] === 'break' ? 0 : 1); for (let i = 0; i < n; i++) w.tube.push(ammo); if (d.modes[0] !== 'break' && opts.loaded !== false) w.chamber = ammo; }
   else if (d.defaultMag && opts.loaded !== false) { w.mag = makeMag(d.defaultMag, ammo, MAGAZINES[d.defaultMag].cap); w.chamber = ammo; }
+  for (const u of opts.upgrades || []) fitUpgrade(w, u);
   for (const a of opts.attachments || []) attach(w, a);
   return w;
 }

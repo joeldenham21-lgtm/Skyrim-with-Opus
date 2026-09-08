@@ -5,6 +5,23 @@
 // cover, a shotgunner's rush, a marksman's glint before the shot. Reloads are audible windows. Squads (squad.js)
 // give it a role; alone it holds cover, flanks and skips closer when you are not looking. One a day is a stalker.
 //
+// v3 — a person with a rifle who wants to live:
+//   * Cover is scored by whether it actually breaks your sightline, not by whether it is nearby. A candidate
+//     has to give a firing angle when the mimic stands and take that angle away when it drops. It then fights
+//     from behind it: down, up for a burst, down again. You get windows, not a standing target.
+//   * It does not know where you are. It knows where it last SAW you, where a noise CAME FROM (with an error
+//     that shrinks as it gets better), and whatever came over the radio. Shoot it from a hedge and it hunts the
+//     hedge, not your feet.
+//   * It keeps rounds on the hole you went into (suppression), posts a grenade into it if you stay, and calls a
+//     contact so the others can move while it shoots.
+//   * It tops up the magazine in a lull instead of running dry in the open, and reloads behind the cover.
+//   * It has morale. Hurt, alone, with friends dying beside it, it breaks contact, calls it in, and comes back.
+//   * Losing you starts a hunt, not an amnesia: it clears the ground around the last contact in a pattern and
+//     sets an overwatch on it, silent, before it gives up.
+//   * It sees your torch. At night a beam swung across it is a contact.
+//
+// ALL of that gets sharper along ONE dial: SKILL, below. Nothing else in this file hard-codes a difficulty.
+//
 // This file also exports the shared skinned humanoid rig (Rig) and the shiver/dissolve body material, which
 // the Seeker reuses at 1.65x scale under its armour plates, and the Slider borrows for its body and face.
 import * as THREE from 'three';
@@ -16,7 +33,7 @@ import { hash3 } from '../core/rng.js';
 import { clamp, clamp01, damp, dampAngle, angleDelta, lerp, TAU, DEG } from '../core/math.js';
 import { WEAPONS, AMMO, ARMOR, defaultAmmo, resolveHit, zoneFromHit } from '../data/index.js';
 import { weaponEffects } from '../player/inventory.js';
-import { rollLoadout, pickClass, dropsFor, roundsInGun, consumeRound, bestSpare } from './loadout.js';
+import { rollLoadout, pickClass, dropsFor, roundsInGun, consumeRound, bestSpare, classRank } from './loadout.js';
 import { buildHumanoid } from './charmesh.js';
 import { buildVest, buildHelmet } from './gearmesh.js';
 import { buildGun } from '../weapons/gunmesh.js';
@@ -529,21 +546,121 @@ function scheduleLights(ctx) {
 // The Mimic
 // =====================================================================================================
 let rng = null;
-const SPEED = { patrol: 1.55, suspicious: 2.4, engage: 3.4, search: 2.6, stalk: 2.2 };
+const SPEED = { patrol: 1.55, suspicious: 2.4, engage: 3.4, search: 2.6, stalk: 2.2, posture: 1.5, break: 3.9 };
 const SHOT_FALLBACK = { pistol: 'shot_pm', smg: 'shot_pm', rifle: 'shot_akm', shotgun: 'shot_toz', sniper: 'shot_mosin', mg: 'shot_akm' };
 
-// how a weapon class fights: gaps between rounds, string lengths, pauses, preferred range
+// =====================================================================================================
+// THE ONE DIFFICULTY DIAL
+// -----------------------------------------------------------------------------------------------------
+// A mimic's SKILL PROGRESS is a single 0..1 number built from four inputs, and every tactical number in this
+// file is a lerp along it. Nothing else here is allowed to hard-code a difficulty; if a fight feels wrong,
+// this table is the only place to touch.
+//
+//   progress = (tide-1)*tide + (security-1)*security + classRank*classRank + director.pressure*pressure
+//
+//   tide       1..3   the Tide level (game/tide.js raises it; 3 is the deep zone)
+//   security   1..5   the Explorer's clearance (game/missions.js raises it as you earn)
+//   classRank  0..4   recruit / regular / shotgunner-gunner / veteran-sniper / elite (enemies/loadout.js)
+//   pressure   0..1   the Director's live pressure: night, Tide, and the noise you have been making lately
+//
+// Worked examples:
+//   day one, Tide 1, clearance 1, a recruit at the checkpoint, quiet zone  -> 0.00  (see the "at 0" column)
+//   Tide 2, clearance 3, a regular, mid-firefight                          -> 0.66
+//   Tide 3, clearance 5, an elite at night with the zone lit up            -> 1.00  (clamped from 1.56)
+//
+// At 0 a mimic takes a second to shoot back, sprays wide from a standing position, never flanks, never throws,
+// runs its magazine dry and breaks the moment it is hurt: a nervous player with a Makarov wins that fight.
+// At 1 it answers in a fifth of a second from behind a wall, leads you, three rounds at a time, tops up in the
+// gaps, puts fire on the hole you hid in, posts a grenade into it, and calls the whole treeline down on you.
+// =====================================================================================================
+export const SKILL = {
+  // ---- how far along the curve a mimic stands (0..1) ----
+  tide: 0.30,        // per Tide level above the first      (1..3 -> 0.00 .. 0.60)
+  security: 0.13,    // per clearance level above the first (1..5 -> 0.00 .. 0.52)
+  classRank: 0.08,   // recruit .. elite                    (0..4 -> 0.00 .. 0.32)
+  pressure: 0.12,    // ctx.director.pressure
+  max: 1,
+
+  // ---- and what changes along it: [at 0, at 1] ----
+  react:    [1.05, 0.18],  // s between acquiring you and the first round leaving the barrel
+  spread:   [1.80, 0.55],  // multiplier on the weapon's cone
+  bias:     [2.60, 0.25],  // deg of uncorrected aim error, re-rolled per burst (a recruit misses to one side)
+  settle:   [1.10, 0.22],  // s over which that bias decays once it is shooting at you
+  lead:     [0.00, 0.95],  // how much of your velocity it leads
+  burst:    [1.45, 0.78],  // multiplier on burst length: sprays early, three-round answers late
+  cool:     [1.55, 0.55],  // multiplier on the pause between bursts
+  peek:     [0.20, 0.95],  // chance a cover fight is fought from behind the cover instead of standing on it
+  hunker:   [0.55, 1.90],  // s spent down between peeks (a good one gives you almost no window)
+  flank:    [0.15, 0.85],  // willingness to go around instead of trading rounds
+  grenade:  [0.10, 0.90],  // willingness to throw one at all
+  holdT:    [9.0, 3.0],    // s you must sit in one hole before a grenade is posted into it
+  suppress: [0.00, 0.85],  // willingness to keep rounds on a position it cannot see into
+  share:    [2.60, 0.35],  // s between seeing you and the contact reaching everyone else
+  shareR:   [22, 55],      // m that callout carries
+  earErr:   [10, 1.6],     // m of error when it works out where a noise came from
+  morale:   [0.44, 0.13],  // the morale it breaks at (a recruit runs early, an elite dies in place)
+  rally:    [17, 6],       // s a broken one stays broken before it comes back
+  reload:   [1.30, 0.78],  // multiplier on reload time
+  disc:     [0.10, 0.95],  // reload discipline: chance of topping up in a lull instead of running dry
+  giveUp:   [15, 48],      // s of hunting an empty position before it lets go
+  push:     [0.10, 0.85],  // willingness to close on a hurt or pinned player
+};
+export function skillProgress(tide, security, rank, pressure) {
+  return clamp(Math.max(0, (tide | 0) - 1) * SKILL.tide + Math.max(0, (security | 0) - 1) * SKILL.security
+    + Math.max(0, rank) * SKILL.classRank + clamp01(pressure) * SKILL.pressure, 0, SKILL.max);
+}
+const SKILL_KEYS = Object.keys(SKILL).filter((k) => Array.isArray(SKILL[k]));
+// mix the table into `out` at progress p. `out` belongs to the mimic, so this allocates nothing.
+function mixSkill(out, p) {
+  for (let i = 0; i < SKILL_KEYS.length; i++) { const k = SKILL_KEYS[i], r = SKILL[k]; out[k] = r[0] + (r[1] - r[0]) * p; }
+  out.p = p;
+  return out;
+}
+
+// =====================================================================================================
+// Shared tactical budget. Perception and firing rays are per-mimic and already bounded (see the cost note at
+// the end of this file); everything ELSE that wants a raycast — cover scoring, peek validation, break-contact
+// routes — draws from one per-frame pool, so six mimics cannot stampede the collision grid on a phone.
+// =====================================================================================================
+const TACTICAL_PER_FRAME = 8;
+let losFrame = -1, losLeft = 0;
+function losBudget(ctx, want) {
+  if (ctx.frame !== losFrame) { losFrame = ctx.frame; losLeft = TACTICAL_PER_FRAME; }
+  if (losLeft < want) return false;
+  losLeft -= want; return true;
+}
+// recent friendly deaths, for morale. A ring of eight, written by the one that dies, read by the ones nearby.
+const DEATHS = [];
+function noteDeath(x, z, t) { DEATHS.push({ x, z, t }); if (DEATHS.length > 8) DEATHS.shift(); }
+function deathsNear(x, z, t, r = 24, within = 14) {
+  let n = 0;
+  for (let i = 0; i < DEATHS.length; i++) { const d = DEATHS[i]; if (t - d.t > within || Math.hypot(d.x - x, d.z - z) > r) continue; n++; }
+  return n;
+}
+// scratch for cover scoring; module-level so a pick allocates nothing
+const CAND = []; for (let i = 0; i < 8; i++) CAND.push({ c: null, s: 0 });
+let candN = 0;
+function candPush(c, s) {
+  if (candN < CAND.length) { CAND[candN].c = c; CAND[candN].s = s; candN++; }
+  else { let worst = 0; for (let i = 1; i < candN; i++) if (CAND[i].s < CAND[worst].s) worst = i; if (s > CAND[worst].s) { CAND[worst].c = c; CAND[worst].s = s; } }
+}
+function candSort() { for (let i = 1; i < candN; i++) { const v = CAND[i].c, s = CAND[i].s; let j = i - 1; while (j >= 0 && CAND[j].s < s) { CAND[j + 1].c = CAND[j].c; CAND[j + 1].s = CAND[j].s; j--; } CAND[j + 1].c = v; CAND[j + 1].s = s; } }
+
+// How a weapon class fights: gaps between rounds, string lengths, pauses, the band it wants to be in
+// (`hold` = [min, max] metres), the range past which it will not bother pulling the trigger (`max`), and
+// whether it closes (`close` 1), holds where it is (0), or backs off to keep its distance (-1).
 function fireProfile(wdef, cdef) {
   const auto = wdef.modes.includes('auto');
   const gap = Math.max(60 / (wdef.rpm || 400), 0.075);
-  const role = cdef.role;
-  if (role === 'sniper' || (wdef.cls === 'sniper' && wdef.modes[0] === 'bolt')) return { kind: 'sniper', gap: Math.max(gap, 1.4), burst: [1, 1], cooldown: [1.6, 3.2], hold: [60, 120], aimT: 1.2 };
-  if (wdef.cls === 'sniper') return { kind: 'sniper', gap: Math.max(gap, 0.6), burst: [1, 2], cooldown: [1.4, 2.8], hold: [45, 100], aimT: 1.2 };
-  if (wdef.cls === 'mg' || role === 'gunner') return { kind: 'mg', gap, burst: [8, 15], cooldown: [2.0, 3.5], hold: [15, 45] };
-  if (wdef.cls === 'shotgun') return { kind: 'shotgun', gap: Math.max(gap, wdef.modes[0] === 'pump' ? 0.7 : 0.45), burst: [2, 3], cooldown: [1.0, 1.8], hold: [4, 14] };
-  if (auto) return { kind: 'burst', gap, burst: wdef.cls === 'smg' ? [4, 7] : [3, 5], cooldown: [1.2, 2.5], hold: [8, 30] };
-  if (wdef.modes[0] === 'bolt') return { kind: 'semi', gap: Math.max(gap, 1.3), burst: [1, 1], cooldown: [0.8, 1.6], hold: [12, 40] };
-  return { kind: 'semi', gap: Math.max(gap, 0.38), burst: [2, 4], cooldown: [1.0, 2.0], hold: [8, 30] };
+  const role = cdef.role, cls = wdef.cls;
+  if (role === 'sniper' || (cls === 'sniper' && wdef.modes[0] === 'bolt')) return { kind: 'sniper', gap: Math.max(gap, 1.4), burst: [1, 1], cooldown: [1.6, 3.2], hold: [60, 120], max: 165, aimT: 1.2, close: -1 };
+  if (cls === 'sniper') return { kind: 'sniper', gap: Math.max(gap, 0.6), burst: [1, 2], cooldown: [1.4, 2.8], hold: [45, 100], max: 150, aimT: 1.2, close: -1 };
+  if (cls === 'mg' || role === 'gunner') return { kind: 'mg', gap, burst: [8, 15], cooldown: [2.0, 3.5], hold: [18, 55], max: 95, close: 0 };
+  if (cls === 'shotgun') return { kind: 'shotgun', gap: Math.max(gap, wdef.modes[0] === 'pump' ? 0.7 : 0.45), burst: [2, 3], cooldown: [1.0, 1.8], hold: [4, 13], max: 26, close: 1 };
+  if (cls === 'pistol') return { kind: 'semi', gap: Math.max(gap, 0.30), burst: [2, 4], cooldown: [0.9, 1.7], hold: [5, 18], max: 38, close: 1 };
+  if (auto) return { kind: 'burst', gap, burst: cls === 'smg' ? [4, 7] : [3, 5], cooldown: [1.2, 2.5], hold: cls === 'smg' ? [6, 24] : [14, 45], max: cls === 'smg' ? 58 : 92, close: cls === 'smg' ? 1 : 0 };
+  if (wdef.modes[0] === 'bolt') return { kind: 'semi', gap: Math.max(gap, 1.3), burst: [1, 1], cooldown: [0.8, 1.6], hold: [22, 60], max: 115, close: -1 };
+  return { kind: 'semi', gap: Math.max(gap, 0.38), burst: [2, 4], cooldown: [1.0, 2.0], hold: [12, 40], max: 82, close: 0 };
 }
 
 class Mimic extends Enemy {
@@ -569,6 +686,10 @@ class Mimic extends Enemy {
     this.stalker = !!opts.stalker; this.provoked = false; this.closeT = 0; this.whisperT = rng.range(20, 40); this.stalkD = rng.range(60, 100); this.stalkRollT = 0;
     this.squad = null; this.orders = null; this.stunned = 0; this.wantLight = false; this.lightEntry = null; this.hasLight = this.fx.light > 0;
     const poiR = poi ? Math.min(poi.r * 0.8, 40) : 22; this.poiR = poiR;
+    // ---- skill: the one curve (SKILL, above). Re-mixed every 2 s because director.pressure moves. ----
+    this.rank = classRank(this.cls);
+    this.skill = mixSkill({}, skillProgress(tide, ctx.state.data.securityLevel || 1, this.rank, ctx.director?.pressure || 0));
+    this.skillT = rng.range(0, 2);
     // visuals
     this.buildVisuals();
     // AI state
@@ -581,6 +702,17 @@ class Mimic extends Enemy {
     this.staggerT = 0; this.unobservedT = 0; this.obsT = 0; this.observed = true; this.skipCool = 0; this.moveSpeed = 0;
     this.staticLoop = null; this.loopRetry = 0; this.spotted = false; this.staticT = 0; this.crouch = 0;
     this.deathDuration = 2.2; this.ashDone = false; this.piled = false; this.stoppedHit = false;
+    // ---- v3 tactical state ----
+    this.beliefR = 0;                                   // metres of error on lastSeenPlayer (0 = actually saw you)
+    this.morale = 1; this.moraleT = 0; this.rallyT = 0; this.calledHelp = false; this.hurtT = -1e9;
+    this.peekPos = new THREE.Vector3(); this.posture = 'open';   // open | hunker | peek
+    this.postureT = 0; this.coverT = -1e9; this.coverGood = false; this.coverCrouch = false; this.exposed = 1;
+    this.suppressT = 0; this.suppressLeft = 0; this.suppressPos = new THREE.Vector3();
+    this.aimBiasY = 0; this.aimBiasP = 0; this.biasAge = 0; this.reactT = 0;
+    this.searchNodes = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+    this.searchN = 0; this.searchI = 0; this.overwatchT = 0; this.listenT = 0;
+    this.soloRole = null; this.soloRoleT = -1e9; this.flankSide = rng.chance(0.5) ? 1 : -1;
+    this.shareT = -1e9; this.litT = -1e9; this.tacReloadT = 0;
     this.setState(this.stalker ? 'stalk' : opts.idle ? 'idle' : 'watch');
     this.waitT = rng.range(5, 16); this.lookT = rng.range(1, 3);
     this.root.position.copy(this.position); this.root.rotation.y = this.yaw; this.root.updateMatrixWorld(true);

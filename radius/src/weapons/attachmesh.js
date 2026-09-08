@@ -49,6 +49,15 @@ function glow() {
   };
   return GLOW;
 }
+// A collimator combiner is a coated window you shoot through, not a scope's dark objective: keep it mostly clear.
+let COMBINER = null;
+function combiner() {
+  if (!COMBINER) {
+    COMBINER = new THREE.MeshStandardMaterial({ color: 0x33454f, roughness: 0.08, metalness: 0.45, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false });
+    COMBINER.userData.shared = true;
+  }
+  return COMBINER;
+}
 // mark a mesh as a switchable emitter: kind 'light' | 'laser' | 'ir'
 function emitter(m, kind, offMat, onMat) {
   m.userData.emitter = kind; m.userData.offMat = offMat; m.userData.onMat = onMat;
@@ -151,8 +160,8 @@ function turret(P, M, x, y, z, kind, horiz = false) {
   }
 }
 // Tinted glass disc facing down the tube; the opaque reticle sits behind it.
-function glassDisc(g, M, r, x, y, z) {
-  const m = mesh([cylZ(r, r, 0.0012, hi() ? 20 : 10)], M.glass, 'glass');
+function glassDisc(g, M, r, x, y, z, mat) {
+  const m = mesh([cylZ(r, r, 0.0012, hi() ? 20 : 10)], mat || M.glass, 'glass');
   m.position.set(x, y, z); m.renderOrder = 2;
   g.add(m);
   return m;
@@ -278,7 +287,7 @@ function buildOptic(id, def, M, opts) {
     }
     sideBracket(P, M, dx, y0 + 0.004, 0.086);
     P.into(g, 'optic');
-    const gl = glassDisc(g, M, hw * 0.62, dx, axis, zF + 0.024); gl.rotation.x = 0.22;
+    const gl = glassDisc(g, M, hw * 0.62, dx, axis, zF + 0.024, combiner()); gl.rotation.x = 0.22;
     const ret = reticleMesh(s.ret, hw * 0.52, retMat); ret.position.set(dx, axis, zF + 0.027); g.add(ret);
   } else if (s.body === 'holo') {
     // EOTech / Valday: hood walls around an open rectangular window, battery pod on the left, buttons behind it.
@@ -297,7 +306,7 @@ function buildOptic(id, def, M, opts) {
     railClamp(P, M, 0.058);
     P.add(M.painted, at(zrect(-0.026, 0.026, 0.008, y0 + 0.002, 0.030, 0.001, 0.002), 0, 0, 0));
     P.into(g, 'optic');
-    const wg = mesh([box(0.034, 0.026, 0.0012)], M.glass, 'glass'); wg.position.set(0, axis, zF + 0.024); wg.rotation.x = 0.12; wg.renderOrder = 2; g.add(wg);
+    const wg = mesh([box(0.034, 0.026, 0.0012)], combiner(), 'glass'); wg.position.set(0, axis, zF + 0.024); wg.rotation.x = 0.12; wg.renderOrder = 2; g.add(wg);
     const ret = reticleMesh(s.ret, 0.013, retMat); ret.position.set(0, axis, zF + 0.027); g.add(ret);
   } else if (s.body === 'acog') {
     // Cast, tapered body on a squared base with a fibre-optic channel along the top.
@@ -541,7 +550,9 @@ function buildLight(id, def, M, opts) {
     if (hi()) P.add(M.rubber, at(box(0.010, 0.008, 0.024), 0.014, -0.028, 0.030));
   }
   P.into(g, 'lightbody');
-  const lens = emitter(mesh([cylZ(0.0126, 0.0126, 0.0018, hi() ? 16 : 10)], G.lampOff, 'lens'), 'light', G.lampOff, G.lampOn);
+  const kind = lightPower > 0 ? 'light' : 'laser';                                                              // an underbarrel laser gets the same body with a red emitter
+  const off = kind === 'light' ? G.lampOff : G.laserOff, on = kind === 'light' ? G.lampOn : G.laserOn;
+  const lens = emitter(mesh([cylZ(0.0126, 0.0126, 0.0018, hi() ? 16 : 10)], off, 'lens'), kind, off, on);
   lens.position.set(lp[0], lp[1], lp[2]); g.add(lens);
   registerEmitters(opts.gun, g);
   return g;
