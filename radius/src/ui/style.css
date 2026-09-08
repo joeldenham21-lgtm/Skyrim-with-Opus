@@ -121,14 +121,13 @@ html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
 
 /* ============================================================================
    TOUCH CONTROLS
-   Landscape-first, sized off --touch-scale, kept inside the safe area so a notch
-   or a home indicator never sits on a button. The layer is hidden whenever a
-   panel or menu is open, because those are real DOM and take real taps.
+   Landscape-first. The look layer is the full screen at the back, so any finger
+   not on a control can look from anywhere. Controls are small islands hugging
+   the edges — about 6% of an 844x390 screen — and every one is an icon.
    ========================================================================= */
 #touch {
   position: fixed; inset: 0; z-index: 8; pointer-events: none;
   --touch-scale: 1;
-  --pad: calc(64px * var(--touch-scale));
   --safe-l: env(safe-area-inset-left, 0px); --safe-r: env(safe-area-inset-right, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px); --safe-t: env(safe-area-inset-top, 0px);
   font-family: var(--mono);
@@ -136,69 +135,86 @@ html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
 }
 #touch[hidden] { display: none !important; }
 
-/* the two halves that take drags: move on the left, look on the right */
-#touch .t-move, #touch .t-look { position: absolute; top: 0; bottom: 0; pointer-events: auto; touch-action: none; }
-#touch .t-move { left: 0; width: 42%; }
-#touch .t-look { right: 0; width: 58%; }
+/* look: the whole screen, behind everything. move: the left corner the thumb rests in. */
+#touch .t-look { position: absolute; inset: 0; z-index: 0; pointer-events: auto; touch-action: none; }
+#touch .t-move { position: absolute; left: 0; bottom: 0; width: 40%; height: 72%; z-index: 1; pointer-events: auto; touch-action: none; }
 
-/* the stick only exists while a thumb is down, and appears wherever that thumb landed */
+/* the stick exists only while a thumb is down, and appears wherever it landed */
 #touch .t-stick { position: absolute; width: 0; height: 0; pointer-events: none; }
 #touch .t-base, #touch .t-knob { position: absolute; border-radius: 50%; transform: translate(-50%, -50%); }
 #touch .t-base {
-  width: calc(124px * var(--touch-scale)); height: calc(124px * var(--touch-scale));
-  border: 1px solid rgba(217, 211, 196, 0.28); background: rgba(20, 19, 17, 0.22);
-  box-shadow: inset 0 0 22px rgba(0, 0, 0, 0.35);
+  width: calc(104px * var(--touch-scale)); height: calc(104px * var(--touch-scale));
+  border: 1px solid rgba(217, 211, 196, 0.22); background: rgba(20, 19, 17, 0.16);
 }
 #touch .t-knob {
-  width: calc(52px * var(--touch-scale)); height: calc(52px * var(--touch-scale));
-  border: 1px solid rgba(224, 164, 88, 0.6); background: rgba(224, 164, 88, 0.16);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+  width: calc(42px * var(--touch-scale)); height: calc(42px * var(--touch-scale));
+  border: 1px solid rgba(224, 164, 88, 0.55); background: rgba(224, 164, 88, 0.14);
 }
+#touch .t-stick.run .t-base { border-color: rgba(224, 164, 88, 0.5); }   /* rim of the stick = sprint */
+#touch .t-stick.run .t-knob { background: rgba(224, 164, 88, 0.3); }
 
-/* action pads: round, hairline, amber when pressed — the Committee's own stencil style */
-#touch .t-btn {
-  position: absolute; pointer-events: auto; touch-action: none;
-  width: var(--pad); height: var(--pad); border-radius: 50%;
-  border: 1px solid rgba(217, 211, 196, 0.34); background: rgba(20, 19, 17, 0.42);
-  color: var(--paper); font-family: var(--mono); font-size: calc(10px * var(--touch-scale));
-  letter-spacing: 0.1em; text-transform: uppercase; padding: 0; cursor: pointer;
+/* ---- pads: round, hairline, icon-only, amber when pressed ---- */
+#touch .t-pad {
+  position: absolute; z-index: 3; pointer-events: auto; touch-action: none;
+  display: flex; align-items: center; justify-content: center; padding: 0; cursor: pointer;
+  width: calc(42px * var(--touch-scale)); height: calc(42px * var(--touch-scale)); border-radius: 50%;
+  border: 1px solid rgba(217, 211, 196, 0.3); background: rgba(20, 19, 17, 0.36);
+  color: var(--paper-dim);
   backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
-  display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.15;
 }
-#touch .t-btn.on { color: var(--amber); border-color: var(--amber); background: rgba(224, 164, 88, 0.22); }
+#touch .t-pad svg { width: 58%; height: 58%; display: block; }
+#touch .t-pad.on { color: var(--amber); border-color: var(--amber); background: rgba(224, 164, 88, 0.2); }
 
-/* right thumb: fire under the thumb tip, the rest on an arc around it */
-#touch .b-fire { right: calc(20px + var(--safe-r)); bottom: calc(22px + var(--safe-b)); width: calc(92px * var(--touch-scale)); height: calc(92px * var(--touch-scale)); font-size: calc(12px * var(--touch-scale)); border-color: rgba(224, 164, 88, 0.5); }
-#touch .b-aim { right: calc(122px * var(--touch-scale) + var(--safe-r)); bottom: calc(34px + var(--safe-b)); }
-#touch .b-use { right: calc(26px + var(--safe-r)); bottom: calc(126px * var(--touch-scale) + var(--safe-b)); }
-#touch .b-reload { right: calc(112px * var(--touch-scale) + var(--safe-r)); bottom: calc(116px * var(--touch-scale) + var(--safe-b)); }
-#touch .b-loadmag { right: calc(186px * var(--touch-scale) + var(--safe-r)); bottom: calc(30px + var(--safe-b)); width: calc(52px * var(--touch-scale)); height: calc(52px * var(--touch-scale)); font-size: calc(9px * var(--touch-scale)); }
-
-/* left thumb: movement modifiers along the bottom edge, clear of the stick */
-#touch .b-sprint { left: calc(18px + var(--safe-l)); bottom: calc(112px * var(--touch-scale) + var(--safe-b)); }
-#touch .b-crouch { left: calc(96px * var(--touch-scale) + var(--safe-l)); bottom: calc(24px + var(--safe-b)); }
-#touch .b-jump { left: calc(18px + var(--safe-l)); bottom: calc(24px + var(--safe-b)); }
-#touch .b-torch { left: calc(174px * var(--touch-scale) + var(--safe-l)); bottom: calc(24px + var(--safe-b)); width: calc(52px * var(--touch-scale)); height: calc(52px * var(--touch-scale)); font-size: calc(9px * var(--touch-scale)); }
-#touch .b-probe { left: calc(96px * var(--touch-scale) + var(--safe-l)); bottom: calc(112px * var(--touch-scale) + var(--safe-b)); width: calc(52px * var(--touch-scale)); height: calc(52px * var(--touch-scale)); font-size: calc(9px * var(--touch-scale)); }
-
-/* strips: weapons bottom-centre, screens top-right, both small and square */
-#touch .t-tabs, #touch .t-screens { position: absolute; display: flex; gap: calc(6px * var(--touch-scale)); }
-#touch .t-tabs { left: 50%; transform: translateX(-50%); bottom: calc(10px + var(--safe-b)); }
-#touch .t-screens { right: calc(14px + var(--safe-r)); top: calc(52px + var(--safe-t)); }
-#touch .t-tab {
-  pointer-events: auto; touch-action: none;
-  min-width: calc(42px * var(--touch-scale)); height: calc(30px * var(--touch-scale)); padding: 0 calc(7px * var(--touch-scale));
-  border: 1px solid rgba(217, 211, 196, 0.26); background: rgba(20, 19, 17, 0.42); color: var(--paper-dim);
-  font-family: var(--mono); font-size: calc(10px * var(--touch-scale)); letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer;
+/* left thumb: the trigger sits beside the stick, so the right thumb never leaves the look area */
+#touch .p-fire {
+  left: calc(14px + var(--safe-l)); bottom: calc(90px * var(--touch-scale) + var(--safe-b));
+  width: calc(58px * var(--touch-scale)); height: calc(58px * var(--touch-scale));
+  border-color: rgba(224, 164, 88, 0.45); color: var(--paper);
 }
-#touch .t-tab.on { color: var(--amber); border-color: var(--amber); background: rgba(224, 164, 88, 0.2); }
+#touch .p-crouch { left: calc(14px + var(--safe-l)); bottom: calc(24px + var(--safe-b)); }
+#touch .p-jump { left: calc(62px * var(--touch-scale) + var(--safe-l)); bottom: calc(24px + var(--safe-b)); }
 
-/* HUD readouts live in the corners the thumbs now occupy: lift them clear */
-#ui.touch #ammo { bottom: calc(150px * var(--touch-scale) + env(safe-area-inset-bottom, 0px)); right: calc(24px + env(safe-area-inset-right, 0px)); }
-#ui.touch #watch, #ui.touch #status { bottom: calc(150px * var(--touch-scale) + env(safe-area-inset-bottom, 0px)); left: calc(24px + env(safe-area-inset-left, 0px)); }
-#ui.touch #notify { top: calc(14px + env(safe-area-inset-top, 0px)); left: calc(16px + env(safe-area-inset-left, 0px)); width: min(380px, 42vw); }
-#ui.touch #objective { top: calc(14px + env(safe-area-inset-top, 0px)); right: calc(16px + env(safe-area-inset-right, 0px)); max-width: 40vw; }
-#ui.touch #prompt { bottom: 26%; }
+/* shoulders: index fingers of a two-handed grip, so both thumbs can keep moving and looking */
+#touch .p-trig-l, #touch .p-trig-r {
+  top: var(--safe-t); width: calc(72px * var(--touch-scale)); height: calc(36px * var(--touch-scale));
+  border-radius: 0 0 calc(16px * var(--touch-scale)) calc(16px * var(--touch-scale));
+  border-top: 0; background: rgba(20, 19, 17, 0.42);
+}
+#touch .p-trig-l { left: calc(6px + var(--safe-l)); }
+#touch .p-trig-r { right: calc(6px + var(--safe-r)); border-color: rgba(224, 164, 88, 0.42); color: var(--paper); }
+#touch .p-trig-l svg, #touch .p-trig-r svg { width: calc(22px * var(--touch-scale)); height: calc(22px * var(--touch-scale)); }
+
+/* right edge: reached with the right thumb between look drags */
+#touch .p-reload { right: calc(14px + var(--safe-r)); bottom: calc(88px * var(--touch-scale) + var(--safe-b)); width: calc(48px * var(--touch-scale)); height: calc(48px * var(--touch-scale)); }
+#touch .p-use { right: calc(14px + var(--safe-r)); bottom: calc(24px + var(--safe-b)); }
+#touch .p-meds { right: calc(66px * var(--touch-scale) + var(--safe-r)); bottom: calc(24px + var(--safe-b)); border-color: rgba(162, 59, 42, 0.42); }
+#touch .p-more { right: calc(14px + var(--safe-r)); top: calc(46px * var(--touch-scale) + var(--safe-t)); width: calc(36px * var(--touch-scale)); height: calc(36px * var(--touch-scale)); }
+
+/* ---- tray: everything you reach for deliberately, not in a firefight ---- */
+#touch .t-tray {
+  position: absolute; z-index: 4; pointer-events: auto; touch-action: none;
+  right: calc(12px + var(--safe-r)); top: calc(88px * var(--touch-scale) + var(--safe-t));
+  display: grid; grid-template-columns: repeat(4, calc(44px * var(--touch-scale))); gap: calc(6px * var(--touch-scale));
+  padding: calc(8px * var(--touch-scale)); background: rgba(16, 15, 14, 0.82);
+  border: 1px solid var(--hair); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+}
+#touch .t-tray[hidden] { display: none; }
+#touch .t-tray-btn {
+  height: calc(44px * var(--touch-scale)); padding: 0; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid rgba(217, 211, 196, 0.22); background: transparent; color: var(--paper-dim);
+}
+#touch .t-tray-btn svg { width: 22px; height: 22px; }
+#touch .t-tray-btn .n { font-family: var(--mono); font-size: calc(14px * var(--touch-scale)); letter-spacing: 0.05em; }
+#touch .t-tray-btn.on { color: var(--amber); border-color: var(--amber); background: rgba(224, 164, 88, 0.16); }
+
+/* HUD readouts lift clear of the corners the controls now occupy */
+#ui.touch #ammo { bottom: calc(146px * var(--touch-scale) + env(safe-area-inset-bottom, 0px)); right: calc(20px + env(safe-area-inset-right, 0px)); }
+#ui.touch #watch, #ui.touch #status { bottom: calc(156px * var(--touch-scale) + env(safe-area-inset-bottom, 0px)); left: calc(20px + env(safe-area-inset-left, 0px)); }
+#ui.touch #notify { top: calc(44px + env(safe-area-inset-top, 0px)); left: calc(16px + env(safe-area-inset-left, 0px)); width: min(340px, 40vw); }
+#ui.touch #objective { top: calc(44px + env(safe-area-inset-top, 0px)); right: calc(58px + env(safe-area-inset-right, 0px)); max-width: 36vw; }
+#ui.touch #compass { top: calc(46px + env(safe-area-inset-top, 0px)); }
+#ui.touch #prompt { bottom: 28%; }
 
 /* portrait: the game is landscape-only, so say so rather than rendering a letterbox */
 #rotate {
@@ -226,4 +242,3 @@ body.portrait #rotate { display: flex; }
   .title-card h1.big { font-size: 40px; }
   .title-card .ctl-list { display: none; }
 }
-#touch .b-meds { left: calc(174px * var(--touch-scale) + var(--safe-l)); bottom: calc(112px * var(--touch-scale) + var(--safe-b)); width: calc(52px * var(--touch-scale)); height: calc(52px * var(--touch-scale)); font-size: calc(9px * var(--touch-scale)); border-color: rgba(162, 59, 42, 0.5); }

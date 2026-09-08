@@ -1,37 +1,48 @@
-// On-screen controls for touch devices: a floating move stick on the left, a look area on the
-// right, and the action buttons the Committee issues you. Everything drives core/input.js through
-// its virtual layer, so no other module knows whether a press came from a key or a thumb.
+// On-screen controls for touch devices.
 //
-// Layout is landscape-first (the game is unplayable in portrait and says so). Buttons sit inside
-// the safe area so a notch or a home indicator never covers one.
+// The governing constraint: held in landscape, the LEFT thumb owns the movement stick and the RIGHT
+// thumb owns looking. Both are busy during normal play, so anything placed under either thumb steals
+// from movement or from aiming. The first version put FIRE under the right thumb, which made looking
+// and shooting at the same time impossible.
+//
+// So firing is never on the looking thumb. It has three independent paths, any of which works while
+// the right thumb keeps dragging to look:
+//   * a trigger under the LEFT thumb, beside the stick
+//   * a shoulder trigger at each top corner, for the index fingers of a two-handed grip
+//   * a tap inside the look area itself, for a quick snap shot
+// Aim sits on the opposite shoulder from fire, so ADS and firing are always two different fingers.
+//
+// Sprint has no button: pushing the stick past 92% is a run, which removes a control and makes
+// sprinting while moving free. Everything rare lives in a tray behind one button.
+//
+// Controls are icons, not words: a word needs legible type and a language, a glyph needs 20px.
+import { svg } from './icons.js';
 
 const DEAD = 0.14;          // stick deadzone, fraction of the radius
-const STICK_R = 54;         // stick travel radius in CSS px, before --touch-scale
-const TAP_MS = 260;         // a press shorter than this, with little movement, counts as a tap
-const TAP_PX = 12;
+const RUN_AT = 0.92;        // stick deflection past this is a sprint
+const STICK_R = 46;         // stick travel radius in CSS px, before --touch-scale
+const TAP_MS = 220;         // a press shorter than this, that barely moved, is a tap
+const TAP_PX = 10;
 
-// Buttons: [action, label, class]. Every one uses press/release semantics — `pressed()` fires on
-// the press for taps (reload, jump, slots), `down()` stays true while held for fire/aim/interact/
-// watch/sprint. One behaviour covers both, so nothing here needs to know which is which.
+// [action, icon, class]. Every pad uses press/release semantics, which covers both kinds of action:
+// pressed() fires on the transition for taps (reload, jump, slots) and down() persists for holds
+// (fire, aim, interact, watch).
 const PADS = [
-  ['fire', 'FIRE', 'b-fire'],
-  ['aim', 'AIM', 'b-aim'],
-  ['reload', 'RE&shy;LOAD', 'b-reload'],
-  ['interact', 'USE', 'b-use'],
-  ['jump', 'JUMP', 'b-jump'],
-  ['crouch', 'CROUCH', 'b-crouch'],
-  ['sprint', 'RUN', 'b-sprint'],
-  ['flashlight', 'TORCH', 'b-torch'],
-  ['probe', 'PROBE', 'b-probe'],
-  ['loadMag', 'LOAD', 'b-loadmag'],
-  ['quick1', 'MEDS', 'b-meds'],   // quick slot 6: a bandage by default, and the answer to bleeding
+  ['fire', 'fire', 'p-fire'],            // left thumb, beside the stick
+  ['fire', 'fire', 'p-trig-r'],          // right shoulder, right index
+  ['aim', 'aim', 'p-trig-l'],            // left shoulder, left index
+  ['reload', 'reload', 'p-reload'],
+  ['interact', 'use', 'p-use'],
+  ['quick1', 'meds', 'p-meds'],
+  ['crouch', 'crouch', 'p-crouch'],
+  ['jump', 'jump', 'p-jump'],
 ];
-// The top strip: screens and weapon selection, smaller and out of the way of the thumbs.
-const TABS = [
-  ['slot1', '1'], ['slot2', '2'], ['slot3', '3'], ['slot4', '4'], ['slot5', 'DET'], ['holster', 'STOW'],
-];
-const SCREENS = [
-  ['watch', 'WATCH'], ['inventory', 'BAG'], ['map', 'MAP'], ['pause', 'MENU'],
+// Behind the tray button: everything you reach for deliberately, not in a firefight.
+const TRAY = [
+  ['slot1', null, '1'], ['slot2', null, '2'], ['slot3', null, '3'], ['slot4', null, '4'],
+  ['slot5', 'det', null], ['holster', 'stow', null], ['flashlight', 'torch', null], ['probe', 'probe', null],
+  ['loadMag', 'mag', null], ['watch', 'watch', null], ['inventory', 'bag', null], ['map', 'map', null],
+  ['pause', 'menu', null],
 ];
 
 /** True when this looks like a device whose primary input is a finger. */
@@ -49,22 +60,34 @@ export function createTouch(ctx) {
   root.hidden = true;
   (document.getElementById('ui') || document.body).appendChild(root);
 
+  const pad = ([a, icon, cls]) => `<button class="t-pad ${cls}" data-a="${a}">${svg(icon)}</button>`;
+  const trayItem = ([a, icon, text]) =>
+    `<button class="t-tray-btn" data-a="${a}">${icon ? svg(icon) : `<span class="n">${text}</span>`}</button>`;
+
   root.innerHTML = `
-    <div class="t-move" data-zone="move"><div class="t-stick" hidden><div class="t-base"></div><div class="t-knob"></div></div></div>
     <div class="t-look" data-zone="look"></div>
-    <div class="t-pads">${PADS.map(([a, l, c]) => `<button class="t-btn ${c}" data-a="${a}">${l}</button>`).join('')}</div>
-    <div class="t-tabs">${TABS.map(([a, l]) => `<button class="t-tab" data-a="${a}">${l}</button>`).join('')}</div>
-    <div class="t-screens">${SCREENS.map(([a, l]) => `<button class="t-tab" data-a="${a}">${l}</button>`).join('')}</div>`;
+    <div class="t-move" data-zone="move"><div class="t-stick" hidden><div class="t-base"></div><div class="t-knob"></div></div></div>
+    ${PADS.map(pad).join('')}
+    <button class="t-pad p-more" data-tray="1">${svg('more')}</button>
+    <div class="t-tray" hidden>${TRAY.map(trayItem).join('')}</div>`;
 
   const moveZone = root.querySelector('.t-move');
   const lookZone = root.querySelector('.t-look');
   const stick = root.querySelector('.t-stick');
   const knob = root.querySelector('.t-knob');
+  const tray = root.querySelector('.t-tray');
+  const moreBtn = root.querySelector('[data-tray]');
 
   const pointers = new Map();   // pointerId -> { kind, ... }
   const held = new Set();       // actions currently held by a finger
+  let running = false;          // sprint, driven by stick deflection rather than a button
 
   const scale = () => S().touchScale || 1;
+
+  function hold(action, on) {
+    if (on) held.add(action); else held.delete(action);
+    ctx.input.setVirtual(action, on);
+  }
 
   // ---------------------------------------------------------------- the stick
   function stickDown(e) {
@@ -83,16 +106,18 @@ export function createTouch(ctx) {
     let ax = dx / p.r, az = dy / p.r;
     const m = Math.hypot(ax, az);
     if (m < DEAD) { ax = 0; az = 0; }
-    else {
-      // rescale past the deadzone so the first millimetre of travel is not a dead step
-      const k = (m - DEAD) / (1 - DEAD) / m;
-      ax *= k; az *= k;
-    }
+    else { const k = (m - DEAD) / (1 - DEAD) / m; ax *= k; az *= k; }   // rescale past the deadzone
     ctx.input.setAxis(ax, az);
+    // push the stick to its rim to run: no sprint button, and sprinting while moving costs nothing
+    const wantRun = m >= RUN_AT && az < 0;
+    if (wantRun !== running) { running = wantRun; hold('sprint', wantRun); }
+    stick.classList.toggle('run', running);
   }
   function stickUp() {
     stick.hidden = true;
+    stick.classList.remove('run');
     ctx.input.setAxis(0, 0);
+    if (running) { running = false; hold('sprint', false); }
   }
 
   // ---------------------------------------------------------------- looking
@@ -104,10 +129,6 @@ export function createTouch(ctx) {
   }
 
   // ---------------------------------------------------------------- buttons
-  function hold(action, on) {
-    if (on) held.add(action); else held.delete(action);
-    ctx.input.setVirtual(action, on);
-  }
   for (const btn of root.querySelectorAll('[data-a]')) {
     const action = btn.dataset.a;
     btn.addEventListener('pointerdown', (e) => {
@@ -116,26 +137,40 @@ export function createTouch(ctx) {
       pointers.set(e.pointerId, { kind: 'btn', action, btn });
       btn.classList.add('on');
       hold(action, true);
+      if (btn.closest('.t-tray')) setTray(false);   // a tray choice closes the tray
     });
     const release = (e) => {
       const p = pointers.get(e.pointerId);
-      if (!p || p.kind !== 'btn') return;
+      if (!p || p.kind !== 'btn' || p.btn !== btn) return;
       pointers.delete(e.pointerId);
       btn.classList.remove('on');
-      hold(action, false);
+      // another pad may hold the same action (fire has three); only release when none still do
+      const stillHeld = [...pointers.values()].some((q) => q.kind === 'btn' && q.action === action);
+      if (!stillHeld) hold(action, false);
     };
     btn.addEventListener('pointerup', release);
     btn.addEventListener('pointercancel', release);
-    btn.addEventListener('contextmenu', (e) => e.preventDefault());
+    btn.addEventListener('contextmenu', (ev) => ev.preventDefault());
   }
+
+  function setTray(open) {
+    tray.hidden = !open;
+    moreBtn.classList.toggle('on', open);
+  }
+  moreBtn.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    setTray(tray.hidden);
+  });
+  moreBtn.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // ------------------------------------------------------------- zone events
   function zoneDown(e) {
-    if (e.target.closest('[data-a]')) return;      // a button already claimed it
+    if (e.target.closest('[data-a],[data-tray]')) return;      // a control already claimed it
     e.preventDefault();
     const zone = e.currentTarget.dataset.zone;
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
     if (zone === 'move') { stickDown(e); return; }
+    if (!tray.hidden) setTray(false);                          // looking dismisses the tray
     pointers.set(e.pointerId, { kind: 'look', ox: e.clientX, oy: e.clientY, lx: e.clientX, ly: e.clientY, t: performance.now(), moved: false });
   }
   function zoneMove(e) {
@@ -150,7 +185,7 @@ export function createTouch(ctx) {
     if (!p) return;
     pointers.delete(e.pointerId);
     if (p.kind === 'move') stickUp();
-    // a quick tap in the look area that never travelled is a shot, the way a trigger-finger tap reads
+    // a quick tap in the look area that never travelled is a snap shot
     else if (p.kind === 'look' && !p.moved && performance.now() - p.t < TAP_MS && S().touchTapFire !== false) {
       ctx.input.tapVirtual('fire');
     }
@@ -165,11 +200,13 @@ export function createTouch(ctx) {
 
   /** Drop every finger: called when the controls hide, so nothing sticks down behind a panel. */
   function releaseAll() {
-    for (const a of held) ctx.input.setVirtual(a, false);
+    for (const a of [...held]) ctx.input.setVirtual(a, false);
     held.clear();
     for (const b of root.querySelectorAll('.on')) b.classList.remove('on');
     pointers.clear();
+    running = false;
     stickUp();
+    setTray(false);
   }
 
   let shown = false;
@@ -218,14 +255,11 @@ export function installMobileChrome(ctx) {
   if (!rotate) {
     rotate = document.createElement('div');
     rotate.id = 'rotate';
-    rotate.innerHTML = '<div class="r-in"><span class="glyph">▭</span><h2>Turn your device</h2>'
+    rotate.innerHTML = '<div class="r-in"><span class="glyph">&#9645;</span><h2>Turn your device</h2>'
       + '<p>The Radius is surveyed in landscape. Rotate the handset to continue.</p></div>';
     document.body.appendChild(rotate);
   }
-  const onResize = () => {
-    const portrait = innerHeight > innerWidth;
-    document.body.classList.toggle('portrait', portrait);
-  };
+  const onResize = () => document.body.classList.toggle('portrait', innerHeight > innerWidth);
   addEventListener('resize', onResize);
   addEventListener('orientationchange', () => setTimeout(onResize, 120));
   onResize();

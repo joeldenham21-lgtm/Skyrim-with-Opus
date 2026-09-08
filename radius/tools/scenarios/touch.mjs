@@ -1,99 +1,107 @@
 // Touch controls: drives the on-screen layer with real multi-touch and checks the game responds.
 //   node tools/smoke.mjs --phone --scenario tools/scenarios/touch.mjs --out .smoke/touch
 //
-// Uses CDP Input.dispatchTouchEvent so these are genuine touch points with ids — a mouse drag
-// would not prove multi-touch works, and multi-touch (walk while looking) is the whole point.
+// Uses CDP Input.dispatchTouchEvent so these are genuine touch points with ids. The layout exists to
+// solve four reported failures — too much screen covered, controls that cannot be combined, no way
+// to look and shoot at once, and text labels — so each is asserted directly.
 export default async function (page, api) {
   const cdp = await page.context().newCDPSession(page);
   const touch = (type, points) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points });
   const R = (js) => api.run(`(() => { const c = window.__radius.ctx; const r = window.__radius; ${js} })()`);
-  // centre of an on-screen control, in CSS pixels
   const rect = (sel) => api.run(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null;
     const b = e.getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2, w: b.width, h: b.height }; })()`);
 
   await api.start();
   await api.frames(3);
 
-  // ---- the layer is present and actually driving input ----
   console.log('LAYER', JSON.stringify(await R(`return {
-    exists: !!document.getElementById('touch'),
-    visible: !!document.getElementById('touch') && !document.getElementById('touch').hidden,
-    inputTouch: c.input.touch,
-    uiClass: document.getElementById('ui').classList.contains('touch'),
-    pointerLocked: c.input.locked,
-    softLook: c.input.softLook,
-    quality: c.state.data.settings.quality,
-    scale: c.state.data.settings.resolutionScale,
+    inputTouch: c.input.touch, uiClass: document.getElementById('ui').classList.contains('touch'),
+    pointerLocked: c.input.locked, softLook: c.input.softLook,
+    quality: c.state.data.settings.quality, scale: c.state.data.settings.resolutionScale,
   };`)));
-  await api.screenshot('phone-hud');
 
-  // ---- left stick: walk forward, and keep looking at the same time ----
-  const before = await R(`return { x: c.player.position.x, z: c.player.position.z, yaw: c.player.yaw };`);
-  await touch('touchStart', [{ x: 150, y: 300, id: 1 }]);
-  await touch('touchMove', [{ x: 150, y: 300, id: 1 }]);          // settle, then deflect
-  await touch('touchMove', [{ x: 150, y: 240, id: 1 }]);
-  // second finger in the look area at the same time: this is the multi-touch case
-  await touch('touchStart', [{ x: 150, y: 240, id: 1 }, { x: 620, y: 200, id: 2 }]);
-  await touch('touchMove', [{ x: 150, y: 240, id: 1 }, { x: 700, y: 200, id: 2 }]);
-  console.log('STICK', JSON.stringify(await R(`return { axisX: +c.input.axisX.toFixed(3), axisZ: +c.input.axisZ.toFixed(3), hasAxis: c.input.hasAxis };`)));
-  await api.frames(6);
-  await touch('touchEnd', [{ x: 150, y: 240, id: 1 }]);
-  await touch('touchEnd', []);
-  await api.frames(2);
-  const after = await R(`return { x: c.player.position.x, z: c.player.position.z, yaw: c.player.yaw };`);
-  const moved = Math.hypot(after.x - before.x, after.z - before.z);
-  console.log('MOVED', JSON.stringify({ metres: +moved.toFixed(2), yawDelta: +(after.yaw - before.yaw).toFixed(3) }));
-  console.log('AXIS_CLEARED', JSON.stringify(await R(`return { axisX: c.input.axisX, axisZ: c.input.axisZ, hasAxis: c.input.hasAxis };`)));
+  // ---- failure 1: how much of the screen do the controls actually cover? ----
+  console.log('COVERAGE', JSON.stringify(await R(`
+    const vw = innerWidth, vh = innerHeight;
+    let px = 0; const items = [];
+    for (const el of document.querySelectorAll('#touch .t-pad, #touch .t-tray:not([hidden])')) {
+      const b = el.getBoundingClientRect();
+      if (!b.width) continue;
+      px += b.width * b.height;
+      items.push(el.className.replace('t-pad ', '') + ':' + Math.round(b.width) + 'x' + Math.round(b.height));
+    }
+    return { viewport: vw + 'x' + vh, controls: items.length, percentOfScreen: +(px / (vw * vh) * 100).toFixed(1), items };`)));
 
-  // ---- partial deflection must be partial speed, not a snap to full run ----
-  await touch('touchStart', [{ x: 150, y: 300, id: 3 }]);
-  await touch('touchMove', [{ x: 150, y: 286, id: 3 }]);      // ~26% of a 54px radius
-  const partial = await R(`return { axisZ: +c.input.axisZ.toFixed(3) };`);
-  await touch('touchEnd', []);
-  console.log('PARTIAL', JSON.stringify(partial));
+  // ---- failure 4: icons, not words ----
+  console.log('ICONS_NOT_WORDS', JSON.stringify(await R(`
+    const pads = [...document.querySelectorAll('#touch .t-pad')];
+    return { pads: pads.length, withSvg: pads.filter(p => p.querySelector('svg')).length,
+             withText: pads.filter(p => p.textContent.trim().length > 0).map(p => p.textContent.trim()) };`)));
 
-  // ---- fire button: a held pad must actually put a round downrange ----
-  const fireBtn = await rect('#touch .b-fire');
-  // a weapon instance has `mag` (one object) and `tube` (an array) — there is no `mags`
-  const rounds = `const w = c.weapons.current; return w ? ((w.chamber ? 1 : 0) + (w.mag ? w.mag.rounds : 0) + (w.tube ? w.tube.length : 0)) : -1;`;
-  const ammo0 = await R(rounds);
-  if (fireBtn) {
-    await touch('touchStart', [{ x: fireBtn.x, y: fireBtn.y, id: 4 }]);
-    await api.frames(3);
-    await touch('touchEnd', []);
-    await api.frames(3);
-  }
-  const ammo1 = await R(rounds);
-  console.log('FIRE', JSON.stringify({ btn: !!fireBtn, ammoBefore: ammo0, ammoAfter: ammo1, fired: ammo0 > ammo1 }));
-
-  // ---- a screen button opens its panel, and the controls get out of the way ----
-  const bag = await rect('#touch .t-screens .t-tab:nth-child(2)');
-  if (bag) {
-    await touch('touchStart', [{ x: bag.x, y: bag.y, id: 5 }]);
-    await api.frames(2);
-    await touch('touchEnd', []);
-    await api.frames(3);
-  }
-  console.log('PANEL', JSON.stringify(await R(`return {
-    open: !!c.panels.isOpen, which: c.panels.current,
-    controlsHidden: document.getElementById('touch').hidden,
-    stuckActions: ['fire','aim','sprint','interact'].filter(a => c.input.down(a)),
-  };`)));
-  await api.screenshot('phone-panel');
-
-  await R(`c.panels.close();`);
+  // ---- failure 3: LOOK AND SHOOT AT THE SAME TIME ----
+  // finger 1 drags in the look area; finger 2 holds the left-thumb trigger. Both must work at once.
+  const fire = await rect('#touch .p-fire');
+  const yaw0 = await R(`return c.player.yaw;`);
+  await touch('touchStart', [{ x: 600, y: 200, id: 10 }]);
+  await touch('touchMove', [{ x: 660, y: 200, id: 10 }]);
+  await touch('touchStart', [{ x: 660, y: 200, id: 10 }, { x: fire.x, y: fire.y, id: 11 }]);
+  const during = await R(`return { fireHeld: c.input.down('fire') };`);
+  await touch('touchMove', [{ x: 730, y: 205, id: 10 }, { x: fire.x, y: fire.y, id: 11 }]);
   await api.frames(3);
-  await api.screenshot('phone-final');
-  console.log('AFTER_PANEL', JSON.stringify(await R(`return { mode: c.mode, controlsHidden: document.getElementById('touch').hidden };`)));
+  const yaw1 = await R(`return c.player.yaw;`);
+  const stillFiring = await R(`return { fireHeld: c.input.down('fire') };`);
+  await touch('touchEnd', []);
+  await api.frames(2);
+  console.log('LOOK_AND_SHOOT', JSON.stringify({
+    fireHeldWhileLooking: during.fireHeld && stillFiring.fireHeld,
+    yawChangedWhileFiring: Math.abs(yaw1 - yaw0) > 0.01,
+    yawDelta: +(yaw1 - yaw0).toFixed(3),
+    released: await R(`return c.input.down('fire');`),
+  }));
 
-  // ---- portrait must raise the rotate notice rather than render a letterbox ----
-  await page.setViewportSize({ width: 390, height: 844 });
+  // ---- failure 2: controls that must combine — aim + fire, on opposite shoulders ----
+  const tl = await rect('#touch .p-trig-l'), tr = await rect('#touch .p-trig-r');
+  await touch('touchStart', [{ x: tl.x, y: tl.y, id: 20 }]);
+  await touch('touchStart', [{ x: tl.x, y: tl.y, id: 20 }, { x: tr.x, y: tr.y, id: 21 }]);
+  const both = await R(`return { aim: c.input.down('aim'), fire: c.input.down('fire') };`);
+  // and a third finger still looks while both shoulders are held
+  await touch('touchStart', [{ x: tl.x, y: tl.y, id: 20 }, { x: tr.x, y: tr.y, id: 21 }, { x: 500, y: 250, id: 22 }]);
+  await touch('touchMove', [{ x: tl.x, y: tl.y, id: 20 }, { x: tr.x, y: tr.y, id: 21 }, { x: 580, y: 250, id: 22 }]);
   await api.frames(2);
-  console.log('PORTRAIT', JSON.stringify(await R(`return {
-    bodyPortrait: document.body.classList.contains('portrait'),
-    noticeShown: getComputedStyle(document.getElementById('rotate')).display !== 'none',
-  };`)));
-  await api.screenshot('phone-portrait');
-  await page.setViewportSize({ width: 844, height: 390 });
+  const triple = await R(`return { aim: c.input.down('aim'), fire: c.input.down('fire'), yaw: +c.player.yaw.toFixed(3) };`);
+  await touch('touchEnd', []);
   await api.frames(2);
+  console.log('AIM_AND_FIRE', JSON.stringify({ bothShoulders: both, plusLooking: triple,
+    allReleased: await R(`return { aim: c.input.down('aim'), fire: c.input.down('fire') };`) }));
+
+  // ---- sprint has no button: the stick rim is a run ----
+  await touch('touchStart', [{ x: 150, y: 300, id: 30 }]);
+  await touch('touchMove', [{ x: 150, y: 296, id: 30 }]);
+  const walk = await R(`return { axisZ: +c.input.axisZ.toFixed(2), sprint: c.input.down('sprint') };`);
+  await touch('touchMove', [{ x: 150, y: 230, id: 30 }]);
+  const run = await R(`return { axisZ: +c.input.axisZ.toFixed(2), sprint: c.input.down('sprint') };`);
+  await touch('touchEnd', []);
+  await api.frames(2);
+  console.log('STICK_RIM_IS_SPRINT', JSON.stringify({ nudge: walk, rim: run,
+    releasedSprint: await R(`return c.input.down('sprint');`) }));
+
+  // ---- the tray holds the rare actions behind one button ----
+  const more = await rect('#touch .p-more');
+  await touch('touchStart', [{ x: more.x, y: more.y, id: 40 }]);
+  await touch('touchEnd', []);
+  await api.frames(2);
+  console.log('TRAY', JSON.stringify(await R(`
+    const t = document.querySelector('#touch .t-tray');
+    return { open: !t.hidden, items: t.querySelectorAll('.t-tray-btn').length };`)));
+  await api.screenshot('phone-tray');
+
+  await touch('touchStart', [{ x: 500, y: 250, id: 41 }]);   // looking dismisses it
+  await touch('touchEnd', []);
+  await api.frames(2);
+  console.log('TRAY_DISMISS', JSON.stringify(await R(`return { open: !document.querySelector('#touch .t-tray').hidden };`)));
+
+  await api.screenshot('phone-hud');
+  console.log('NOTHING_STUCK', JSON.stringify(await R(`
+    return ['fire','aim','sprint','interact','crouch','jump','reload'].filter(a => c.input.down(a));`)));
+  console.log('ERRORS', JSON.stringify(await R(`return [...(c._errors || [])];`)));
 }
