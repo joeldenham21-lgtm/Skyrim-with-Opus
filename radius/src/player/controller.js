@@ -104,7 +104,10 @@ export function createPlayer(ctx) {
       target *= gearSpeed * lerp(1, 0.6, overK) * (ctx.damage ? ctx.damage.speedMul : 1);
       api.loadFactor = gearStamina * (1 + overK * 0.8);
       if (over > cap * 0.5) sprinting = false;
-      fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw)); right.set(fwd.z, 0, -fwd.x);
+      // right = forward x up. (fwd.z, 0, -fwd.x) is up x forward — the exact negation — so strafe
+      // ran backwards at every yaw: D moved you left. strafeRoll below reads the same vector to
+      // build `lateral`, so its dot product is unchanged by this and must keep its leading minus.
+      fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw)); right.set(-fwd.z, 0, fwd.x);
       // Clamp to unit length rather than normalising to it: a diagonal on the keys is still capped at
       // full speed, but a half-deflected stick stays half speed instead of being snapped to a run.
       const len = Math.max(1, Math.hypot(mx, mz));

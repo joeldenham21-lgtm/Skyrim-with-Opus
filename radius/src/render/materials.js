@@ -1024,7 +1024,7 @@ export function createMaterials(ctx) {
     const r = { map, normalMap, roughnessMap: orm, metalnessMap: orm };
     repeatCache.set(k, r); return r;
   }
-  function getEnv() { if (envMap === undefined) envMap = ctx.renderer ? makeEnvMap(ctx) : null; if (envMap) track(envMap); return envMap; }
+  function getEnv() { if (envMap === undefined) { envMap = ctx.renderer ? makeEnvMap(ctx) : null; if (envMap) track(envMap); } return envMap; }
 
   const api = {
     kinds: Object.keys(KINDS), cardKinds: CARD_KINDS,

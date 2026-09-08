@@ -33,7 +33,9 @@ function capsuleHit(origin, dir, feet, r, h, maxDist) {
   else {
     const b = 2 * (ox * dir.x + oz * dir.z), c = ox * ox + oz * oz - r * r;
     const disc = b * b - 4 * a * c; if (disc < 0) return -1;
-    t = (-b - Math.sqrt(disc)) / (2 * a); if (t < 0) t = 0;
+    // see enemies/common.js: only clamp a negative root when the origin is inside the cylinder,
+    // or a target behind the shooter reports a hit at distance 0.
+    t = (-b - Math.sqrt(disc)) / (2 * a); if (t < 0) { if (c > 0) return -1; t = 0; }
   }
   if (t > maxDist) return -1;
   const y = origin.y + dir.y * t;

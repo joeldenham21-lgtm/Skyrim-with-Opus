@@ -147,7 +147,11 @@ export class Enemy {
       const b = 2 * (ox * dir.x + oz * dir.z), c = ox * ox + oz * oz - r * r;
       const disc = b * b - 4 * a * c; if (disc < 0) return -1;
       t = (-b - Math.sqrt(disc)) / (2 * a);
-      if (t < 0) t = 0;
+      // Clamping a negative root to 0 is only right when the origin is INSIDE the cylinder
+      // (c < 0). With the target behind the shooter both roots are negative and c > 0, and
+      // the clamp invented a hit at distance 0 — through walls, at eye height, so it scored
+      // as a headshot on whatever stood behind you and beat the real target you aimed at.
+      if (t < 0) { if (c > 0) return -1; t = 0; }
     }
     if (t > maxDist) return -1;
     // the cylinder hit at t; also check the y-range across the segment inside the cylinder

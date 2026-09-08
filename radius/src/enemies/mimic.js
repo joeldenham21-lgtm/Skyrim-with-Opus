@@ -361,7 +361,7 @@ function rayCapsule(o, dir, cx, cz, y0, y1, r, maxD) {
   const ox = o.x - cx, oz = o.z - cz, a = dir.x * dir.x + dir.z * dir.z;
   let t;
   if (a < 1e-9) { if (ox * ox + oz * oz > r * r) return -1; t = 0; }
-  else { const b = 2 * (ox * dir.x + oz * dir.z), c = ox * ox + oz * oz - r * r; const disc = b * b - 4 * a * c; if (disc < 0) return -1; t = (-b - Math.sqrt(disc)) / (2 * a); if (t < 0) t = 0; }
+  else { const b = 2 * (ox * dir.x + oz * dir.z), c = ox * ox + oz * oz - r * r; const disc = b * b - 4 * a * c; if (disc < 0) return -1; t = (-b - Math.sqrt(disc)) / (2 * a); if (t < 0) { if (c > 0) return -1; t = 0; } }
   if (t > maxD) return -1;
   const y = o.y + dir.y * t; if (y >= y0 && y <= y1) return t;
   if (Math.abs(dir.y) > 1e-9) for (const cy of [y0, y1]) { const tt = (cy - o.y) / dir.y; if (tt < 0 || tt > maxD) continue; const x = o.x + dir.x * tt - cx, z = o.z + dir.z * tt - cz; if (x * x + z * z <= r * r) return tt; }
