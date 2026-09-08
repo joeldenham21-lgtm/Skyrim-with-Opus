@@ -31,7 +31,7 @@ import { GLSL_NOISE } from '../render/glsl.js';
 import { fogUniforms } from '../render/fog.js';
 import { hash3 } from '../core/rng.js';
 import { clamp, clamp01, damp, dampAngle, angleDelta, lerp, TAU, DEG } from '../core/math.js';
-import { WEAPONS, AMMO, ARMOR, defaultAmmo, resolveHit, zoneFromHit } from '../data/index.js';
+import { WEAPONS, AMMO, ARMOR, MAGAZINES, defaultAmmo, resolveHit, zoneFromHit } from '../data/index.js';
 import { weaponEffects } from '../player/inventory.js';
 import { rollLoadout, pickClass, dropsFor, roundsInGun, consumeRound, bestSpare, classRank } from './loadout.js';
 import { buildHumanoid } from './charmesh.js';
@@ -46,6 +46,7 @@ const _dir = new THREE.Vector3(), _right = new THREE.Vector3(), _upv = new THREE
 const _pole = new THREE.Vector3(), _axis = new THREE.Vector3(), _upper = new THREE.Vector3(), _elbow = new THREE.Vector3(), _fore = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _so = new THREE.Vector3(), _sd = new THREE.Vector3(), _sp = new THREE.Vector3(), _n = new THREE.Vector3();
+const _bel = new THREE.Vector3(), _aim = new THREE.Vector3(), _post = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 const _e = new THREE.Euler();
 const DOWN = new THREE.Vector3(0, -1, 0);
@@ -637,6 +638,18 @@ function deathsNear(x, z, t, r = 24, within = 14) {
   for (let i = 0; i < DEATHS.length; i++) { const d = DEATHS[i]; if (t - d.t > within || Math.hypot(d.x - x, d.z - z) > r) continue; n++; }
   return n;
 }
+// how long the player has held one spot — the grenade trigger. Squads keep their own; this is for the loners,
+// and it is computed once a frame however many mimics ask.
+const HOLD = { x: 0, z: 0, t: 0, last: -1, frame: -1 };
+function playerHold(ctx) {
+  if (HOLD.frame === ctx.frame) return HOLD.t;
+  HOLD.frame = ctx.frame;
+  const p = ctx.player.position, now = ctx.elapsed;
+  const dt = HOLD.last < 0 ? 0 : Math.min(0.25, now - HOLD.last);
+  HOLD.last = now;
+  if (Math.hypot(p.x - HOLD.x, p.z - HOLD.z) > 2.5) { HOLD.x = p.x; HOLD.z = p.z; HOLD.t = 0; } else HOLD.t += dt;
+  return HOLD.t;
+}
 // scratch for cover scoring; module-level so a pick allocates nothing
 const CAND = []; for (let i = 0; i < 8; i++) CAND.push({ c: null, s: 0 });
 let candN = 0;
@@ -704,6 +717,9 @@ class Mimic extends Enemy {
     this.deathDuration = 2.2; this.ashDone = false; this.piled = false; this.stoppedHit = false;
     // ---- v3 tactical state ----
     this.beliefR = 0;                                   // metres of error on lastSeenPlayer (0 = actually saw you)
+    this.beliefSeed = rng();                            // this mimic's own way of being wrong
+    this.magCap = this.weapon.mag ? (MAGAZINES[this.weapon.mag.id]?.cap || 30) : (this.wdef.internal || 6);
+    this.tgt = new THREE.Vector3(); this.reloadReturn = 'engage';
     this.morale = 1; this.moraleT = 0; this.rallyT = 0; this.calledHelp = false; this.hurtT = -1e9;
     this.peekPos = new THREE.Vector3(); this.posture = 'open';   // open | hunker | peek
     this.postureT = 0; this.coverT = -1e9; this.coverGood = false; this.coverCrouch = false; this.exposed = 1;
@@ -758,26 +774,81 @@ class Mimic extends Enemy {
     }
   }
   get eyeY() { return this.position.y + this.height * 0.9; }
-  // hearing: 12 m for footsteps, 40 m for gunshots (overrides the base ranges)
+
+  // ---- what it believes ----
+  // The mimic's whole model of you is `lastSeenPlayer` plus `beliefR`, the metres it may be wrong by. Only a
+  // sighting sets beliefR to 0; everything else — a shot heard, a radio call, a round in the vest — hands it a
+  // guess. The offset is stable per mimic and per second, so two of them guess two different wrong places and
+  // neither of them walks onto your feet.
+  believe(pos, radius, t, weight = 0.5) {
+    if (!pos) return;
+    if (!this.lastSeenPlayer) this.lastSeenPlayer = new THREE.Vector3();
+    // a sighting in the last second and a bit outranks anybody's guess
+    if (radius > 0.05 && t - this.lastVisT < 1.2) return;
+    if (radius > 0.05 && radius > this.beliefR + 3 && t - this.lastSeenT < 2.5) return;
+    if (radius > 0.05) {
+      const a = (this.beliefSeed + Math.floor(t * 0.7) * 0.317) * TAU;
+      const rr = radius * (0.3 + 0.7 * Math.abs(Math.sin(this.beliefSeed * 37.1 + Math.floor(t * 0.7))));
+      this.lastSeenPlayer.set(pos.x + Math.cos(a) * rr, pos.y, pos.z + Math.sin(a) * rr);
+    } else this.lastSeenPlayer.copy(pos);
+    this.lastSeenT = t; this.beliefR = Math.max(0, radius);
+  }
+  // Hearing. Footsteps carry 14 m; gunfire carries as far as the round was loud (the Director scales its reach
+  // by the shot's noise, so a suppressed weapon is a third of the problem). What it learns is where the NOISE
+  // was, with an error that shrinks along the skill curve — not where you are standing now.
   playerAudibility() {
-    const d = this.distanceToPlayer();
-    const steps = d < 12 ? this.player.noise * (1 - d / 12) : 0;
-    const shots = this.ctx.director?.recentShotAt(this.position, 40) || 0;
-    if (shots > 0.05) { if (!this.lastSeenPlayer) this.lastSeenPlayer = new THREE.Vector3(); this.lastSeenPlayer.copy(this.player.position); this.lastSeenT = this.time; if (this.aware < 0.45) this.aware = 0.45; }
+    const d = this.distanceToPlayer(), t = this.time, s = this.skill;
+    const steps = d < 14 ? this.player.noise * (1 - d / 14) : 0;
+    const dir = this.ctx.director;
+    const shots = dir && dir.nearestShot ? dir.nearestShot(this.position, 55, _bel) : 0;
+    if (shots > 0.05) {
+      this.believe(_bel, s.earErr * (1.15 - shots * 0.55), t, 0.55);
+      if (this.aware < 0.45) this.aware = 0.45;
+    } else if (steps > 0.14) {
+      this.believe(this.player.position, s.earErr * 0.5 * (1.1 - steps * 0.6), t, 0.35);
+    }
     return clamp01(steps * 1.2 + shots * 1.6);
   }
-  // vision with smoke: a cloud between the eyes and the player hides them
+  // Vision. Smoke blocks it. At night your torch is not just extra range for it — a beam swung across a mimic
+  // is a contact, and it knows it has been lit.
   playerVisibility(fovDeg, maxDay) {
     const p = this.player; if (p.dead || p.inBase) return 0;
     const w = this.ctx.world;
     if (w.smokeBlocks && w.smoke && w.smoke.length && w.smokeBlocks(this.eyePos(_v), p.eye)) return 0;
-    return super.playerVisibility(fovDeg, maxDay);
+    let vis = super.playerVisibility(fovDeg, maxDay);
+    const night = this.ctx.time.night;
+    if (vis > 0 && night > 0.3 && this.ctx.state.data.flashlight.on) {
+      const dx = this.position.x - p.eye.x, dz = this.position.z - p.eye.z;
+      const dl = Math.hypot(dx, dz) || 1;
+      const facing = (dx / dl) * p.forward.x + (dz / dl) * p.forward.z;
+      if (facing > 0.80 && dl < 75) { vis = clamp01(vis + (facing - 0.80) * 3.4 * night); this.litT = this.time; }
+    }
+    return vis;
+  }
+  // Awareness integrator. Same contract as the base class, except hearing no longer hands over your position:
+  // playerAudibility has already filed its guess through believe().
+  perceive(dt, opts = {}) {
+    const vis = this.playerVisibility(opts.fov, opts.maxDay);
+    const hear = this.playerAudibility(opts.hearing);
+    const gain = Math.max(vis * (opts.visGain ?? 1.4), hear * (opts.hearGain ?? 1.0));
+    if (gain > 0.02) this.aware = clamp01(this.aware + gain * dt);
+    else this.aware = Math.max(0, this.aware - dt * (opts.decay ?? 0.08));
+    if (vis > 0.05) { this.believe(this.player.position, 0, this.time, 1); this.lastVisT = this.time; }
+    if (this.aware >= 1 && !this.engaged) { this.engaged = true; this.ctx.director?.notify('spotted', { enemy: this }); this.onSpotted?.(); }
+    if (this.aware <= 0.05 && this.engaged) { this.engaged = false; this.ctx.director?.notify('lost', { enemy: this }); }
+    return { vis, hear };
   }
   onSpotted() {
+    const s = this.skill;
     this.sound('mimic_spot', { gain: 0.9, max: 80 });
-    this.cooldown = this.profile.kind === 'sniper' ? 0.4 : 0.9; this.hitsSince = 0; this.repositionT = rng.range(6, 10);
+    // reaction time — the seconds between "there" and the first round. Most of the early game lives here.
+    this.reactT = s.react * rng.range(0.8, 1.25);
+    this.cooldown = this.reactT * (this.profile.kind === 'sniper' ? 1.25 : 1);
+    this.hitsSince = 0; this.repositionT = rng.range(6, 10);
     this.spotted = true; this.radioT = Math.min(this.radioT, 0.6);
-    if (this.squad) this.squad.notify('spotted', this); else this.pickCover(false);
+    this.shareT = this.time + s.share * rng.range(0.7, 1.3);   // the callout is not instant either
+    this.rollBias(); this.posture = 'open';
+    if (this.squad) this.squad.notify('spotted', this); else this.pickCover(this.wantFlank(), { force: true });
     this.setState('engage');
   }
   // ---- armour: real vests and helmets from the catalogue, resolved like the player's ----
@@ -823,12 +894,26 @@ class Mimic extends Enemy {
     if (this.stoppedHit) { this.sound('mimic_hit', { gain: 0.35, rate: 0.7 }); this.rig.flinch = 0.4; }
     else { this.sound('mimic_hit', { gain: 0.8 }); if (this.rig.rig) this.rig.rig.flinch = 1; }
     this.staggerT = this.stoppedHit ? 0.12 : 0.3; this.hitsSince++;
-    if (!this.lastSeenPlayer) this.lastSeenPlayer = new THREE.Vector3(); this.lastSeenPlayer.copy(this.player.position); this.lastVisT = this.time;
-    if (this.alive && this.state !== 'engage' && !this.stalker) this.aware = 1;
+    // Being hit does not tell it where you are. If it cannot see you it works back along the round and takes
+    // THAT with an error — shoot from a hedge at eighty metres and it hunts the hedge, not your boots.
+    const seen = this.time - this.lastVisT < 0.6;
+    if (seen) this.believe(this.player.position, 0, this.time, 1);
+    else {
+      if (info && info.dir) {
+        const dl = Math.hypot(info.dir.x, info.dir.z) || 1;
+        const back = clamp(this.distanceToPlayer(), 8, 70);
+        _bel.set(this.position.x - (info.dir.x / dl) * back, this.player.position.y, this.position.z - (info.dir.z / dl) * back);
+      } else _bel.copy(this.player.position);
+      this.believe(_bel, Math.max(3, this.skill.earErr * 0.75), this.time, 0.9);
+    }
+    this.hurtT = this.time;
+    this.morale = clamp01(this.morale - (this.stoppedHit ? 0.05 : 0.10 + amount / Math.max(40, this.maxHp)));
+    if (this.alive && this.state !== 'engage' && this.state !== 'fallback' && !this.stalker) this.aware = 1;
     if (this.squad) this.squad.notify('hit', this);
     this.rig.rig?.startGlitch(0.6); this.glitchLeft = 0.08; this.rig.setState?.({ hit: 1 });
   }
   onDeath() {
+    noteDeath(this.position.x, this.position.z, this.time);
     this.sound('mimic_death', { gain: 1.0 });
     this.target = null; this.wantLight = false;
     if (this.lightEntry) releaseLight(this.ctx, this.lightEntry);
@@ -901,44 +986,138 @@ class Mimic extends Enemy {
     if (p.distanceTo(this.position) < 3) return this.home.clone();
     return p;
   }
-  // solo cover: best within 25 m with a line of sight to the player. flank: prefer +-30..60 deg around the player
-  pickCover(flank) {
-    const w = this.ctx.world, p = this.player.position;
-    const curA = Math.atan2(this.position.z - p.z, this.position.x - p.x);
-    let best = null, bs = -1e9;
-    _v3.set(p.x, p.y + this.player.eyeHeight, p.z);
+  setTarget(v) { if (v) { this.tgt.copy(v); this.target = this.tgt; } else this.target = null; return this.target; }
+  wantFlank() { return this.profile.close >= 0 && rng.chance(this.skill.flank); }
+
+  // ---- cover ----
+  // Cover is not "a rock near me". A point is worth taking when STANDING on it gives a firing angle and
+  // DROPPING behind it takes that angle away; setupPosture then works out which of the two ways it does that.
+  // Candidates are scored without any rays; only the best few cost one each, and the whole pick draws from the
+  // shared per-frame budget (7 rays), so a squad of six cannot stampede the collision grid.
+  pickCover(flank, opts = {}) {
+    const ctx = this.ctx, w = ctx.world, p = this.player.position, t = this.time;
+    if (t - this.coverT < (opts.force ? 0.9 : 2.4)) return false;
+    if (!losBudget(ctx, 7)) return false;
+    this.coverT = t;
+    const eye = _v3.set(p.x, p.y + this.player.eyeHeight, p.z);
     const hold = this.profile.hold;
-    for (const c of w.coverPoints) {
-      const dm = c.distanceTo(this.position); if (dm > 25 || dm < 1.5) continue;
-      const dp = Math.hypot(c.x - p.x, c.z - p.z); if (dp < Math.max(5, hold[0] * 0.6) || dp > Math.max(45, hold[1])) continue;
-      if (this.cover && c.distanceTo(this.cover) < 2) continue;
-      _v.set(c.x, c.y + 1.6, c.z);
-      if (!w.lineOfSight(_v, _v3)) continue;
+    const near = opts.maxD ?? 26;
+    const lo = Math.max(4, hold[0] * 0.6), hi = Math.max(20, hold[1]);
+    const mid = (hold[0] + Math.min(hi, hold[1])) * 0.5;
+    const curA = Math.atan2(this.position.z - p.z, this.position.x - p.x);
+    candN = 0;
+    const cps = w.coverPoints;
+    for (let i = 0; i < cps.length; i++) {
+      const c = cps[i];
+      const dm = Math.hypot(c.x - this.position.x, c.z - this.position.z); if (dm > near || dm < 1.2) continue;
+      const dp = Math.hypot(c.x - p.x, c.z - p.z); if (dp < lo || dp > hi) continue;
+      if (this.cover && !opts.force && Math.hypot(c.x - this.cover.x, c.z - this.cover.z) < 2) continue;
       const ang = Math.abs(angleDelta(curA, Math.atan2(c.z - p.z, c.x - p.x)));
-      let score = -Math.abs(dp - (hold[0] + hold[1]) * 0.5) * 0.12 - dm * 0.05;
-      if (flank) score += (ang > 30 * DEG && ang < 70 * DEG) ? 2.0 : -ang * 0.5;
-      else score += -ang * 0.3;
-      if (score > bs) { bs = score; best = c; }
+      let s = -Math.abs(dp - mid) * 0.12 - dm * 0.06;
+      if (flank) s += (ang > 28 * DEG && ang < 75 * DEG) ? 2.2 : -ang * 0.6;
+      else s += -ang * 0.35;
+      candPush(c, s);
     }
-    if (best) { if (!this.cover) this.cover = new THREE.Vector3(); this.cover.copy(best); this.target = best.clone(); return true; }
-    const d = clamp(this.distanceToPlayer(), Math.max(9, hold[0]), Math.max(18, hold[1] * 0.7));
-    for (let i = 0; i < 8; i++) {
-      const off = flank ? (rng.chance(0.5) ? 1 : -1) * rng.range(30, 60) * DEG : rng.range(-18, 18) * DEG;
+    if (candN) {
+      candSort();
+      const n = Math.min(candN, 4);
+      for (let i = 0; i < n; i++) {
+        const c = CAND[i].c;
+        if (!w.lineOfSight(_v.set(c.x, c.y + 1.55, c.z), eye)) continue;
+        if (!this.cover) this.cover = new THREE.Vector3();
+        this.cover.copy(c); this.setTarget(c); this.setupPosture(eye);
+        return true;
+      }
+    }
+    return this.improviseCover(flank, eye);
+  }
+  // No cover point works: pick open ground at the range this weapon wants, on the flank if it is minded to.
+  improviseCover(flank, eye) {
+    const w = this.ctx.world, p = this.player.position, hold = this.profile.hold;
+    const curA = Math.atan2(this.position.z - p.z, this.position.x - p.x);
+    const d = clamp(this.distanceToPlayer(), Math.max(7, hold[0]), Math.max(16, hold[1] * 0.7));
+    for (let i = 0; i < 6; i++) {
+      const off = flank ? (rng.chance(0.5) ? 1 : -1) * rng.range(30, 65) * DEG : rng.range(-20, 20) * DEG;
       const a = curA + off + (i > 3 ? rng.range(-1, 1) : 0);
-      const pt = this.walkablePoint(p.x + Math.cos(a) * d, p.z + Math.sin(a) * d, _v);
+      const pt = this.walkablePoint(p.x + Math.cos(a) * d, p.z + Math.sin(a) * d, _v2);
       if (!pt) continue;
-      _v2.set(pt.x, pt.y + 1.6, pt.z);
-      if (!w.lineOfSight(_v2, _v3)) continue;
-      this.cover = null; this.target = pt.clone(); return true;
+      if (!w.lineOfSight(_post.set(pt.x, pt.y + 1.6, pt.z), eye)) continue;
+      this.cover = null; this.coverGood = false; this.posture = 'open'; this.setTarget(pt);
+      return true;
     }
     this.target = null; return false;
   }
-  alertPack() {
+  // How to fight from `this.cover`. Two shapes of cover, both real:
+  //   vertical (a low wall, a bonnet, a berm) — crouching behind it breaks the sightline; it fights down and up.
+  //   lateral  (a corner, a trunk, a truck)   — one shoulder of it is in shadow; it fights in and out.
+  // Costs at most 3 rays and leaves peekPos as the place it stands to shoot, `cover` as the place it hides.
+  setupPosture(eye) {
+    const w = this.ctx.world, c = this.cover, p = this.player.position;
+    this.coverGood = false; this.coverCrouch = false; this.posture = 'open';
+    this.peekPos.copy(c);
+    if (!w.lineOfSight(_v.set(c.x, c.y + 1.02, c.z), eye)) { this.coverGood = true; this.coverCrouch = true; return; }
+    let dx = c.x - p.x, dz = c.z - p.z; const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
+    const px = -dz * 0.9, pz = dx * 0.9;
+    for (let k = 0; k < 2; k++) {
+      const s = k === 0 ? this.flankSide : -this.flankSide;
+      const hx = c.x + px * s, hz = c.z + pz * s;
+      if (!this.walkablePoint(hx, hz, _v2)) continue;
+      if (w.lineOfSight(_v.set(hx, _v2.y + 1.45, hz), eye)) continue;
+      this.peekPos.copy(c); this.cover.copy(_v2);
+      this.coverGood = true; this.coverCrouch = false; return;
+    }
+    // nothing here casts a shadow: it is a firing position, not cover. Stand and trade, and move on sooner.
+    this.repositionT = Math.min(this.repositionT, rng.range(2.5, 4.5));
+  }
+  // The peek cycle: down behind it, up for a burst, down again. Returns whether it may shoot this frame.
+  // A recruit barely bothers (SKILL.peek 0.2) and stands there to be shot; an elite gives you a half second.
+  postureTick(dt) {
+    const s = this.skill;
+    if (!this.cover || !this.coverGood) { if (this.posture !== 'open') { this.posture = 'open'; } this.exposed = damp(this.exposed, 1, 7, dt); return true; }
+    if (Math.hypot(this.position.x - this.cover.x, this.position.z - this.cover.z) > 2.4) { this.posture = 'open'; this.exposed = damp(this.exposed, 1, 7, dt); return true; }
+    if (this.posture === 'open') { this.posture = rng.chance(s.peek) ? 'hunker' : 'peek'; this.postureT = this.posture === 'hunker' ? s.hunker * rng.range(0.6, 1.4) : 0; }
+    if (this.posture === 'hunker') {
+      this.postureT -= dt;
+      this.exposed = damp(this.exposed, 0, 7, dt);
+      if (this.postureT <= 0 && this.roundsLeft() > 0 && !this.dry && this.cooldown <= 0.2) { this.posture = 'peek'; this.postureT = 0; }
+      return false;
+    }
+    this.postureT += dt;
+    this.exposed = damp(this.exposed, 1, 8, dt);
+    const spent = this.burstLeft === 0 && this.cooldown > 0.25;
+    if (this.postureT > 3.6 || (this.postureT > 0.55 && spent) || this.roundsLeft() === 0) { this.posture = 'hunker'; this.postureT = s.hunker * rng.range(0.6, 1.4); }
+    return this.exposed > 0.5;
+  }
+  // Where it wants its feet this frame given the posture. Writes into _post and returns it, or null.
+  posturePoint() {
+    if (!this.cover || !this.coverGood) return null;
+    if (this.posture === 'peek') return _post.copy(this.peekPos);
+    return _post.copy(this.cover);
+  }
+
+  // ---- the radio ----
+  // Call the contact in. The delay and the reach are on the curve: an early mimic shouts to whoever is nearly
+  // on top of it, two and a half seconds late; a late one puts the whole treeline onto you in a third of one.
+  alertPack(mult = 1) {
+    const t = this.time, s = this.skill;
+    const bel = this.lastSeenPlayer; if (!bel) return;
+    const R = s.shareR * mult;
+    this.ctx.director?.notify('contact', { pos: bel, weight: clamp01(0.95 - this.beliefR * 0.03), radius: this.beliefR });
+    if (this.squad) this.squad.notify('spotted', this);
+    let n = 0, side = this.flankSide;
     for (const e of this.ctx.enemies.list) {
       if (e === this || !e.alive || (e.type !== 'mimic' && e.type !== 'seeker') || e.stalker) continue;
-      if (e.position.distanceTo(this.position) > 30) continue;
-      if (e.aware < 0.6) e.aware = 0.6;
-      if (!e.lastSeenPlayer) e.lastSeenPlayer = new THREE.Vector3(); e.lastSeenPlayer.copy(this.player.position); e.lastSeenT = this.time;
+      if (e.position.distanceTo(this.position) > R) continue;
+      if (e.aware < 0.65) e.aware = 0.65;
+      if (e.believe) e.believe(bel, this.beliefR + 2, t, 0.7);
+      else { if (!e.lastSeenPlayer) e.lastSeenPlayer = new THREE.Vector3(); e.lastSeenPlayer.copy(bel); e.lastSeenT = t; }
+      // a loose role for mimics with nobody to give them one: the near one trades, the rest go around
+      if (e.type === 'mimic' && !e.squad && t - e.soloRoleT > 4) {
+        const mine = Math.hypot(this.position.x - bel.x, this.position.z - bel.z);
+        const theirs = Math.hypot(e.position.x - bel.x, e.position.z - bel.z);
+        e.soloRole = theirs > mine + 4 ? 'flank' : 'base'; e.soloRoleT = t; e.flankSide = side; side = -side;
+      }
+      if (++n >= 8) break;
     }
   }
   muzzleWorld(out, dirOut) {
@@ -951,7 +1130,7 @@ class Mimic extends Enemy {
   roundsLeft() { return roundsInGun(this.weapon); }
   spreadDeg(first) {
     const p = this.player;
-    let s = this.baseSpread;
+    let s = this.baseSpread * this.skill.spread;
     if (this.moveSpeed > 0.5) s *= 1.6;
     if (p.moving) s *= p.sprinting ? 1.45 : 1.2;
     if (first && (this.profile.kind === 'semi' || this.profile.kind === 'sniper')) s *= 0.7;
@@ -959,11 +1138,30 @@ class Mimic extends Enemy {
     s += this.burstN * (this.profile.kind === 'mg' ? 0.25 : 0.4);
     return s;
   }
-  fireOne(muzzle, dist, first) {
-    const p = this.player, ctx = this.ctx;
-    _v3.set(p.position.x, p.position.y + p.eyeHeight * 0.62, p.position.z);
-    _dir.subVectors(_v3, muzzle).normalize();
-    const spread = this.spreadDeg(first);
+  // A fresh burst starts from a fresh wrong place. The bias decays over SKILL.settle, so a good mimic walks
+  // rounds onto you inside a second and a recruit empties a magazine a metre to your left and never notices.
+  rollBias() {
+    const b = this.skill.bias * DEG;
+    this.aimBiasY = (Math.random() * 2 - 1) * b;
+    this.aimBiasP = (Math.random() * 2 - 1) * b * 0.55;
+    this.biasAge = 0;
+  }
+  // aimAt: a world point. `wide` adds degrees (suppression sprays). `lead` allows it to lead your velocity.
+  fireOne(muzzle, aimAt, first, wide = 0, lead = false) {
+    const p = this.player, ctx = this.ctx, s = this.skill;
+    _aim.copy(aimAt);
+    if (lead && s.lead > 0.01) {
+      const flight = Math.max(0.05, _aim.distanceTo(muzzle) / 430);
+      _aim.x += p.velocity.x * flight * s.lead; _aim.z += p.velocity.z * flight * s.lead;
+    }
+    _dir.subVectors(_aim, muzzle).normalize();
+    if (this.aimBiasY || this.aimBiasP) {
+      const k = Math.exp(-this.biasAge / Math.max(0.05, s.settle));
+      _right.crossVectors(_dir, UP); if (_right.lengthSq() < 1e-6) _right.set(1, 0, 0); _right.normalize();
+      _upv.crossVectors(_right, _dir);
+      _dir.addScaledVector(_right, Math.tan(this.aimBiasY * k)).addScaledVector(_upv, Math.tan(this.aimBiasP * k)).normalize();
+    }
+    const spread = this.spreadDeg(first) + wide;
     const ammo = this.ammo, range = this.profile.kind === 'sniper' ? 160 : this.profile.kind === 'shotgun' ? 25 : 70;
     if (ctx.ballistics && !ctx.ballistics.isStub) ctx.ballistics.shoot(muzzle, _dir, { source: 'enemy', damage: ammo.damage, ammo, ammoId: this.ammoId, shooter: this, spreadDeg: spread, pellets: ammo.pellets || 1, range, cls: this.wdef.cls, tracer: this.suppressed ? false : undefined, kind: 'bullet', weapon: this.weapon, what: this.cdef.name });
     else for (let i = 0; i < (ammo.pellets || 1); i++) enemyShoot(ctx, this, muzzle, _dir, ammo.damage, spread + (ammo.spread || 0));
@@ -974,6 +1172,21 @@ class Mimic extends Enemy {
     if (this.rig.rig) this.rig.rig.kick = 1; this.rig.setState?.({ hit: 0, kick: 1 });
     this.burstN++;
     this.weapon.dirt = Math.min(1, (this.weapon.dirt || 0) + 0.004);
+  }
+  // Reload discipline. A mimic with any of it does not empty the magazine into a wall and then stand there
+  // working the bolt: it tops up in the lull, down behind the cover or with the sightline broken. A recruit
+  // (SKILL.disc 0.10) almost never does, and running it dry is how you beat one.
+  wantTacticalReload(vis) {
+    if (this.dry || this.reloadPlan || this.burstLeft > 0) return false;
+    const left = this.roundsLeft();
+    if (left === 0) return true;
+    if (left > this.magCap * 0.34) return false;
+    if (!bestSpare(this.loadout) && !(this.wdef.internal && this.loadout.loose > 0)) return false;
+    const safe = (this.posture === 'hunker' && this.exposed < 0.55) || (vis <= 0.02 && this.time - this.lastVisT > 1.2);
+    if (!safe) return false;
+    if (this.time < this.tacReloadT) return false;
+    this.tacReloadT = this.time + 5;
+    return rng.chance(this.skill.disc);
   }
   // reload behind cover: 2.4 s of audible mechanics in which it does not fire (the tell)
   beginReload() {
@@ -992,7 +1205,7 @@ class Mimic extends Enemy {
   }
   reloadTick(dt) {
     const pl = this.reloadPlan; if (!pl) { this.setState('engage'); return; }
-    const t0 = this.reloadT; this.reloadT += dt; const t = this.reloadT;
+    const t0 = this.reloadT; this.reloadT += dt / Math.max(0.4, this.skill.reload); const t = this.reloadT;
     const at = (x) => t0 < x && t >= x;
     const w = this.weapon;
     if (pl.kind === 'mag') {
@@ -1016,7 +1229,12 @@ class Mimic extends Enemy {
       if (pl.done >= pl.n || this.loadout.loose <= 0) { if (t >= pl.n * 0.55 + 0.6) { if (this.wdef.modes[0] === 'pump') this.sound('bolt_close', { gain: 0.6, max: 40 }); w.chamber = w.tube.length ? this.ammoId : null; this.finishReload(); } }
     }
   }
-  finishReload() { this.reloadPlan = null; this.cooldown = rng.range(0.4, 1.0); this.setState(this.orders && this.orders.role === 'ambush' ? 'engage' : 'engage'); }
+  finishReload() {
+    this.reloadPlan = null; this.dry = false;
+    this.cooldown = rng.range(0.3, 0.9) * this.skill.cool; this.rollBias();
+    const back = this.reloadReturn || 'engage'; this.reloadReturn = 'engage';
+    this.setState(back);
+  }
   // the gun's low ready between shots for bolt/pump actions
   cycleAfterShot() {
     const m = this.wdef.modes[0];

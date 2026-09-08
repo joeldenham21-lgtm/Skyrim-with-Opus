@@ -10,7 +10,7 @@
 // factory ones (data/upgrades.js) and `factory: {slot:condition}` remembers what the part they displaced was worth,
 // so pulling an upgrade back off does not launder condition. Both are optional: an old save without them still runs.
 import { def, WEAPONS, MAGAZINES, ARMOR, ITEMS, AMMO, magsFor, weightOf, defaultAmmo } from '../data/index.js';
-import { UPGRADES, SLOT_BY_ID, upgradeFits, slotsFor, slotApplies } from '../data/upgrades.js';
+import { UPGRADES, SLOT_BY_ID, upgradeFits, slotsFor } from '../data/upgrades.js';
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -33,34 +33,117 @@ export function makeWeapon(id, opts = {}) {
 }
 export function makeMag(magId, ammo = null, rounds = 0) { const m = MAGAZINES[magId]; return { uid: nextUid(), id: magId, cal: m.cal, ammo: rounds > 0 ? ammo : null, rounds: Math.min(rounds, m.cap) }; }
 export function makeGear(id, opts = {}) { const d = def(id); const g = { uid: nextUid(), id }; if (d.durability) g.durability = opts.durability ?? d.durability; if (d.battery || d.charge || d.filter) g.charge = opts.charge ?? 100; if (d.uses) g.uses = opts.uses ?? d.uses; return g; }
+// ---- mounts -----------------------------------------------------------------------------------------------------
+// The standards a weapon offers at each slot: its own, plus anything a fitted upgrade part gives (a threaded barrel
+// earns a muzzle), plus anything a rail gives. Rails go on last, so a rail wins a tie.
+export function effMounts(d, rails, upgrades) {
+  const m = Object.assign({}, d.mounts);
+  for (const uid of Object.values(upgrades || {})) { const u = UPGRADES[uid]; if (u && u.gives) Object.assign(m, u.gives); }
+  for (const rid of rails || []) { const r = def(rid); if (r && r.gives) Object.assign(m, r.gives); }
+  return m;
+}
+export const mountsOf = (w) => effMounts(WEAPONS[w.id], w.rails, w.upgrades);
+// does this attachment fit this weapon instance, as it stands right now?
+export function fitsWeapon(a, w) {
+  const d = WEAPONS[w.id]; if (!a || !d) return false;
+  const m = effMounts(d, w.rails, w.upgrades);
+  if (a.slot === 'rail') return a.fits.some((f) => Object.values(m).includes(f) || Object.values(d.mounts).includes(f));
+  const std = m[a.slot];
+  return !!std && std !== 'none' && std !== 'integral' && a.fits.includes(std);
+}
+// anything mounted that no longer has a mount under it comes off: called after a rail or an upgrade changes the mounts
+function pruneAttachments(w) {
+  const d = WEAPONS[w.id]; const dropped = [];
+  const m = effMounts(d, w.rails, w.upgrades);
+  for (const [slot, id] of Object.entries(w.attachments || {})) {
+    const a = def(id); const std = m[slot];
+    if (!a || !std || std === 'none' || !a.fits.includes(std)) { dropped.push(id); delete w.attachments[slot]; }
+  }
+  return dropped;
+}
+
+// ---- attachments ------------------------------------------------------------------------------------------------
 // attach: returns false if it does not fit. Rails go into w.rails; others into w.attachments[slot].
 export function attach(w, attId) {
   const a = def(attId); const d = WEAPONS[w.id]; if (!a || !d || a.kind !== 'attachment') return false;
-  const { attachmentFits } = attachmentFitsLazy();
-  if (!attachmentFits(a, d, w.rails)) return false;
-  if (a.slot === 'rail') { if (w.rails.includes(attId)) return false; w.rails.push(attId); return true; }
-  if (w.attachments[a.slot]) return false;
-  w.attachments[a.slot] = attId; return true;
+  if (!fitsWeapon(a, w)) return false;
+  if (a.slot === 'rail') { if ((w.rails || []).includes(attId)) return false; (w.rails = w.rails || []).push(attId); return true; }
+  if ((w.attachments || {})[a.slot]) return false;
+  (w.attachments = w.attachments || {})[a.slot] = attId; return true;
 }
 export function detach(w, attId) {
   const a = def(attId); if (!a) return false;
-  if (a.slot === 'rail') { const i = w.rails.indexOf(attId); if (i < 0) return false; // removing a rail drops what sat on it
-    w.rails.splice(i, 1); const dropped = []; for (const [slot, id] of Object.entries(w.attachments)) { const att = def(id); const { attachmentFits } = attachmentFitsLazy(); if (!attachmentFits(att, WEAPONS[w.id], w.rails)) { dropped.push(id); delete w.attachments[slot]; } } return { dropped }; }
-  for (const [slot, id] of Object.entries(w.attachments)) if (id === attId) { delete w.attachments[slot]; return true; }
+  if (a.slot === 'rail') {
+    const i = (w.rails || []).indexOf(attId); if (i < 0) return false;   // removing a rail drops what sat on it
+    w.rails.splice(i, 1);
+    return { dropped: pruneAttachments(w) };
+  }
+  for (const [slot, id] of Object.entries(w.attachments || {})) if (id === attId) { delete w.attachments[slot]; return true; }
   return false;
 }
-let _fits = null;
-function attachmentFitsLazy() { if (!_fits) { _fits = { attachmentFits: (a, d, rails) => { const std = a.slot === 'rail' ? null : effMounts(d, rails)[a.slot]; if (a.slot === 'rail') return a.fits.some((f) => Object.values(d.mounts).includes(f)); return !!std && a.fits.includes(std); } }; } return _fits; }
-export function effMounts(d, rails) { const m = Object.assign({}, d.mounts); for (const rid of rails || []) { const r = def(rid); if (r && r.gives) Object.assign(m, r.gives); } return m; }
-// live effects of a weapon's attachments, multiplied together
+
+// ---- upgrade parts ----------------------------------------------------------------------------------------------
+// One part per slot. Fitting a fresh part puts the condition it carries back to 100 %; the condition of the part it
+// displaced is remembered in w.factory, and taking the upgrade off can only bring the weapon back down to that.
+export const upgradeSlotsOf = (w) => slotsFor(WEAPONS[w.id]);
+export const upgradesOf = (w) => { const out = {}; for (const [slot, id] of Object.entries(w.upgrades || {})) { const u = UPGRADES[id]; if (u) out[slot] = u; } return out; };
+export const upgradeIn = (w, slotId) => UPGRADES[(w.upgrades || {})[slotId]] || null;
+export const canFitUpgrade = (w, id) => { const u = UPGRADES[id]; const d = WEAPONS[w.id]; return !!(u && d && upgradeFits(u, d)); };
+// the condition the slot's part is at right now (100 when the slot carries no condition of its own)
+export function upgradeCondition(w, slotId) {
+  const slot = SLOT_BY_ID[slotId]; if (!slot || !slot.restores) return 100;
+  return w.parts?.[slot.restores] ?? 100;
+}
+export function fitUpgrade(w, id) {
+  const u = UPGRADES[id]; const d = WEAPONS[w.id];
+  if (!u || !d || !upgradeFits(u, d)) return false;
+  const slot = SLOT_BY_ID[u.slot];
+  w.upgrades = w.upgrades || {}; w.factory = w.factory || {};
+  const replaced = w.upgrades[u.slot] || null;
+  if (replaced === id) return false;
+  if (slot.restores && !replaced && w.factory[u.slot] == null) w.factory[u.slot] = w.parts?.[slot.restores] ?? 100;
+  w.upgrades[u.slot] = id;
+  if (slot.restores && w.parts) w.parts[slot.restores] = 100;
+  return { ok: true, replaced, dropped: pruneAttachments(w) };
+}
+export function removeUpgrade(w, slotId) {
+  const cur = (w.upgrades || {})[slotId]; if (!cur) return false;
+  const slot = SLOT_BY_ID[slotId];
+  delete w.upgrades[slotId];
+  if (slot && slot.restores && w.parts) {
+    const back = w.factory?.[slotId] ?? 100;
+    w.parts[slot.restores] = Math.min(w.parts[slot.restores] ?? 100, back);
+    if (w.factory) delete w.factory[slotId];
+  }
+  return { ok: true, removed: cur, dropped: pruneAttachments(w) };
+}
+// a throwaway copy of a weapon with one change applied, for the bench's before/after columns. Nothing is mutated.
+export function previewWeapon(w, ch = {}) {
+  const p = Object.assign({}, w);
+  p.parts = Object.assign({}, w.parts || {}, ch.parts || {});
+  p.attachments = Object.assign({}, w.attachments || {}, ch.attachments || {});
+  p.upgrades = Object.assign({}, w.upgrades || {}, ch.upgrades || {});
+  for (const k of Object.keys(p.attachments)) if (p.attachments[k] == null) delete p.attachments[k];
+  for (const k of Object.keys(p.upgrades)) if (p.upgrades[k] == null) delete p.upgrades[k];
+  p.rails = (ch.rails || w.rails || []).slice();
+  if (ch.dirt != null) p.dirt = ch.dirt;
+  // a mount that went away takes its attachment with it, exactly as fitting would
+  const m = effMounts(WEAPONS[w.id], p.rails, p.upgrades);
+  for (const [slot, id] of Object.entries(p.attachments)) { const a = def(id); const std = m[slot]; if (!a || !std || std === 'none' || !a.fits.includes(std)) delete p.attachments[slot]; }
+  return p;
+}
+
+// ---- live effects -----------------------------------------------------------------------------------------------
+// Everything fitted to a weapon, multiplied together: attachments, rails, upgrade parts, then the weapon's own wear.
+const MULT_KEYS = new Set(['zoom', 'adsSpeed', 'recoil', 'moa', 'noise', 'flash', 'wear', 'rpm', 'jam', 'damage']);
 export function weaponEffects(w) {
-  const e = { zoom: 1, reticle: null, adsSpeed: 1, recoil: 1, moa: 1, noise: 1, flash: 1, light: 0, laser: false, ergo: 0, wear: 1, nvOptic: false, prone: false, zoomLow: null };
+  const e = { zoom: 1, reticle: null, adsSpeed: 1, recoil: 1, moa: 1, noise: 1, flash: 1, light: 0, laser: false, ergo: 0, wear: 1, nvOptic: false, prone: false, zoomLow: null, rpm: 1, jam: 1, damage: 1 };
   const d = WEAPONS[w.id];
   if (d.suppressed) { e.noise *= d.suppressed; e.flash *= 0.1; }
-  for (const id of [...Object.values(w.attachments || {}), ...(w.rails || [])]) {
+  for (const id of [...Object.values(w.attachments || {}), ...(w.rails || []), ...Object.values(w.upgrades || {})]) {
     const a = def(id); if (!a || !a.effects) continue;
     for (const [k, v] of Object.entries(a.effects)) {
-      if (k === 'zoom' || k === 'adsSpeed' || k === 'recoil' || k === 'moa' || k === 'noise' || k === 'flash' || k === 'wear') e[k] *= v;
+      if (MULT_KEYS.has(k)) e[k] *= v;
       else if (k === 'ergo') e.ergo += v;
       else if (k === 'light') e.light = Math.max(e.light, v);
       else e[k] = v;
@@ -70,7 +153,32 @@ export function weaponEffects(w) {
   e.moa *= 1 + (1 - (w.parts?.barrel ?? 100) / 100) * 0.9 + (w.dirt || 0) * 0.15;
   return e;
 }
-export function weaponWeight(w) { let kg = weightOf(w.id); for (const id of [...Object.values(w.attachments || {}), ...(w.rails || [])]) kg += weightOf(id); if (w.mag) kg += magWeight(w.mag); kg += (w.tube?.length || 0) * 0.02; return kg; }
+// Derived handling, in the units the bench prints. Every line is the number weapons.js works from, not a proxy:
+// dispersion is d.moa x fx.moa, the stoppage chance is the same polynomial tryFire() rolls against, the time to aim
+// is the exponential the ADS blend uses. `live: false` in HANDLING_STATS marks anything not yet read by weapons.js.
+export function weaponHandling(w) {
+  const d = WEAPONS[w.id]; const e = weaponEffects(w);
+  const barrel = w.parts?.barrel ?? 100, bolt = w.parts?.bolt ?? 100, frame = w.parts?.frame ?? 100, dirt = w.dirt || 0;
+  const ergo01 = clamp01(d.ergo + e.ergo);
+  const adsRate = 11 * e.adsSpeed * lerp(0.75, 1.15, ergo01);
+  const jamBase = 0.18 * dirt * dirt * dirt + 0.12 * (1 - bolt / 100) * (1 - bolt / 100);
+  return {
+    moa: d.moa * e.moa,
+    moaAds: d.moa * e.moa * 0.5,
+    recoil: d.recoil[0] * e.recoil,
+    ads: 3 / Math.max(0.001, adsRate),
+    ergo: ergo01,
+    rpm: d.rpm * e.rpm,
+    jam: jamBase * e.jam,
+    damage: (0.85 + 0.15 * clamp01(barrel / 100)) * e.damage,
+    noise: e.noise,
+    wear: d.wear * e.wear,
+    weight: weaponWeight(w),
+    misfire: frame < 30 ? 0.05 : 0,
+    barrel, bolt, frame, dirt, fx: e,
+  };
+}
+export function weaponWeight(w) { let kg = weightOf(w.id); for (const id of [...Object.values(w.attachments || {}), ...(w.rails || [])]) kg += weightOf(id); for (const id of Object.values(w.upgrades || {})) kg += UPGRADES[id]?.dw || 0; if (w.mag) kg += magWeight(w.mag); kg += (w.tube?.length || 0) * 0.02; return Math.max(0.1, kg); }
 export const magWeight = (m) => weightOf(m.id) + (m.rounds || 0) * (m.ammo ? weightOf(m.ammo) : 0.012);
 
 export function defaultInventory() {

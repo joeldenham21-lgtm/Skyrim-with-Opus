@@ -88,8 +88,10 @@ export function createSquads(ctx) {
     }
     gridLen = cps.length;
   }
-  // score cover near `from`, keep the best six without sorting the field, then test line of sight on those
-  function bestCover(from, maxD, score, needLos, losFrom = 1.5) {
+  // Score cover near `from`, keep the best six without sorting the field, then test line of sight on those.
+  // `losTo` is what the cover has to see (or hide from) — the squad passes the position it *believes* you are
+  // at, so a squad that has lost you takes up firing positions on an empty doorway. Defaults to your eyes.
+  function bestCover(from, maxD, score, needLos, losFrom = 1.5, losTo = null) {
     const cps = ctx.world.coverPoints;
     if (!cps.length) return null;
     if (!grid || gridLen !== cps.length) buildGrid();
@@ -108,10 +110,11 @@ export function createSquads(ctx) {
         }
       }
     }
+    const eye = losTo || _eye.copy(ctx.player.eye);
     for (let i = 0; i < cand.length; i++) {
       const c = cand[i];
       if (needLos === null) return c;
-      if (ctx.world.lineOfSight(_v.set(c.x, c.y + losFrom, c.z), _eye) === needLos) return c;
+      if (ctx.world.lineOfSight(_v.set(c.x, c.y + losFrom, c.z), eye) === needLos) return c;
     }
     return null;
   }
@@ -233,8 +236,8 @@ export function createSquads(ctx) {
       this.roleT = 0; this.file.length = 0;
     }
 
-    enterAlert() { if (this.inCombat) return; this.state = 'alert'; this.combatT = 0; this.roleT = 0.4; this.radioT = Math.min(this.radioT, 1.2); }
-    enterCombat() { this.state = 'combat'; this.combatT = 0; this.roleT = 0.15; this.radioT = 0.3; this.boundT = 0; }
+    enterAlert() { if (this.inCombat) return; this.state = 'alert'; this.combatT = 0; this.roleT = 0.4; this.knowT = lerp(1.6, 0.6, this.skill); this.radioT = Math.min(this.radioT, 1.2); }
+    enterCombat() { this.state = 'combat'; this.combatT = 0; this.roleT = 0.15; this.knowT = lerp(1.6, 0.6, this.skill); this.radioT = 0.3; this.boundT = 0; }
     // Every exit from a fight goes through here. Orders that outlive their state are what pins a mimic in
     // 'engage' forever, so the roster is always cleared, and `hard` also lets the men forget you.
     standDown(hard = false) {
@@ -335,7 +338,7 @@ export function createSquads(ctx) {
         if (this.inCombat && this.centroid.distanceTo(p.position) < 220) this.assignJobs(alive);
       }
       // patrol: only when nothing is happening, and cheaply
-      if (this.state === 'idle') { this.patrolT -= dt; if (this.patrolT <= 0) { this.patrolT = 0.6; this.drivePatrol(); } }
+      if (this.state === 'idle' && this.route) { this.patrolT -= dt; if (this.patrolT <= 0) { this.patrolT = 0.6; if (this.centroid.distanceTo(p.position) < 230) this.drivePatrol(); } }
       // alert with nothing to show for it goes quiet again
       if (this.state === 'alert' && awareMax < 0.25 && t - this.lastKnownT > 30) this.standDown();
 
@@ -369,7 +372,7 @@ export function createSquads(ctx) {
         let s = dp * 0.5 - dm * 0.15;
         if (this.poi) s += (1 - clamp01(Math.hypot(c.x - this.poi.x, c.z - this.poi.z) / (this.poi.r + 30))) * 30 * sk;
         return s;
-      }, false, 1.2);
+      }, false, 1.2, this.aimEye);
       if (c) this.retreat.copy(c);
       else {
         _dir.set(this.centroid.x - A.x, 0, this.centroid.z - A.z);
@@ -401,9 +404,7 @@ export function createSquads(ctx) {
     breakoffTick(dt, alive) {
       this.breakT += dt;
       const clear = this.centroid.distanceTo(this.aim) > 55 || this.centroid.distanceTo(this.retreat) < 8;
-      if ((clear && ctx.elapsed - this.lastKnownT > 8) || this.breakT > 45) { this.standDown(true); return; }
-      if (this.roleT > 1.2) return;
-      this.spreadOnto(this.retreat, 'breakoff', 4);
+      if ((clear && ctx.elapsed - this.lastKnownT > 8) || this.breakT > 45) this.standDown(true);
     }
     // put the squad onto one point without stacking it: each man gets his own slot around it
     spreadOnto(point, job, rad) {
@@ -422,7 +423,7 @@ export function createSquads(ctx) {
     // ---- jobs ----
     assignJobs(alive) {
       const p = ctx.player, A = this.aim, sk = this.skill;
-      if (this.state === 'breakoff') return;
+      if (this.state === 'breakoff') { this.spreadOnto(this.retreat, 'breakoff', 4); return; }
       if (this.state === 'regroup') {
         let arrived = 0;
         for (const m of this.members) if (m.alive && m.position.distanceTo(this.retreat) < 5) arrived++;
@@ -446,7 +447,7 @@ export function createSquads(ctx) {
 
       // leaderless and rattled: no plan, everyone behind the nearest thing, fire only if pressed
       if (this.shaken > 0) {
-        for (const m of members) this.orderShaken(m, m.orders);
+        for (const m of members) if (m.orders) this.orderShaken(m, m.orders);
         return;
       }
 
@@ -457,12 +458,13 @@ export function createSquads(ctx) {
         else if (m.role === 'breacher') jobs.set(m, 'point');
       }
       const free = members.filter((x) => !jobs.has(x));
-      if (!jobs.size && free.length) jobs.set(free.shift(), 'point');            // nearest man takes point
+      let hasPoint = false; for (const j of jobs.values()) if (j === 'point') hasPoint = true;
+      if (!hasPoint && free.length) { jobs.set(free.shift(), 'point'); hasPoint = true; }   // nearest man takes point
       if (n >= 4 && free.length) jobs.set(free.pop(), 'overwatch');              // farthest hangs back and watches
       // flankers: a squad that can spare men sends them round, and sends more as the zone gets deeper
       const wantFlank = n <= 2 ? 0 : Math.min(free.length, sk > 0.55 ? 2 : sk > 0.15 ? 1 : 0);
       for (let i = 0; i < wantFlank; i++) jobs.set(free.pop(), 'flanker');
-      for (const m of free) jobs.set(m, jobs.size ? 'support' : 'point');
+      for (const m of free) jobs.set(m, 'support');
       if (n === 1) jobs.set(members[0], 'point');
 
       // bounding: with two or more men holding or pushing and ground to cross, one element moves while the
@@ -491,7 +493,7 @@ export function createSquads(ctx) {
     // base of fire: cover with a line of sight onto the called position, at the band this man's gun likes
     orderHold(m, o, forward) {
       const A = this.aim, hold = m.profile ? m.profile.hold : [8, 30];
-      o.job = o.job || 'support'; o.role = 'base'; o.fire = true; o.hold = true;
+      o.role = 'base'; o.fire = true; o.hold = true;
       if (m.role === 'sniper') { o.hasTarget = false; return; }   // the marksman keeps his own range
       const near = forward ? Math.max(7, hold[0] * 0.7) : Math.max(10, hold[0]);
       const far = forward ? Math.min(40, Math.max(20, hold[1] * 0.8)) : Math.max(24, Math.min(60, hold[1]));
@@ -502,7 +504,7 @@ export function createSquads(ctx) {
         const dp = Math.hypot(c.x - A.x, c.z - A.z);
         if (dp < near || dp > far || dm < 1.0) return null;
         return -Math.abs(dp - want) * 0.12 - dm * 0.06;
-      }, true);
+      }, true, 1.5, this.aimEye);
       if (c) { o.target.copy(c); o.hasTarget = true; o.at = false; if (!m.cover) m.cover = new THREE.Vector3(); m.cover.copy(c); }
       else o.hasTarget = false;
     }
@@ -529,7 +531,7 @@ export function createSquads(ctx) {
       const A = this.aim;
       o.role = 'watch'; o.fire = false; o.hold = true;
       if (m._dA > 26 && m._dA < 54 && m.cover && m.position.distanceTo(m.cover) < 2) { o.target.copy(m.cover); o.hasTarget = true; o.at = true; return; }
-      const c = bestCover(m.position, 40, (c, dm) => { const dp = Math.hypot(c.x - A.x, c.z - A.z); if (dp < 28 || dp > 52) return null; return -dm * 0.1 - Math.abs(dp - 40) * 0.05; }, true, 1.6)
+      const c = bestCover(m.position, 40, (c, dm) => { const dp = Math.hypot(c.x - A.x, c.z - A.z); if (dp < 28 || dp > 52) return null; return -dm * 0.1 - Math.abs(dp - 40) * 0.05; }, true, 1.6, this.aimEye)
         || bestCover(m.position, 40, (c, dm) => { const dp = Math.hypot(c.x - A.x, c.z - A.z); if (dp < 28 || dp > 52) return null; return -dm * 0.1; }, null);
       if (c) { o.target.copy(c); o.hasTarget = true; o.at = false; if (!m.cover) m.cover = new THREE.Vector3(); m.cover.copy(c); return; }
       _dir.set(m.position.x - A.x, 0, m.position.z - A.z); if (_dir.lengthSq() < 0.5) _dir.set(1, 0, 0); _dir.normalize();
@@ -544,7 +546,7 @@ export function createSquads(ctx) {
         const dp = Math.hypot(c.x - A.x, c.z - A.z);
         if (dp < m._dA - 2) return null;                 // away from it, not toward it
         return -dm * 0.2 + dp * 0.02;
-      }, false, 1.2) || bestCover(m.position, 18, (c, dm) => -dm, null);
+      }, false, 1.2, this.aimEye) || bestCover(m.position, 18, (c, dm) => -dm, null);
       if (c) { o.target.copy(c); o.hasTarget = true; if (!m.cover) m.cover = new THREE.Vector3(); m.cover.copy(c); }
       else o.hasTarget = false;
     }
@@ -565,7 +567,7 @@ export function createSquads(ctx) {
           const dp = Math.hypot(c.x - A.x, c.z - A.z); if (dp < 5 || dp > 28) return null;
           const ca = Math.atan2(c.z - A.z, c.x - A.x);
           return -Math.abs(angleDelta(ca, ta)) * 4 - dm * 0.1;
-        }, true);
+        }, true, 1.5, this.aimEye);
         if (c) { o.target.copy(c); o.hasTarget = true; if (!m.cover) m.cover = new THREE.Vector3(); m.cover.copy(c); o.at = false; }
         else o.hasTarget = false;
         return;

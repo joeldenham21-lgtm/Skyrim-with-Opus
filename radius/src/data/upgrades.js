@@ -227,19 +227,26 @@ export const armourSeconds = (armorDef, from) => Math.round((10 + 24 * Math.max(
 // that the weapon does not actually use. `better` says which direction is an improvement.
 //   key: the field on inventory.weaponHandling(w).  live: false marks a number weapons.js does not read yet.
 // ---------------------------------------------------------------------------------------------------------------
+// `fx` names the weaponEffects key a line depends on, so the sheet can mark anything weapons.js does not read yet.
 export const HANDLING_STATS = [
-  { key: 'moa', label: 'Dispersion', unit: '°', digits: 2, better: 'down', note: 'Cone at the hip. Aiming halves it.' },
-  { key: 'moaAds', label: 'Dispersion, aimed', unit: '°', digits: 2, better: 'down' },
-  { key: 'recoil', label: 'Recoil, vertical', unit: '', digits: 2, better: 'down' },
-  { key: 'ads', label: 'Time to aim', unit: ' s', digits: 2, better: 'down' },
-  { key: 'ergo', label: 'Ergonomics', unit: '', digits: 0, better: 'up', scale: 100 },
-  { key: 'rpm', label: 'Rate of fire', unit: ' rpm', digits: 0, better: 'up' },
-  { key: 'jam', label: 'Stoppage per shot', unit: ' %', digits: 2, better: 'down', scale: 100 },
-  { key: 'damage', label: 'Damage', unit: ' %', digits: 0, better: 'up', scale: 100 },
-  { key: 'noise', label: 'Report', unit: ' %', digits: 0, better: 'down', scale: 100 },
-  { key: 'wear', label: 'Wear per shot', unit: ' %', digits: 3, better: 'down' },
-  { key: 'weight', label: 'Weight', unit: ' kg', digits: 2, better: 'down' },
+  { key: 'moa', label: 'Dispersion', unit: '°', digits: 2, better: 'down', fx: 'moa' },
+  { key: 'moaAds', label: 'Dispersion, aimed', unit: '°', digits: 2, better: 'down', fx: 'moa' },
+  { key: 'recoil', label: 'Recoil, vertical', unit: '', digits: 2, better: 'down', fx: 'recoil' },
+  { key: 'ads', label: 'Time to aim', unit: ' s', digits: 2, better: 'down', fx: 'adsSpeed' },
+  { key: 'ergo', label: 'Ergonomics', unit: '', digits: 0, better: 'up', scale: 100, fx: 'ergo' },
+  { key: 'rpm', label: 'Rate of fire', unit: ' rpm', digits: 0, better: 'up', fx: 'rpm' },
+  { key: 'jam', label: 'Stoppage per shot', unit: ' %', digits: 2, better: 'down', scale: 100, fx: 'jam' },
+  { key: 'damage', label: 'Damage', unit: ' %', digits: 0, better: 'up', scale: 100, fx: 'damage' },
+  { key: 'noise', label: 'Report', unit: ' %', digits: 0, better: 'down', scale: 100, fx: 'noise' },
+  { key: 'wear', label: 'Wear per shot', unit: ' %', digits: 3, better: 'down', fx: 'wear' },
+  { key: 'weight', label: 'Weight', unit: ' kg', digits: 2, better: 'down', fx: null },
 ];
+// Effects keys the weapon state machine does not read yet. The bench daggers any number that leans on one of them
+// and prints the reason under the table, so nothing on the sheet is a promise the game does not keep. weapons.js
+// needs three lines to clear this list (see WORKBENCH notes at the head of ui/panels.js); empty the set when it has
+// them and the daggers go away on their own.
+export const PENDING_FX = new Set(['rpm', 'jam', 'damage']);
+export const isPending = (fxKey, e) => !!fxKey && PENDING_FX.has(fxKey) && !!e && e[fxKey] !== 1;
 // the handful shown on a candidate row, in order of what a player actually decides on
 export const COMPARE_KEYS = ['moa', 'recoil', 'ads', 'rpm', 'jam', 'damage', 'noise', 'ergo', 'weight'];
 
