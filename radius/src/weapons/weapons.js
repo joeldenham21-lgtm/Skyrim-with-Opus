@@ -538,10 +538,14 @@ export function createWeapons(ctx) {
     if (!meleeHeld || !meleeInst) return;
     if (!fromQuick && (state !== 'idle' || busy > 0)) return;
     state = 'melee'; stabHit = false;
-    setStage('stab', 0.6, snd('melee_swing', 'weapon_draw'), 'stab', 0.6, { gain: 0.55, rate: 1.3 });
+    // Swing time and reach come from the weapon: a sledge is slow and long, a shiv fast and short.
+    // A heavier swing also drops its pitch, so the sound matches the weight in the hand.
+    const md = defOf(meleeInst.id);
+    const sw = md?.swing || 0.6;
+    setStage('stab', sw, snd('melee_swing', 'weapon_draw'), 'stab', sw, { gain: 0.55, rate: 1.3 * (0.6 / sw) });
   }
   function meleeHit() {
-    const d = defOf(meleeInst.id), reach = 1.6, dmg = d?.damage || 30;
+    const d = defOf(meleeInst.id), reach = d?.reach || 1.6, dmg = d?.damage || 30;
     ctx.camera.getWorldPosition(_o); ctx.camera.getWorldDirection(_d);
     const eh = ctx.enemies.raycast(_o, _d, reach);
     const wh = ctx.world.raycast(_o, _d, eh ? eh.distance : reach);

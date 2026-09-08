@@ -5,11 +5,11 @@
 import * as THREE from 'three';
 import { ITEMS } from '../player/inventory.js';
 import { clamp } from '../core/math.js';
+import { rankFor, RANKS } from '../data/index.js';
 import { glowTexture } from '../render/textures.js';
 import { paint, place, merge, bodyMaterial, ledMaterial } from './loot.js';
 
 const MAX_ACTIVE = 2;
-const LEVEL_AT = [0, 0, 5000, 15000];        // earned ₽ needed for security level index
 const COLS = 'ABCDEFGHIJKLMNOP';
 // map square: 40 m cells, rows 1..16 south→north reading order (row 1 is the northern edge), columns A..P west→east
 export const square = (x, z) => `${clamp(Math.floor((z + 320) / 40), 0, 15) + 1}-${COLS[clamp(Math.floor((x + 320) / 40), 0, 15)]}`;
@@ -394,10 +394,15 @@ export function createMissions(ctx) {
   // ---- security level ----
   function checkLevel() {
     const d = ctx.state.data;
-    const lvl = d.earned >= LEVEL_AT[3] ? 3 : d.earned >= LEVEL_AT[2] ? 2 : 1;
+    // Clearance had TWO contradictory ladders. This one read money alone, ignored contracts
+    // completed and stopped at 3; ui/panel_terminal.js used rankFor(earned, missions) and went to 5.
+    // Both only ever raise, so the looser rule won: clearance could be bought outright by selling
+    // artifacts, with no contract ever completed. One ladder now, the same one the terminal quotes.
+    const lvl = rankFor(d.earned || 0, missionsData().completed.length);
     if (lvl <= d.securityLevel) return;
     d.securityLevel = lvl;
-    ctx.hud.notify(lvl === 2 ? 'Security level 2 granted. Supply access widened.' : 'Security level 3 granted. Full supply access. Section 61 final contract released.', { code: 'UNPSC · CLEARANCE', ms: 8000 });
+    const grade = RANKS.find((r) => r.rank === lvl);
+    ctx.hud.notify(`Security level ${lvl} granted${grade && grade.title ? ` — ${grade.title}` : ''}. Supply access widened.`, { code: 'UNPSC · CLEARANCE', ms: 8000 });
     ctx.audio.play('ui_stamp', { gain: 0.6 });
     api.generate();
   }

@@ -125,26 +125,31 @@ export function visorMaterial() {
 }
 
 // ---------------------------------------------------------------- surfaces: (roughness, metalness, wear, fabric)
+// There is no environment map on this material, so high metalness has nothing to reflect and reads as black
+// (see ARCHITECTURE, Conventions). Metal here stays a dark dielectric-leaning blend and earns its shine from
+// the edge rub instead, the same compromise weapons/gunmesh.js makes.
 const S = {
   fabric: [0.96, 0.00, 1.00, 1.00],
   fabricStiff: [0.90, 0.00, 0.85, 0.70],
   webbing: [0.94, 0.00, 1.00, 0.85],
   leather: [0.70, 0.02, 0.95, 0.20],
   rubber: [0.86, 0.03, 0.55, 0.00],
-  plate: [0.58, 0.22, 0.80, 0.00],
-  shell: [0.62, 0.18, 0.90, 0.00],
-  steel: [0.44, 0.55, 1.00, 0.00],
-  alloy: [0.38, 0.62, 0.85, 0.00],
+  plate: [0.60, 0.14, 0.80, 0.00],
+  shell: [0.64, 0.10, 0.90, 0.00],
+  steel: [0.46, 0.34, 1.00, 0.00],
+  alloy: [0.40, 0.38, 0.85, 0.00],
   foam: [0.98, 0.00, 0.40, 0.15],
 };
 
 // ---------------------------------------------------------------- families: Soviet olive, modern black, coyote
 const FAM = {
-  sov: { shell: 0x565b3c, shell2: 0x474b31, plate: 0x3b402f, strap: 0x484c33, pouch: 0x50553a, hard: 0x424636, metal: 0x5b5e5c, cover: 0x5e6041, hide: 0x3a2a1c },
-  khk: { shell: 0x6b6446, shell2: 0x585235, plate: 0x413d2d, strap: 0x5b563a, pouch: 0x655e41, hard: 0x4a4634, metal: 0x5b5e5c, cover: 0x726a48, hide: 0x40301f },
-  blk: { shell: 0x2b2c30, shell2: 0x212226, plate: 0x1b1c1f, strap: 0x252629, pouch: 0x2e2f33, hard: 0x232428, metal: 0x55585a, cover: 0x303237, hide: 0x241d17 },
-  coy: { shell: 0x74603f, shell2: 0x5f4e33, plate: 0x463c2b, strap: 0x6a5738, pouch: 0x6f5b3b, hard: 0x4d4230, metal: 0x5b5e5c, cover: 0x7c6845, hide: 0x4a3822 },
-  grn: { shell: 0x3f4a38, shell2: 0x333c2e, plate: 0x2c332a, strap: 0x39422f, pouch: 0x3c4633, hard: 0x333a2c, metal: 0x55585a, cover: 0x45503a, hide: 0x33261a },
+  sov: { helm: 0x505738, shell: 0x565b3c, shell2: 0x474b31, plate: 0x3b402f, strap: 0x484c33, pouch: 0x50553a, hard: 0x424636, metal: 0x74787a, cover: 0x5e6041, hide: 0x3a2a1c },
+  khk: { helm: 0x655e41, shell: 0x6b6446, shell2: 0x585235, plate: 0x413d2d, strap: 0x5b563a, pouch: 0x655e41, hard: 0x4a4634, metal: 0x74787a, cover: 0x726a48, hide: 0x40301f },
+  // The mimic body is albedo 0.02. Black nylon at its true value is invisible on it and the threat read dies,
+  // so the modern family is a charcoal that still reads black next to olive but holds a silhouette against the void.
+  blk: { helm: 0x4a4c53, shell: 0x45474d, shell2: 0x35373c, plate: 0x2a2c31, strap: 0x3b3d43, pouch: 0x4a4c53, hard: 0x303237, metal: 0x64686b, cover: 0x4e5057, hide: 0x342b22 },
+  coy: { helm: 0x6e5c3e, shell: 0x74603f, shell2: 0x5f4e33, plate: 0x463c2b, strap: 0x6a5738, pouch: 0x6f5b3b, hard: 0x4d4230, metal: 0x74787a, cover: 0x7c6845, hide: 0x4a3822 },
+  grn: { helm: 0x47523e, shell: 0x3f4a38, shell2: 0x333c2e, plate: 0x2c332a, strap: 0x39422f, pouch: 0x3c4633, hard: 0x333a2c, metal: 0x6d7174, cover: 0x45503a, hide: 0x33261a },
 };
 
 // =====================================================================================================
@@ -559,7 +564,7 @@ function buildVestGeo(id) {
 // covers the ear. Everything that separates a steel pot from a titanium dome lives in these three numbers.
 const HELM = {
   helm_ssh68: {
-    fam: 'sov', mat: S.steel, col: 'hard', rx: 0.108, ry: 0.132, rz: 0.118, t: 0.007, flare: 0.10, segU: 16, segV: 4,
+    fam: 'sov', mat: S.steel, col: 'helm', rx: 0.108, ry: 0.132, rz: 0.118, t: 0.007, flare: 0.10, segU: 16, segV: 4,
     cut: (a) => 1.74 - 0.32 * Math.cos(a) + 0.28 * Math.abs(Math.sin(a)), brim: 1, liner: 1, strap: 'single', shroud: 0, rails: 0, cover: 0,
   },
   helm_6b7: {
@@ -567,7 +572,7 @@ const HELM = {
     cut: (a) => 1.76 - 0.32 * Math.cos(a) + 0.30 * Math.abs(Math.sin(a)) + 0.08 * Math.max(0, -Math.cos(a)), brim: 0, liner: 1, strap: 'side', shroud: 0, rails: 0, cover: 1, nape: 0.5,
   },
   helm_6b47: {
-    fam: 'khk', mat: S.shell, col: 'hard', rx: 0.102, ry: 0.124, rz: 0.114, t: 0.009, flare: 0, segU: 16, segV: 4,
+    fam: 'khk', mat: S.shell, col: 'helm', rx: 0.102, ry: 0.124, rz: 0.114, t: 0.009, flare: 0, segU: 16, segV: 4,
     cut: (a) => 1.61 - 0.31 * Math.cos(a) + 0.18 * Math.abs(Math.sin(a)), brim: 0, liner: 1, strap: 'four', shroud: 1, rails: 1, cover: 0,
   },
   helm_kiver: {
@@ -575,7 +580,7 @@ const HELM = {
     cut: (a) => 1.80 - 0.36 * Math.cos(a) + 0.30 * Math.abs(Math.sin(a)) + 0.10 * Math.max(0, -Math.cos(a)), brim: 0, liner: 1, strap: 'cup', shroud: 0, rails: 0, cover: 1, nape: 1,
   },
   helm_zsh: {
-    fam: 'blk', mat: S.shell, col: 'hard', rx: 0.114, ry: 0.136, rz: 0.124, t: 0.012, flare: 0, segU: 16, segV: 5,
+    fam: 'blk', mat: S.shell, col: 'helm', rx: 0.114, ry: 0.136, rz: 0.124, t: 0.012, flare: 0, segU: 16, segV: 5,
     cut: (a) => 1.82 - 0.34 * Math.cos(a) + 0.34 * Math.abs(Math.sin(a)), brim: 0, liner: 1, strap: 'cup', shroud: 0, rails: 0, cover: 0, ears: 1, nape: 0.8,
   },
   helm_altyn: {
@@ -585,7 +590,7 @@ const HELM = {
     brim: 0, liner: 1, strap: 'cup', shroud: 0, rails: 0, cover: 0, bolts: 1, nape: 1,
   },
   helm_ach: {
-    fam: 'coy', mat: S.shell, col: 'hard', rx: 0.104, ry: 0.126, rz: 0.116, t: 0.009, flare: 0, segU: 16, segV: 4,
+    fam: 'coy', mat: S.shell, col: 'helm', rx: 0.104, ry: 0.126, rz: 0.116, t: 0.009, flare: 0, segU: 16, segV: 4,
     cut: (a) => 1.63 - 0.30 * Math.cos(a) + 0.16 * Math.abs(Math.sin(a)), brim: 0, liner: 1, strap: 'four', shroud: 1, rails: 0.6, cover: 0, pads: 1,
   },
 };
@@ -1021,7 +1026,7 @@ function publish() {
   const r = typeof globalThis !== 'undefined' ? globalThis.__radius : null;
   if (!r) return;
   published = true;
-  if (!r.gearmesh) r.gearmesh = { buildVest, buildHelmet, buildPack, buildRig, buildMask, buildHeadgear, buildGear, gearBone, setGearGrime, gearMaterial };
+  if (!r.gearmesh) r.gearmesh = { buildVest, buildHelmet, buildPack, buildRig, buildMask, buildHeadgear, buildGear, gearBone, prewarmGear, setGearGrime, gearMaterial };
 }
 function assemble(key, build) {
   publish();
@@ -1092,6 +1097,19 @@ export function buildGear(id) {
     default: return null;
   }
 }
+// Build prototypes ahead of time so the first mimic wearing a new model does not cost a hitch mid-fight.
+// Call it once at load (all vests and helmets is about 25 ms and 3 MB); with no argument it does every piece
+// mimics can roll. Returns how many prototypes it built this call.
+export function prewarmGear(ids = null) {
+  const list = ids || Object.keys(ARMOR).filter((id) => {
+    const k = ARMOR[id].kind;
+    return (k === 'vest' || k === 'helmet') && !ARMOR[id].hidden;
+  });
+  let n = 0;
+  for (const id of list) { if (!CACHE.has(id)) { buildGear(id); n++; } }
+  return n;
+}
+
 // Which bone a piece belongs on, so a caller does not have to know the table.
 export const GEAR_BONE = { vest: 'chest', rig: 'chest', backpack: 'chest', helmet: 'head', mask: 'head', headgear: 'head' };
 export function gearBone(id) { const d = ARMOR[id]; return d ? (GEAR_BONE[d.kind] || 'chest') : null; }

@@ -37,6 +37,16 @@ export const ITEMS = Object.fromEntries([
   I('knife',      { name: 'Knife', kind: 'melee', price: 250, weight: 0.3, stack: 1, damage: 35, desc: 'Quiet. Close.' }),
   I('bayonet',    { name: 'Bayonet 6Kh4', kind: 'melee', price: 500, rank: 2, rarity: 'uncommon', weight: 0.45, stack: 1, damage: 45 }),
   I('machete',    { name: 'Machete', kind: 'melee', price: 900, rank: 3, rarity: 'rare', weight: 0.9, stack: 1, damage: 65 }),
+  // swing = seconds for the stab stage, reach = metres. A sledge is not a knife that hits harder:
+  // it is slower and longer, and the trade is the point.
+  I('shiv',       { name: 'Shiv', kind: 'melee', price: 60, weight: 0.2, stack: 1, damage: 24, swing: 0.42, reach: 1.4, desc: 'Ground down from something else. Quiet.' }),
+  I('kizlyar',    { name: 'Kizlyar DV-2', kind: 'melee', price: 1400, rank: 2, rarity: 'uncommon', weight: 0.35, stack: 1, damage: 55, swing: 0.5, reach: 1.6, desc: 'Issued to somebody once. Holds an edge.' }),
+  I('spade',      { name: 'Sapper spade MPL-50', kind: 'melee', price: 700, weight: 1.9, stack: 1, damage: 74, swing: 0.72, reach: 1.9, desc: 'Sharpened on three sides. Surplus, and there is a lot of it.' }),
+  I('hatchet',    { name: 'Hatchet', kind: 'melee', price: 800, rank: 2, weight: 1.0, stack: 1, damage: 70, swing: 0.68, reach: 1.8, desc: 'For wood. Works on other things.' }),
+  I('wrench',     { name: 'Pipe wrench', kind: 'melee', price: 600, weight: 3.1, stack: 1, damage: 82, swing: 0.86, reach: 1.8, desc: 'Heavy at the wrong end, which is the point.' }),
+  I('crowbar',    { name: 'Crowbar', kind: 'melee', price: 950, rank: 2, weight: 2.4, stack: 1, damage: 80, swing: 0.78, reach: 2.1, desc: 'Opens most things. Closes some.' }),
+  I('fireaxe',    { name: 'Fire axe', kind: 'melee', price: 1600, rank: 3, rarity: 'uncommon', weight: 3.4, stack: 1, damage: 104, swing: 0.95, reach: 2.2, desc: 'Off a wall bracket. The glass was already broken.' }),
+  I('sledge',     { name: 'Sledgehammer', kind: 'melee', price: 1900, rank: 3, rarity: 'uncommon', weight: 6.0, stack: 1, damage: 128, swing: 1.15, reach: 2.0, desc: 'Two hands, one swing, and time to regret it.' }),
   I('lockpick',   { name: 'Lockpicks', kind: 'tool', price: 400, rank: 2, rarity: 'uncommon', weight: 0.1, stack: 5, uses: 3, desc: 'For locked lockers. Three tries.' }),
   // ---- grenades: fuse in seconds, radius in metres, damage at the centre; smoke / flash / fire / light are what is left behind ----
   I('gr_rgd5',    { name: 'RGD-5', kind: 'grenade', price: 500, rank: 2, rarity: 'uncommon', weight: 0.31, stack: 6, fuse: 3.5, radius: 7, damage: 110, desc: 'Offensive. Throw far.' }),

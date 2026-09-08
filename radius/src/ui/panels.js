@@ -105,7 +105,7 @@ export function effectsText(e) {
 }
 const GEAR_SLOT = { vest: 'vest', helmet: 'helmet', backpack: 'backpack', rig: 'rig', headgear: 'headgear', mask: 'mask', melee: 'melee' };
 const PART_ITEM = { barrel: 'part_barrel', bolt: 'part_bolt', frame: 'part_spring' };
-const USE_SOUND = { bandage: 'bandage_use', hemostat: 'bandage_use', medkit: 'medkit_use', medkit_ai2: 'medkit_use', stim: 'stim_use', adrenaline: 'stim_use', morphine: 'stim_use', energy: 'stim_use' };
+const USE_SOUND = { bandage: 'bandage_use', hemostat: 'bandage_use', medkit: 'medkit_use', medkit_ai2: 'medkit_use', stim: 'stim_use', adrenaline: 'stim_use', morphine: 'stim_use', energy: 'stim_use' , tourniquet: 'bandage_use', splint: 'bandage_use', medpouch: 'medkit_use', medkit_surg: 'medkit_use', painkillers: 'stim_use', antirad: 'stim_use'};
 const KEYS = 'Esc close · Tab ↑↓ move · Enter select · ←→ 1–9 tabs';
 const lower = (s) => s.charAt(0).toLowerCase() + s.slice(1);
 

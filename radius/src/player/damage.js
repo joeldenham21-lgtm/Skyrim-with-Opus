@@ -3,7 +3,7 @@
 import { resolveHit, zoneFromHit, def } from '../data/index.js';
 import { clamp01 } from '../core/math.js';
 
-const QUICK_SOUND = { bandage: 'bandage_use', hemostat: 'bandage_use', medkit: 'medkit_use', medkit_ai2: 'medkit_use', stim: 'stim_use', adrenaline: 'stim_use', morphine: 'stim_use', energy: 'stim_use' };
+const QUICK_SOUND = { bandage: 'bandage_use', hemostat: 'bandage_use', medkit: 'medkit_use', medkit_ai2: 'medkit_use', stim: 'stim_use', adrenaline: 'stim_use', morphine: 'stim_use', energy: 'stim_use' , tourniquet: 'bandage_use', splint: 'bandage_use', medpouch: 'medkit_use', medkit_surg: 'medkit_use', painkillers: 'stim_use', antirad: 'stim_use'};
 
 export function createDamage(ctx) {
   const st = { painkiller: 0, steady: 0, speedT: 0, speedMul: 1, staminaRegenT: 0, staminaRegenMul: 1, healQueue: [] };
