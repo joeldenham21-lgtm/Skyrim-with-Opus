@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { fbm2, noise2, ridged2, hash2 } from '../core/rng.js';
 import { clamp01, smoothstep, lerp } from '../core/math.js';
 import { SIZE, HALF, WATER_LEVEL, POIS, ROADS, RAIL, distToPolyline, poi } from './map.js';
-import { GLSL_NOISE } from '../render/glsl.js';
+import { GLSL_NOISE, glslFloat as f } from '../render/glsl.js';
 import { fogUniforms } from '../render/fog.js';
 
 const N = 320;            // cells per side (2 m cells)
@@ -197,7 +197,7 @@ export function createTerrain(ctx) {
       .replace('#include <common>', `#include <common>\n${GLSL_NOISE}\nvarying vec4 vSurf; varying float vWet; varying vec3 vWPos; uniform float uTime; uniform sampler2D uBake;\n#ifdef RADIUS_DETAIL\nuniform sampler2D uDetailNormal; uniform sampler2D uDetailRough;\n#endif`)
       .replace('#include <map_fragment>', /* glsl */`
         vec2 wp = vWPos.xz;
-        vec2 buv = (wp + vec2(${HALF}.0)) / ${SIZE}.0;
+        vec2 buv = (wp + vec2(${f(HALF)})) / ${f(SIZE)};
         vec4 bake = texture2D(uBake, buv);
         // one cheap high-frequency variation on top of the bake keeps the ground alive at arm's length
         float micro = vnoise(wp * 5.3);
@@ -278,9 +278,9 @@ export function createTerrain(ctx) {
           vec2 p = vW.xz;
           float lum = clamp(dot(uHorizon, vec3(0.3, 0.5, 0.2)) * 1.9, 0.04, 1.0);
           // depth below the surface from the height texture (grid covers -HALF..HALF)
-          vec2 huv = (p + vec2(${HALF}.0)) / ${SIZE}.0;
+          vec2 huv = (p + vec2(${f(HALF)})) / ${f(SIZE)};
           float ground = texture2D(uHeight, huv).r;
-          float depth = max(0.0, ${WATER_LEVEL}.0 - ground);
+          float depth = max(0.0, ${f(WATER_LEVEL)} - ground);
           // ripples: two wind-driven layers and a fine chop, stretched along the wind
           vec2 wdir = normalize(uWind);
           vec2 pw = vec2(dot(p, wdir), dot(p, vec2(-wdir.y, wdir.x)));

@@ -22,3 +22,16 @@ vec3 aces(vec3 x){ const float a=2.51, b=0.03, c=2.43, d=0.59, e=0.14; return cl
 vec3 toSRGB(vec3 c){ return mix(12.92*c, 1.055*pow(c, vec3(1.0/2.4))-0.055, step(0.0031308, c)); }
 float luma(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 `;
+
+/**
+ * Format a JS number as a valid GLSL float literal.
+ *
+ * Interpolating a number straight into shader source and appending ".0" only works for
+ * integers: a value that already has a fractional part yields nonsense like "-0.6.0",
+ * which fails to compile with "invalid number" and takes the whole material with it.
+ */
+export const glslFloat = (v) => {
+  if (!Number.isFinite(v)) throw new Error(`glslFloat: ${v} is not a finite number`);
+  const s = String(v);
+  return /[.eE]/.test(s) ? s : `${s}.0`;
+};
