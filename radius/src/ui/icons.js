@@ -9,8 +9,8 @@ export const ICON = {
   reload: '<path d="M20.2 12a8.2 8.2 0 1 1-2.5-5.9"/><path d="M20.4 3v5h-5"/>',
   // an open hand for interact
   use: '<path d="M9.1 11.4V5.3a1.45 1.45 0 0 1 2.9 0v5.3m0-1.3V4.3a1.45 1.45 0 0 1 2.9 0v6.1m0-.9a1.45 1.45 0 0 1 2.9 0v2.2"/><path d="M6.2 12.6V9.7a1.45 1.45 0 0 1 2.9 0v4.1"/><path d="M6.2 12.6c0 4.8 1.7 8.2 5.8 8.2s5.9-2.7 5.9-7.2"/>',
-  crouch: '<path d="M6.8 5.4h10.4"/><path d="M12 8v6.4"/><path d="M8.4 11.2 12 14.8l3.6-3.6"/><path d="M6.8 18.6h10.4"/>',
-  jump: '<path d="M6.8 18.6h10.4"/><path d="M12 16V9.6"/><path d="M8.4 13.2 12 9.6l3.6 3.6"/><path d="M6.8 5.4h10.4"/>',
+  crouch: '<path d="M6.6 7.4 12 12.8l5.4-5.4"/><path d="M6.6 13.6 12 19l5.4-5.4"/>',
+  jump: '<path d="M6.6 16.6 12 11.2l5.4 5.4"/><path d="M6.6 10.4 12 5l5.4 5.4"/>',
   meds: '<rect x="3.4" y="5.4" width="17.2" height="13.2" rx="2.2"/><path d="M12 9v6M9 12h6"/>',
   torch: '<path d="M9.2 3.4h5.6l-.7 3.2H9.9l-.7-3.2Z"/><path d="M9.9 6.6h4.2l.6 3.3v9.9a.8.8 0 0 1-.8.8h-3.8a.8.8 0 0 1-.8-.8V9.9l.6-3.3Z"/><path d="M11.4 13.2h1.2"/>',
   probe: '<path d="M3.2 19c3.8-9.2 9.8-13 17.2-13.8"/><circle cx="18.4" cy="7" r="2.2" fill="currentColor" stroke="none"/><path d="M3 19.2h3.2"/>',

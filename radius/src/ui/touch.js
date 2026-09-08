@@ -77,6 +77,7 @@ export function createTouch(ctx) {
   const knob = root.querySelector('.t-knob');
   const tray = root.querySelector('.t-tray');
   const moreBtn = root.querySelector('[data-tray]');
+  const medsPad = root.querySelector('.p-meds');
 
   const pointers = new Map();   // pointerId -> { kind, ... }
   const held = new Set();       // actions currently held by a finger
@@ -223,6 +224,15 @@ export function createTouch(ctx) {
     update() {
       if (!api.enabled) return;
       root.style.setProperty('--touch-scale', String(scale()));
+      // The quick-slot bar is hidden on touch (it sat across the middle of a phone screen), so the
+      // meds pad carries the count itself rather than losing it.
+      if (medsPad) {
+        const id = ctx.inventory?.quick?.[0];
+        const n = id ? ctx.inventory.count(id) : 0;
+        const label = n > 0 ? String(n) : '';
+        if (medsPad.dataset.n !== label) medsPad.dataset.n = label;
+        medsPad.classList.toggle('spent', n === 0);
+      }
       // visible only while actually playing: panels and menus are DOM and take real taps
       const want = ctx.mode === 'playing' && !(ctx.panels && ctx.panels.isOpen);
       if (want !== shown) {

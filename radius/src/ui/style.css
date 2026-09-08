@@ -242,3 +242,18 @@ body.portrait #rotate { display: flex; }
   .title-card h1.big { font-size: 40px; }
   .title-card .ctl-list { display: none; }
 }
+
+/* the quick-slot bar is a desktop readout: four 64px cells landed across the middle of a phone
+   screen. On touch the meds pad carries the count instead. */
+#ui.touch #quick { display: none; }
+#touch .p-meds { position: absolute; }
+#touch .p-meds::after {
+  content: attr(data-n); position: absolute; right: -2px; top: -2px;
+  min-width: calc(15px * var(--touch-scale)); height: calc(15px * var(--touch-scale));
+  padding: 0 calc(3px * var(--touch-scale)); border-radius: calc(8px * var(--touch-scale));
+  background: rgba(20, 19, 17, 0.9); border: 1px solid rgba(162, 59, 42, 0.6); color: var(--paper);
+  font-family: var(--mono); font-size: calc(9px * var(--touch-scale)); line-height: calc(14px * var(--touch-scale));
+  text-align: center;
+}
+#touch .p-meds[data-n=""]::after { display: none; }
+#touch .p-meds.spent { opacity: 0.42; }
