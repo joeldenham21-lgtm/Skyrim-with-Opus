@@ -54,14 +54,16 @@ export default async function (page, api) {
 
   // ---- fire button: a held pad must actually put a round downrange ----
   const fireBtn = await rect('#touch .b-fire');
-  const ammo0 = await R(`const w = c.weapons.current; return w ? w.chamber + (w.mags[w.magIndex]?.length ?? 0) : -1;`);
+  // a weapon instance has `mag` (one object) and `tube` (an array) — there is no `mags`
+  const rounds = `const w = c.weapons.current; return w ? ((w.chamber ? 1 : 0) + (w.mag ? w.mag.rounds : 0) + (w.tube ? w.tube.length : 0)) : -1;`;
+  const ammo0 = await R(rounds);
   if (fireBtn) {
     await touch('touchStart', [{ x: fireBtn.x, y: fireBtn.y, id: 4 }]);
     await api.frames(3);
     await touch('touchEnd', []);
     await api.frames(3);
   }
-  const ammo1 = await R(`const w = c.weapons.current; return w ? w.chamber + (w.mags[w.magIndex]?.length ?? 0) : -1;`);
+  const ammo1 = await R(rounds);
   console.log('FIRE', JSON.stringify({ btn: !!fireBtn, ammoBefore: ammo0, ammoAfter: ammo1, fired: ammo0 > ammo1 }));
 
   // ---- a screen button opens its panel, and the controls get out of the way ----
