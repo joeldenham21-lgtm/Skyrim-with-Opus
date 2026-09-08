@@ -50,7 +50,7 @@ export const DROPS = {
 // drops: pocket litter, each rolled separately. accuracy: cone multiplier (lower is better).
 export const MIMIC_CLASSES = {
   recruit: {
-    name: 'Mimic', hp: 80, accuracy: 1.25, bare: 1.4, mags: 1, grenades: 0.05,
+    name: 'Mimic', hp: 80, accuracy: 1.25, bare: 1.4, mags: 2, grenades: 0.05,
     weapons: ['pm', 'tt', 'toz', 'obrez', 'sks', 'mosin', 'ppsh', 'kedr', 'akm'],
     armor: ['vest_paca', 'vest_6b2'], helmet: ['helm_ssh68'], kit: ['rig_belt', 'pack_tortilla'],
     attachments: { light_klesch: 0.08 },

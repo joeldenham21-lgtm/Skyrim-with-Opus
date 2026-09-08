@@ -45,9 +45,9 @@ export const ITEMS = Object.fromEntries([
   I('gr_m67',     { name: 'M67', kind: 'grenade', price: 800, rank: 3, rarity: 'rare', weight: 0.4, stack: 6, fuse: 4.0, radius: 9, damage: 130 }),
   I('gr_flash',   { name: 'Zarya-2 flashbang', kind: 'grenade', price: 450, rank: 2, rarity: 'uncommon', weight: 0.2, stack: 6, fuse: 2.0, radius: 12, damage: 0, flash: true, desc: 'Blinds entities. And you, if you look.' }),
   I('gr_smoke',   { name: 'RDG-2 smoke', kind: 'grenade', price: 300, rank: 1, rarity: 'common', weight: 0.5, stack: 6, fuse: 2.0, radius: 8, damage: 0, smoke: 25, desc: 'Twenty-five seconds of nothing to see.' }),
-  I('gr_molotov', { name: 'Molotov', kind: 'grenade', price: 160, rank: 1, rarity: 'common', weight: 0.7, stack: 6, fuse: 0, radius: 4, damage: 25, impact: true, fire: [22, 14], desc: 'A bottle, a rag, a light. Breaks where it lands and stays lit.' }),
+  I('gr_molotov', { name: 'Molotov', kind: 'grenade', price: 160, rank: 1, rarity: 'common', weight: 0.7, stack: 6, fuse: 2.5, radius: 4, damage: 25, impact: true, fire: [22, 14], desc: 'A bottle, a rag, a light. Breaks where it lands and stays lit.' }),
   I('gr_thermite', { name: 'ZMG-1 incendiary', kind: 'grenade', price: 950, rank: 3, rarity: 'rare', weight: 0.5, stack: 4, fuse: 2.5, radius: 6, damage: 40, fire: [30, 22], desc: 'Thermite. Thirty seconds of white, and the ground keeps it.' }),
-  I('gr_flare',   { name: 'Signal flare', kind: 'grenade', price: 90, rank: 1, rarity: 'common', weight: 0.2, stack: 8, fuse: 0.5, radius: 0, damage: 0, impact: true, light: [70, 26], desc: 'Seventy seconds of red light you did not have to hold.' }),
+  I('gr_flare',   { name: 'Signal flare', kind: 'grenade', price: 90, rank: 1, rarity: 'common', weight: 0.2, stack: 8, fuse: 1.5, radius: 9, damage: 0, impact: true, light: [70, 26], desc: 'Seventy seconds of red light you did not have to hold.' }),
   // ---- weapon parts (repair to 100 % at the workbench) ----
   I('part_barrel',   { name: 'Replacement barrel', kind: 'part', part: 'barrel', price: 1200, rank: 2, rarity: 'uncommon', weight: 0.9, stack: 3 }),
   I('part_bolt',     { name: 'Bolt group', kind: 'part', part: 'bolt', price: 800, rank: 2, rarity: 'uncommon', weight: 0.5, stack: 3 }),

@@ -43,7 +43,7 @@ export function shopItems(rank) {
   return catalogue().filter((d) => !d.hidden && (d.rank || 1) <= rank && (d.price || 0) > 0 && d.kind !== 'mission' && d.kind !== 'key' && d.kind !== 'artifact');
 }
 // What is stocked follows what is issued. A rifle on the clearance 1 shelf with its rounds behind clearance 2
-// is not a choice: the obrez and the Mosin both took 7.62x54R, and the PPSh outranked its own magazine. Pull
+// is not a choice: the obrez and the Mosin both took 7.62×54R, and the PPSh outranked its own magazine. Pull
 // each calibre's plain load, and every weapon's issue magazine, down to the clearance of the earliest weapon
 // that takes it. Nothing is ever pushed up, and the specialist loads (AP, sniper, subsonic) keep their grade.
 (function stockFollowsIssue() {
@@ -57,7 +57,7 @@ export function shopItems(rank) {
   for (const cal in first) { const plain = AMMO[defaultAmmo(cal)]; if (plain && (plain.rank || 1) > first[cal]) plain.rank = first[cal]; }
 })();
 // Security clearance thresholds by money earned (rank 1..5) and the missions completed needed. A contract at
-// clearance 1 pays 1,200 to 2,000 P, so grade 2 is two contracts' work; the ladder stretches from there.
+// clearance 1 pays 1,200 to 2,000 ₽, so grade 2 is two contracts' work; the ladder stretches from there.
 export const RANKS = [
   { rank: 1, earned: 0, missions: 0, title: 'Explorer, provisional' },
   { rank: 2, earned: 3500, missions: 2, title: 'Explorer' },
