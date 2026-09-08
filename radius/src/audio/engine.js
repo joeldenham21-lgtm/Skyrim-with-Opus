@@ -38,7 +38,12 @@ export function createAudio(ctxGame) {
         const t = i / len;
         const env = Math.pow(1 - t, decay * 2.2) * (i < 200 ? i / 200 : 1);
         const w = (Math.random() * 2 - 1);
-        lp += (w - lp) * (0.35 - 0.3 * t * tone);   // darkening lowpass
+        // Darkening lowpass. The coefficient must stay inside (0, 1]: at tone 1.3 the raw
+        // expression turns negative at t≈0.9, which puts the one-pole's pole outside the unit
+        // circle and makes the tail grow exponentially — it overflowed to ±Infinity 2.13s into a
+        // 2.2s buffer, and a convolver fed Infinity poisons every bus downstream of it.
+        const k = Math.max(0.02, 0.35 - 0.3 * t * tone);
+        lp += (w - lp) * k;
         d[i] = lp * env * (0.8 + 0.2 * Math.sin(i * 0.0007 + ch));
       }
     }
@@ -109,8 +114,14 @@ export function createAudio(ctxGame) {
       if (!ac || ac.state !== 'running' || muted) return null;
       const fn = gens.get(name);
       if (!fn) { if (!missing.has(name)) { missing.add(name); } return null; }
-      // distance culling for positional one-shots
-      if (opts.pos && opts.pos.distanceTo(listenerPos) > (opts.max ?? 250)) return null;
+      // Distance culling for positional one-shots. Accept any {x,y,z}: callers pass map anchors
+      // and plain literals as well as Vector3s, and requiring .distanceTo turned a missed sound
+      // into a thrown TypeError that took the rest of the caller's update with it.
+      if (opts.pos) {
+        const px = opts.pos.x || 0, py = opts.pos.y || 0, pz = opts.pos.z || 0;
+        const dx = px - listenerPos.x, dy = py - listenerPos.y, dz = pz - listenerPos.z;
+        if (Math.sqrt(dx * dx + dy * dy + dz * dz) > (opts.max ?? 250)) return null;
+      }
       try { const o = api.out(opts); const h = fn(api, o.node, opts) || {}; h.out = o; return h; } catch (e) { console.error('sfx ' + name, e); return null; }
     },
     // continuous. Loop generators: fn(audio, out, opts) -> { stop(fade), set(k, v), update?(dt) }

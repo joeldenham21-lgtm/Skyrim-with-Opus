@@ -227,7 +227,15 @@ const game = {
     game.start(false);
     ctx.hud.notify('Explorer 61 recovered at the perimeter. Kit reissued at cost. Contract reinstated.', { code: 'UNPSC · INCIDENT 61-' + ctx.state.data.stats.deaths, ms: 8000 });
   },
-  toTitle() { ctx.mode = 'title'; ctx.input.enabled = false; ctx.input.unlock(); ctx.hud.setGameVisible(false); ctx.menus.show('title'); },
+  toTitle() {
+    ctx.mode = 'title'; ctx.input.enabled = false; ctx.input.unlock(); ctx.hud.setGameVisible(false);
+    // Leaving a run had no audio teardown: every entity and ambience loop kept playing under the
+    // title, and the master lowpass stayed wherever the last mode left it — 0.25 from pause, 0.15
+    // from death — so the whole game sounded muffled until the page was reloaded.
+    ctx.audio.setMuffle(1); ctx.audio.stopAll(0.4);
+    ctx.music.stop?.(); ctx.ambience.stop?.();
+    ctx.menus.show('title');
+  },
 };
 ctx.game = game;
 

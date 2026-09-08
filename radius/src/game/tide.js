@@ -3,6 +3,16 @@ import { clamp01, smoothstep } from '../core/math.js';
 
 export function createTide(ctx) {
   let phase = 'idle', t = 0, sirenT = 0;
+  // map.BASE is a plain { x, z, yaw } anchor with no height, so the siren needs a real world
+  // point to pan from. Resolved once, lazily, because the terrain is not built at module time.
+  let _sirenPos = null;
+  const sirenPos = () => {
+    if (!_sirenPos) {
+      const B = ctx.world.map.BASE;
+      _sirenPos = new ctx.THREE.Vector3(B.x, ctx.world.getHeight(B.x, B.z) + 6, B.z);
+    }
+    return _sirenPos;
+  };
   const api = {
     get phase() { return phase; }, get progress() { return t; },
     // called by time when the countdown crosses thresholds
@@ -30,7 +40,7 @@ export function createTide(ctx) {
       const pre = tideS > 0 ? clamp01(1 - tideS / 600) : 1;
       if (phase === 'idle') {
         ctx.sky.tideBase = pre * pre * 0.45;
-        if (tideS < 3600 && !ctx.player.inBase) { sirenT -= dt; if (sirenT <= 0) { sirenT = tideS < 600 ? 6 : 18; ctx.audio.play('siren', { pos: ctx.world.map.BASE, gain: 0.7, max: 900, ref: 60, rolloff: 0.6 }); } }
+        if (tideS < 3600 && !ctx.player.inBase) { sirenT -= dt; if (sirenT <= 0) { sirenT = tideS < 600 ? 6 : 18; ctx.audio.play('siren', { pos: sirenPos(), gain: 0.7, max: 900, ref: 60, rolloff: 0.6 }); } }
         if (tideS <= 0) api.arrive();
       } else if (phase === 'rising') {
         t += dt / 6;

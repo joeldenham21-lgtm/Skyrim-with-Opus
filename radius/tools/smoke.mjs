@@ -8,6 +8,7 @@
 //   node tools/smoke.mjs --w 1280 --h 720
 //   node tools/smoke.mjs --full                # production render settings (default is a fast headless mode: no MSAA, 1024 shadows)
 //   node tools/smoke.mjs --phone               # 844x390 handset viewport, touch events, on-screen controls forced on
+//   node tools/smoke.mjs --audio               # leave the browser unmuted so audio output can be measured
 //
 // Inside the page, window.__radius exposes the debug API (see ARCHITECTURE.md):
 //   __radius.ctx, __radius.start(), __radius.teleport(x,z), __radius.look(yaw,pitch),
@@ -50,6 +51,7 @@ const scenarioPath = opt('--scenario', null);
 const prebuilt = opt('--html', null);   // run an existing bundle instead of building
 const fast = !args.includes('--full');   // --full: production render settings (MSAA, full shadow map, device pixel ratio)
 const phone = args.includes('--phone');  // --phone: handset viewport with touch events and the on-screen controls forced on
+const audio = args.includes('--audio');  // --audio: do not mute the browser, so output can actually be measured
 mkdirSync(outDir, { recursive: true });
 
 const html = prebuilt ? resolve(prebuilt) : resolve(outDir, 'game.html');
@@ -61,7 +63,7 @@ if (!prebuilt) {
 
 const browser = await chromium.launch({
   args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-webgl',
-         '--autoplay-policy=no-user-gesture-required', '--mute-audio'],
+         '--autoplay-policy=no-user-gesture-required', ...(audio ? [] : ['--mute-audio'])],
 });
 const page = phone
   // a handset held in landscape: touch events, mobile UA hints, and a 3x display
