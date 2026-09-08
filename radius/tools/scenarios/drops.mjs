@@ -6,9 +6,11 @@ export default async function (page, api) {
   await api.start();
   await api.frames(3);
 
+  // NB: piles live in loot.js's private `objects` array as type 'pile'; there is no loot.piles.
+  // markers() is the only public enumeration, and reports piles by their markerKind.
   console.log('LOOT_API', JSON.stringify(await R(`
     return { spawnPile: typeof c.loot.spawnPile, dropItem: typeof c.loot.dropItem,
-             markers: typeof c.loot.markers, piles: (c.loot.piles || []).length };`)));
+             markers: typeof c.loot.markers, pilesNow: c.loot.markers().filter(m => m.kind !== 'container').length };`)));
 
   // put a mimic in front of the player, in the open, and see what it is carrying
   await R(`r.teleport(0, 250); r.setTime(11); c.player.setLook(Math.PI, 0);`);
@@ -24,24 +26,23 @@ export default async function (page, api) {
   await api.frames(3);
 
   // kill it outright and let the death animation run
-  const before = await R(`return { piles: (c.loot.piles || []).length, alive: c.enemies.list.filter(e => e.alive).length };`);
+  const before = await R(`return { piles: c.loot.markers().filter(m => m.kind !== 'container').length, alive: c.enemies.list.filter(e => e.alive).length };`);
   await R(`const e = c.enemies.list.find(x => x.alive && x.type === 'mimic'); if (e) e.damage(9999, { kind: 'bullet', source: 'player' });`);
   await api.frames(10);
   await api.wait(2500);
   await api.frames(10);
   const after = await R(`
-    const piles = c.loot.piles || [];
+    const piles = c.loot.markers().filter(m => m.kind !== 'container');
     const p = piles[piles.length - 1];
     return { pilesBefore: ${before.piles}, pilesAfter: piles.length,
              alive: c.enemies.list.filter(e => e.alive).length,
-             pile: p ? { kind: p.kind, name: p.name, entries: (p.entries || []).length,
-                         contents: (p.entries || []).map(e => (e.weapon && (e.weapon.id || e.weapon)) || e.item || e.ammo || e.gear || JSON.stringify(e).slice(0,40)) } : null };`);
+             newest: p || null };`);
   console.log('AFTER_KILL', JSON.stringify(after, null, 1));
 
   // walk onto the body and check it offers an interaction
-  if (after.pile) {
-    await R(`const piles = c.loot.piles || []; const p = piles[piles.length - 1];
-      if (p && p.position) r.teleport(p.position.x, p.position.z + 1.2);`);
+  if (after.newest) {
+    await R(`const p = c.loot.markers().filter(m => m.kind !== 'container').pop();
+      if (p) r.teleport(p.x, p.z + 1.1);`);
     await api.frames(4);
     console.log('PROMPT_ON_BODY', JSON.stringify(await R(`
       return { interactTarget: !!(c.interact && c.interact.current),
