@@ -4,12 +4,18 @@ const I = (id, o) => [id, Object.assign({ id, rank: 1, rarity: 'common', weight:
 export const ITEMS = Object.fromEntries([
   // ---- medical ----
   I('bandage',    { name: 'Bandage', kind: 'med', price: 60, weight: 0.05, use: 3.0, effect: { stopBleed: true, heal: 10 }, desc: 'Stops bleeding. +10.' }),
+  I('tourniquet', { name: 'Tourniquet', kind: 'med', price: 110, weight: 0.06, use: 1.4, effect: { stopBleed: true }, desc: 'Windlass. Twist until it stops and the arm goes cold.' }),
   I('hemostat',   { name: 'Hemostatic', kind: 'med', price: 140, rank: 2, rarity: 'uncommon', weight: 0.05, use: 1.2, effect: { stopBleed: true, heal: 5 }, desc: 'Celox. Stops bleeding at once.' }),
+  I('splint',     { name: 'Splint', kind: 'med', price: 90, weight: 0.25, use: 6.0, effect: { heal: 12, staminaRegen: [180, 1.35], fracture: true }, desc: 'Aluminium and tape. The leg carries you three minutes further.' }),
+  I('medpouch',   { name: 'First-aid pouch', kind: 'med', price: 150, weight: 0.2, use: 4.0, effect: { healOver: [24, 6], stopBleed: true }, desc: 'Green canvas, half a roll of gauze. +24.' }),
   I('medkit',     { name: 'IFAK', kind: 'med', price: 320, weight: 0.4, use: 5.0, effect: { healOver: [45, 8], stopBleed: true }, desc: '+45 over eight seconds. Stops bleeding.' }),
   I('medkit_ai2', { name: 'AI-2 field kit', kind: 'med', price: 720, rank: 2, rarity: 'uncommon', weight: 0.6, use: 6.0, effect: { healOver: [80, 12], stopBleed: true, cure: true }, desc: 'The orange box. +80 over twelve seconds.' }),
+  I('medkit_surg', { name: 'Surgical kit', kind: 'med', price: 1500, rank: 3, rarity: 'rare', weight: 1.1, stack: 3, use: 9.0, effect: { healOver: [140, 16], stopBleed: true, cure: true, painkiller: 45, fracture: true }, desc: 'Sutures, clamps, and time you may not have. +140.' }),
+  I('painkillers', { name: 'Painkillers', kind: 'med', price: 80, weight: 0.03, use: 1.6, effect: { painkiller: 60, heal: 4 }, desc: 'Two tablets, dry. A minute of not minding.' }),
   I('morphine',   { name: 'Morphine', kind: 'med', price: 260, rank: 2, rarity: 'uncommon', weight: 0.05, use: 1.5, effect: { painkiller: 90, heal: 5 }, desc: 'Ninety seconds without the edges. No blur, no shake.' }),
   I('stim',       { name: 'Stimulant', kind: 'med', price: 140, weight: 0.05, use: 1.2, effect: { stamina: 100, heal: 5 }, desc: 'Stamina restored. +5.' }),
   I('adrenaline', { name: 'Adrenaline', kind: 'med', price: 360, rank: 3, rarity: 'rare', weight: 0.05, use: 0.8, effect: { stamina: 100, speedFor: [30, 1.15], heal: 0 }, desc: 'Thirty seconds faster than you should be.' }),
+  I('antirad',    { name: 'Radioprotector RS-1', kind: 'med', price: 220, rank: 2, rarity: 'uncommon', weight: 0.05, stack: 6, use: 2.0, effect: { healOver: [30, 24], cure: true, rads: -60 }, desc: 'Chalky. For the burn and for what follows it.' }),
   // ---- food and drink: slow stamina regeneration and small healing ----
   I('water',      { name: 'Water, canteen', kind: 'food', price: 40, weight: 0.5, use: 2.0, effect: { staminaRegen: [120, 1.5], heal: 0 }, desc: 'Two minutes of better wind.' }),
   I('energy',     { name: 'Energy drink', kind: 'food', price: 120, rank: 2, weight: 0.3, use: 1.5, effect: { staminaRegen: [180, 2.0], stamina: 40 } }),
@@ -32,13 +38,16 @@ export const ITEMS = Object.fromEntries([
   I('bayonet',    { name: 'Bayonet 6Kh4', kind: 'melee', price: 500, rank: 2, rarity: 'uncommon', weight: 0.45, stack: 1, damage: 45 }),
   I('machete',    { name: 'Machete', kind: 'melee', price: 900, rank: 3, rarity: 'rare', weight: 0.9, stack: 1, damage: 65 }),
   I('lockpick',   { name: 'Lockpicks', kind: 'tool', price: 400, rank: 2, rarity: 'uncommon', weight: 0.1, stack: 5, uses: 3, desc: 'For locked lockers. Three tries.' }),
-  // ---- grenades ----
+  // ---- grenades: fuse in seconds, radius in metres, damage at the centre; smoke / flash / fire / light are what is left behind ----
   I('gr_rgd5',    { name: 'RGD-5', kind: 'grenade', price: 500, rank: 2, rarity: 'uncommon', weight: 0.31, stack: 6, fuse: 3.5, radius: 7, damage: 110, desc: 'Offensive. Throw far.' }),
   I('gr_f1',      { name: 'F-1', kind: 'grenade', price: 700, rank: 2, rarity: 'uncommon', weight: 0.6, stack: 6, fuse: 3.8, radius: 10, damage: 140, desc: 'Defensive. Do not stand up.' }),
   I('gr_rgn',     { name: 'RGN', kind: 'grenade', price: 900, rank: 3, rarity: 'rare', weight: 0.31, stack: 6, fuse: 3.5, radius: 8, damage: 120, impact: true, desc: 'Impact fuse.' }),
   I('gr_m67',     { name: 'M67', kind: 'grenade', price: 800, rank: 3, rarity: 'rare', weight: 0.4, stack: 6, fuse: 4.0, radius: 9, damage: 130 }),
   I('gr_flash',   { name: 'Zarya-2 flashbang', kind: 'grenade', price: 450, rank: 2, rarity: 'uncommon', weight: 0.2, stack: 6, fuse: 2.0, radius: 12, damage: 0, flash: true, desc: 'Blinds entities. And you, if you look.' }),
   I('gr_smoke',   { name: 'RDG-2 smoke', kind: 'grenade', price: 300, rank: 1, rarity: 'common', weight: 0.5, stack: 6, fuse: 2.0, radius: 8, damage: 0, smoke: 25, desc: 'Twenty-five seconds of nothing to see.' }),
+  I('gr_molotov', { name: 'Molotov', kind: 'grenade', price: 160, rank: 1, rarity: 'common', weight: 0.7, stack: 6, fuse: 0, radius: 4, damage: 25, impact: true, fire: [22, 14], desc: 'A bottle, a rag, a light. Breaks where it lands and stays lit.' }),
+  I('gr_thermite', { name: 'ZMG-1 incendiary', kind: 'grenade', price: 950, rank: 3, rarity: 'rare', weight: 0.5, stack: 4, fuse: 2.5, radius: 6, damage: 40, fire: [30, 22], desc: 'Thermite. Thirty seconds of white, and the ground keeps it.' }),
+  I('gr_flare',   { name: 'Signal flare', kind: 'grenade', price: 90, rank: 1, rarity: 'common', weight: 0.2, stack: 8, fuse: 0.5, radius: 0, damage: 0, impact: true, light: [70, 26], desc: 'Seventy seconds of red light you did not have to hold.' }),
   // ---- weapon parts (repair to 100 % at the workbench) ----
   I('part_barrel',   { name: 'Replacement barrel', kind: 'part', part: 'barrel', price: 1200, rank: 2, rarity: 'uncommon', weight: 0.9, stack: 3 }),
   I('part_bolt',     { name: 'Bolt group', kind: 'part', part: 'bolt', price: 800, rank: 2, rarity: 'uncommon', weight: 0.5, stack: 3 }),

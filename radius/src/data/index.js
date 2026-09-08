@@ -37,19 +37,54 @@ export function categoryOf(id) {
 }
 export const magsFor = (weaponId) => { const w = WEAPONS[weaponId]; return w ? Object.values(MAGAZINES).filter((m) => m.fits.includes(w.family)) : []; };
 export const attachmentsFor = (weaponId, rails = []) => { const w = WEAPONS[weaponId]; return w ? Object.values(ATTACHMENTS).filter((a) => attachmentFits(a, w, rails)) : []; };
+// every priced definition in the catalogue, in table order
+const catalogue = () => [...Object.values(WEAPONS), ...Object.values(AMMO), ...Object.values(MAGAZINES), ...Object.values(ATTACHMENTS), ...Object.values(ARMOR), ...Object.values(ITEMS)];
 export function shopItems(rank) {
-  const all = [...Object.values(WEAPONS), ...Object.values(AMMO), ...Object.values(MAGAZINES), ...Object.values(ATTACHMENTS), ...Object.values(ARMOR), ...Object.values(ITEMS)];
-  return all.filter((d) => !d.hidden && (d.rank || 1) <= rank && (d.price || 0) > 0 && d.kind !== 'mission' && d.kind !== 'key' && d.kind !== 'artifact');
+  return catalogue().filter((d) => !d.hidden && (d.rank || 1) <= rank && (d.price || 0) > 0 && d.kind !== 'mission' && d.kind !== 'key' && d.kind !== 'artifact');
 }
-// Security clearance thresholds by money earned (rank 1..5) and the missions completed needed
+// What is stocked follows what is issued. A rifle on the clearance 1 shelf with its rounds behind clearance 2
+// is not a choice: the obrez and the Mosin both took 7.62x54R, and the PPSh outranked its own magazine. Pull
+// each calibre's plain load, and every weapon's issue magazine, down to the clearance of the earliest weapon
+// that takes it. Nothing is ever pushed up, and the specialist loads (AP, sniper, subsonic) keep their grade.
+(function stockFollowsIssue() {
+  const first = {};
+  for (const w of Object.values(WEAPONS)) {
+    const r = w.rank || 1;
+    if (!(w.cal in first) || r < first[w.cal]) first[w.cal] = r;
+    const m = MAGAZINES[w.defaultMag];
+    if (m && (m.rank || 1) > r) m.rank = r;
+  }
+  for (const cal in first) { const plain = AMMO[defaultAmmo(cal)]; if (plain && (plain.rank || 1) > first[cal]) plain.rank = first[cal]; }
+})();
+// Security clearance thresholds by money earned (rank 1..5) and the missions completed needed. A contract at
+// clearance 1 pays 1,200 to 2,000 P, so grade 2 is two contracts' work; the ladder stretches from there.
 export const RANKS = [
   { rank: 1, earned: 0, missions: 0, title: 'Explorer, provisional' },
-  { rank: 2, earned: 6000, missions: 2, title: 'Explorer' },
-  { rank: 3, earned: 18000, missions: 6, title: 'Explorer, second class' },
-  { rank: 4, earned: 45000, missions: 12, title: 'Explorer, first class' },
-  { rank: 5, earned: 100000, missions: 20, title: 'Senior explorer' },
+  { rank: 2, earned: 3500, missions: 2, title: 'Explorer' },
+  { rank: 3, earned: 12000, missions: 5, title: 'Explorer, second class' },
+  { rank: 4, earned: 28000, missions: 10, title: 'Explorer, first class' },
+  { rank: 5, earned: 60000, missions: 16, title: 'Senior explorer' },
 ];
-export function rankFor(earned, missions) { let r = 1; for (const k of RANKS) if (earned >= k.earned && missions >= k.missions) r = k.rank; return r; }
+// grades are granted in order: the first threshold the explorer has not met stops the climb
+export function rankFor(earned, missions) { let r = 1; for (const k of RANKS) { if (earned < k.earned || missions < k.missions) break; r = k.rank; } return r; }
+// ---- what is found rather than bought ----
+// A container or a body rolls a category and then a definition inside it: rarity sets the odds (rarityWeight)
+// and rank sets the ceiling, so a ridge crate can turn up a VSS and a village shelf cannot. tier is the
+// location tier on the same 0..4 scale rarityWeight uses (POI_TIER plus the tide level). `noLoot` on a
+// definition keeps requisition-only kit out of the zone.
+export const lootRankCap = (tier) => Math.max(1, Math.min(5, 1 + Math.round(tier || 0)));
+export function lootPool(cat, tier = 0, maxRank = lootRankCap(tier)) {
+  return catalogue().filter((d) => !d.hidden && !d.noLoot && (d.rank || 1) <= maxRank && d.kind !== 'mission' && d.kind !== 'key' && categoryOf(d.id) === cat);
+}
+export function pickByRarity(list, tier = 0, rnd = Math.random) {
+  let sum = 0; for (const d of list) sum += rarityWeight(d.rarity || 'common', tier);
+  if (!(sum > 0)) return null;
+  let r = rnd() * sum;
+  for (const d of list) { r -= rarityWeight(d.rarity || 'common', tier); if (r <= 0) return d; }
+  return list[list.length - 1] || null;
+}
+// one definition of a category, weighted for the location: rollLoot('weapon', tier, rnd) -> a weapon def or null
+export const rollLoot = (cat, tier = 0, rnd = Math.random) => pickByRarity(lootPool(cat, tier), tier, rnd);
 
 // ---- hit resolution ----
 // zone: 'head' | 'torso' | 'stomach' | 'arms' | 'legs'. armorPieces: [{ def, inst }] covering zones (vest, helmet, rig).
