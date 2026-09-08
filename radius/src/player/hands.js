@@ -150,6 +150,11 @@ export function buildMeleeMesh(id) {
   const g = new THREE.Group(); g.name = id;
   const steel = [], grip = [], dark = [];
   let gripMat = M.wood, bladeLen = 0.16;
+  // Knives are held like a pistol: hand at the guard, blade forward. A hafted tool is held down the
+  // shaft with the head out front, so each weapon may move the grip and the carry pose.
+  let gripP = [0.0, -0.062, -0.002];
+  let pose = { p: [0.14, -0.15, -0.3], r: [0.12, -0.42, 0.18] };
+  const HAFT = (len, r, mat) => { gripP = [0.0, -0.006, -0.01]; pose = { p: [0.17, -0.19, -0.34], r: [0.16, -0.5, 0.1] }; gripMat = mat; return len; };
   if (id === 'machete') {
     bladeLen = 0.36;
     // wide flat blade, clipped point, a slight belly toward the tip
@@ -170,6 +175,67 @@ export function buildMeleeMesh(id) {
     steel.push(at(cylZ(0.004, 0.004, 0.006), 0.012, -0.05, 0.012, 0, Math.PI / 2, 0));
     steel.push(at(new THREE.BoxGeometry(0.02, 0.012, 0.03), 0, -0.117, 0.012));   // pommel with the mortise
     gripMat = M.bakelite;
+  } else if (id === 'shiv') {
+    // sharpened scrap with a taped handle: the thing you make in the first week
+    bladeLen = 0.13;
+    steel.push(bladeSide([[0.0, -0.009], [0.085, -0.015], [0.13, 0.002], [0.055, 0.011], [0.0, 0.011]], 0.0028, 0.0007));
+    for (let i = 0; i < 4; i++) grip.push(at(cylY(0.0125, 0.0115, 0.024, 8), 0, -0.028 - i * 0.023, 0.002, 0, 0, (i % 2 ? 1 : -1) * 0.05));
+    gripMat = M.rubber;
+  } else if (id === 'kizlyar') {
+    // modern combat knife: black coated drop point, finger-grooved polymer, glass breaker pommel
+    bladeLen = 0.19;
+    steel.push(bladeSide([[0.0, -0.014], [0.12, -0.017], [0.19, 0.0], [0.14, 0.014], [0.0, 0.015]], 0.0045, 0.0012));
+    steel.push(bladeSide([[0.0, -0.008], [0.055, -0.009], [0.055, -0.004], [0.0, -0.003]], 0.0048, 0.0006));   // serrations block
+    steel.push(at(new THREE.BoxGeometry(0.01, 0.042, 0.008), 0, -0.008, 0.005));                                // guard
+    for (let i = 0; i < 4; i++) grip.push(at(cylY(0.0135, 0.0125, 0.023, 10), 0, -0.032 - i * 0.023, 0.006));
+    steel.push(at(cylY(0.009, 0.006, 0.014, 8), 0, -0.128, 0.006));                                             // breaker
+    gripMat = M.rubber;
+  } else if (id === 'hatchet') {
+    // Hafted tools: bladeSide profiles run along -z (forward), so the haft runs forward too and the
+    // head sits at the far end of it. Building the haft along +z points it back over the shoulder.
+    bladeLen = HAFT(0.4, 0.012, M.wood);
+    const H = -0.3;
+    steel.push(at(bladeSide([[0.0, -0.03], [0.055, -0.05], [0.075, -0.012], [0.07, 0.03], [0.02, 0.034], [0.0, 0.022]], 0.008, 0.0015), 0, 0.03, H));
+    steel.push(at(new THREE.BoxGeometry(0.022, 0.05, 0.032), 0, 0.03, H + 0.012));      // eye and poll
+    grip.push(at(cylZ(0.0115, 0.013, 0.3, 8), 0, 0, H / 2));                            // haft
+    grip.push(at(cylZ(0.013, 0.016, 0.03, 8), 0, 0, 0.02));                             // swell at the butt
+  } else if (id === 'spade') {
+    // MPL-50 sapper spade: sharpened square blade on a short ash shaft, the Soviet trench weapon.
+    bladeLen = HAFT(0.5, 0.014, M.wood);
+    const H = -0.31;
+    steel.push(at(bladeSide([[0.0, -0.075], [0.11, -0.085], [0.15, -0.03], [0.15, 0.03], [0.11, 0.085], [0.0, 0.075]], 0.006, 0.0012), 0, 0, H));
+    steel.push(at(new THREE.BoxGeometry(0.03, 0.026, 0.06), 0, 0, H + 0.025));          // socket
+    grip.push(at(cylZ(0.0135, 0.0145, 0.31, 8), 0, 0, H / 2));
+    grip.push(at(cylY(0.019, 0.019, 0.026, 8), 0, 0, 0.018, Math.PI / 2, 0, 0));        // butt knob
+  } else if (id === 'crowbar') {
+    bladeLen = HAFT(0.62, 0.009, M.steelDark);
+    grip.push(at(cylZ(0.0085, 0.0085, 0.5, 6), 0, 0, -0.23));                            // hex shaft
+    grip.push(at(cylZ(0.0075, 0.008, 0.075, 6), 0, 0.022, -0.505, 0.42, 0, 0));          // gooseneck
+    steel.push(at(new THREE.BoxGeometry(0.03, 0.011, 0.055), 0, 0.062, -0.545, 0.95, 0, 0));
+    steel.push(at(new THREE.BoxGeometry(0.008, 0.013, 0.028), 0, 0.082, -0.566, 1.15, 0, 0));
+    steel.push(at(new THREE.BoxGeometry(0.026, 0.0075, 0.04), 0, -0.002, 0.045, -0.2, 0, 0));   // chisel butt
+  } else if (id === 'wrench') {
+    // heavy pipe wrench: the industrial estate's contribution to close-quarters work
+    bladeLen = HAFT(0.42, 0.012, M.steelDark);
+    grip.push(at(new THREE.BoxGeometry(0.022, 0.03, 0.3), 0, 0, -0.14));
+    steel.push(at(new THREE.BoxGeometry(0.026, 0.05, 0.05), 0, 0.012, -0.31));           // head
+    steel.push(at(new THREE.BoxGeometry(0.024, 0.016, 0.075), 0, 0.045, -0.335, -0.25, 0, 0));  // fixed jaw
+    steel.push(at(new THREE.BoxGeometry(0.022, 0.014, 0.06), 0, -0.012, -0.345, 0.2, 0, 0));    // moving jaw
+    steel.push(at(cylZ(0.016, 0.016, 0.026, 10), 0, 0.012, -0.288));                     // adjuster nut
+  } else if (id === 'fireaxe') {
+    bladeLen = HAFT(0.8, 0.014, M.woodDark);
+    const H = -0.62;
+    steel.push(at(bladeSide([[0.0, -0.045], [0.07, -0.085], [0.095, -0.02], [0.09, 0.045], [0.03, 0.05], [0.0, 0.03]], 0.009, 0.0018), 0, 0.02, H));
+    steel.push(at(new THREE.BoxGeometry(0.024, 0.03, 0.08), 0, 0.05, H + 0.03, 0.35, 0, 0));    // spike poll
+    grip.push(at(cylZ(0.013, 0.0155, 0.62, 8), 0, 0, H / 2));
+    grip.push(at(cylZ(0.0155, 0.019, 0.05, 8), 0, 0, 0.015));
+  } else if (id === 'sledge') {
+    bladeLen = HAFT(0.85, 0.016, M.wood);
+    const H = -0.7;
+    steel.push(at(cylZ(0.038, 0.038, 0.13, 12), 0, 0.028, H, 0, Math.PI / 2, 0));        // head across the haft
+    steel.push(at(new THREE.BoxGeometry(0.05, 0.05, 0.052), 0, 0.028, H));               // eye block
+    grip.push(at(cylZ(0.0145, 0.017, 0.7, 8), 0, 0, H / 2));
+    grip.push(at(cylZ(0.017, 0.021, 0.055, 8), 0, 0, 0.018));
   } else {
     // NR-40 pattern: clipped point, S-guard, birch grip with a leather washer, steel pommel
     steel.push(bladeSide([[0.0, -0.012], [0.1, -0.015], [0.16, 0.003], [0.125, 0.013], [0.0, 0.012]], 0.004, 0.0012));
@@ -185,9 +251,9 @@ export function buildMeleeMesh(id) {
   if (dark.length) g.add(merged(M.rubber, dark, 'washer'));
   g.userData = {
     id, melee: true, bladeLen,
-    hip: { p: [0.14, -0.15, -0.3], r: [0.12, -0.42, 0.18] },
-    ads: { p: [0.14, -0.15, -0.3], r: [0.12, -0.42, 0.18] },
-    grips: { right: { p: [0.0, -0.062, -0.002], r: handEuler([1, 0, 0], [0.15, -0.35, 0.92]) }, left: null },
+    hip: { p: pose.p.slice(), r: pose.r.slice() },
+    ads: { p: pose.p.slice(), r: pose.r.slice() },
+    grips: { right: { p: gripP.slice(), r: handEuler([1, 0, 0], [0.15, -0.35, 0.92]) }, left: null },
     lowerRot: [0.3, 0.25, 0.2], magTravel: [0, 0, 0], cycle: 'none', ejectDir: [0, 0, 0],
   };
   return g;
