@@ -172,7 +172,10 @@ export function createTerrain(ctx) {
   function bakeAlbedo() {
     if (baked || !ctx.renderer) return;
     const cam = new THREE.OrthographicCamera(-HALF, HALF, HALF, -HALF, 1, 400);
-    cam.position.set(0, 200, 0); cam.up.set(0, 0, 1); cam.lookAt(0, 0, 0);   // top of the image is +z so v = (z + HALF) / SIZE cam.updateMatrixWorld(); cam.updateProjectionMatrix();
+    cam.position.set(0, 200, 0); cam.up.set(0, 0, 1); cam.lookAt(0, 0, 0);
+    cam.updateMatrixWorld();
+    // up = +z puts world +z at the top of the image, so v = (z + HALF) / SIZE. lookAt's right axis
+    // is world -X though, so u is mirrored — the sampler in the terrain shader mirrors to match.
     const r = ctx.renderer; const prevRT = r.getRenderTarget(); const prevMat = mesh.material;
     mesh.material = bakeMat;
     const bakeScene = new THREE.Scene(); const parent = mesh.parent; bakeScene.add(mesh);
@@ -197,7 +200,10 @@ export function createTerrain(ctx) {
       .replace('#include <common>', `#include <common>\n${GLSL_NOISE}\nvarying vec4 vSurf; varying float vWet; varying vec3 vWPos; uniform float uTime; uniform sampler2D uBake;\n#ifdef RADIUS_DETAIL\nuniform sampler2D uDetailNormal; uniform sampler2D uDetailRough;\n#endif`)
       .replace('#include <map_fragment>', /* glsl */`
         vec2 wp = vWPos.xz;
-        vec2 buv = (wp + vec2(${f(HALF)})) / ${f(SIZE)};
+        // The bake camera sits at (0,200,0) with up=+Z, so three's lookAt gives it a right axis of
+        // world -X: the baked image is mirrored east-west. Sample it mirrored to match, or the
+        // ground colour lands on the wrong side of the map from the geometry standing on it.
+        vec2 buv = vec2(${f(HALF)} - wp.x, wp.y + ${f(HALF)}) / ${f(SIZE)};
         vec4 bake = texture2D(uBake, buv);
         // one cheap high-frequency variation on top of the bake keeps the ground alive at arm's length
         float micro = vnoise(wp * 5.3);

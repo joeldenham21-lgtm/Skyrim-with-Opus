@@ -8,8 +8,9 @@ const SOUNDS = ['shot_pm', 'step_grass', 'bandage_use', 'siren', 'dry_click', 'p
 
 export default async function (page, api) {
   const R = (js) => api.run(`(() => { const c = window.__radius.ctx; const r = window.__radius; ${js} })()`);
-  await api.start();
-  await api.frames(3);
+  // Deliberately does NOT call api.start(): audio is independent of the render loop, and waiting
+  // on rendered frames makes this test hostage to software-rendering throughput.
+  await api.wait(500);
 
   // the context must actually be running, not suspended
   console.log('CONTEXT', JSON.stringify(await R(`
@@ -65,7 +66,7 @@ export default async function (page, api) {
 
   // music and ambience beds
   await R(`c.music.start?.(); c.ambience.start?.();`);
-  await api.frames(4);
+  await api.wait(1500);
   const bed = await page.evaluate(`window.__peakOver(1200)`);
   console.log('BEDS_RMS', JSON.stringify({ rms: +bed.toFixed(6) }));
 
