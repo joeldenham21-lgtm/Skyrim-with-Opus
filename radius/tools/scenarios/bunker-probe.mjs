@@ -43,15 +43,17 @@ export default async function (page, api) {
 
   // every collider whose box overlaps the room volume, so a stray one cannot hide
   console.log('COLLIDERS_IN_ROOM', JSON.stringify(await R(`
+    // colliders are {min,max} boxes, not centre/size — filtering on cx/sx silently matched nothing
     const found = [];
-    c.world.query(0, 301.6, 12, (col) => {
-      const cy = col.cy ?? 0, sy = col.sy ?? 0;
-      if (cy - sy / 2 > 10.5 || cy + sy / 2 < 7.3) return;
-      const cz = col.cz ?? 0, sz = col.sz ?? 0, cx = col.cx ?? 0, sx = col.sx ?? 0;
-      if (cz - sz / 2 > 304.6 || cz + sz / 2 < 298.6) return;
-      if (cx - sx / 2 > 4.5 || cx + sx / 2 < -4.5) return;
+    c.world.query(0, 301.6, 14, (col) => {
+      const mn = col.min, mx = col.max;
+      if (!mn || !mx) return;
+      if (mn.y > 10.5 || mx.y < 7.3) return;
+      if (mn.z > 304.6 || mx.z < 298.6) return;
+      if (mn.x > 4.5 || mx.x < -4.5) return;
       found.push({ tag: col.tag ?? '(untagged)', surface: col.surface, passable: !!col.passable,
-                   c: [+cx.toFixed(2), +cy.toFixed(2), +cz.toFixed(2)], s: [+sx.toFixed(2), +sy.toFixed(2), +sz.toFixed(2)] });
+                   min: [+mn.x.toFixed(2), +mn.y.toFixed(2), +mn.z.toFixed(2)],
+                   max: [+mx.x.toFixed(2), +mx.y.toFixed(2), +mx.z.toFixed(2)] });
     });
     return found.slice(0, 25);`)));
 

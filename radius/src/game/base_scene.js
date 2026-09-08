@@ -92,7 +92,12 @@ export function createBase(ctx) {
   world.addBox(0, FY - 0.75, (ROOM.z0 + ROOM.z1) / 2, 9.0, 1.5, 6.0, { tag, surface: 'concrete' });   // floor
   world.addBox(0, FY - 0.75, (295.7 + HALL.z1) / 2, 1.8, 1.5, HALL.z1 - 295.7, { tag, surface: 'concrete' });   // corridor floor + sill
   world.addBox(0, 6.25, 294.3, 3.2, 0.5, 1.4, { tag, surface: 'concrete' }); world.addBox(0, 6.6, 295.35, 2.8, 0.6, 0.8, { tag, surface: 'concrete' });   // apron, step
-  world.addBox(0, 8.6, 306.6, 18, 4.0, 9.0, { tag, surface: 'mud', noAvoid: true });   // the mound, roughly: keeps walkers off the hump
+  // The mound blocker keeps walkers off the hump outside. It used to span z 302.1..311.1, which
+  // reached 2.5 m INSIDE the room (z 298.6..304.6) as solid mud from floor to ceiling: the south
+  // third of the bunker was unreachable, shots and sight lines stopped half a metre from the
+  // middle of the floor, and the mound's earth read through the south wall. Start it at the south
+  // wall's outer face (305.2) instead, which keeps the hump covered and leaves the interior clear.
+  world.addBox(0, 8.6, 308.15, 18, 4.0, 5.9, { tag, surface: 'mud', noAvoid: true });
 
   // ---------------------------------------------------------------- interior
   // floor, walls, ceiling (interior faces only; exterior mass is separate)
