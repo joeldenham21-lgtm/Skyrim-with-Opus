@@ -142,13 +142,16 @@ export function createVfx(ctx) {
       e.m.lookAt(to);
       e.m.visible = true; e.m.material.opacity = 0.9; e.t = 0; e.life = 0.07;
     },
-    muzzleFlash(pos, dir) {
-      flashSprite.position.copy(pos).addScaledVector(dir, 0.08);
-      flashSprite.scale.setScalar(0.35 + rnd() * 0.2);
+    // scale is the weapon's flash multiplier: a ported brake throws a bigger one, a can barely any.
+    // weapons.js has always passed it; this took only (pos, dir) and every muzzle flashed the same size.
+    muzzleFlash(pos, dir, scale = 1) {
+      const k = Math.max(0.25, Math.min(2.5, scale));
+      flashSprite.position.copy(pos).addScaledVector(dir, 0.08 * k);
+      flashSprite.scale.setScalar((0.35 + rnd() * 0.2) * k);
       flashSprite.material.rotation = rnd() * 6.28;
-      flashSprite.material.opacity = 1; flashT = 0.05;
-      api.light(pos, 0xffc080, 14, 0.07, 14);
-      api.spark(pos, dir, 5, [1.0, 0.8, 0.4]);
+      flashSprite.material.opacity = Math.min(1, 0.55 + 0.45 * k); flashT = 0.05;
+      api.light(pos, 0xffc080, 14 * k, 0.07, 14);
+      api.spark(pos, dir, Math.max(2, Math.round(5 * k)), [1.0, 0.8, 0.4]);
     },
     explosion(pos, radius = 3, color = 0xff9a50) {
       api.light(pos, color, 120, 0.35, radius * 8);

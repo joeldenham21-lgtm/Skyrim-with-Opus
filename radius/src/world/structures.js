@@ -458,7 +458,7 @@ export function poleGeometry(withArm = true) {
 }
 // A line of poles following a polyline with sagging wires; returns matrices used
 export function poleLine(ctx, world, pts, wires, opts = {}) {
-  const spacing = opts.spacing || 30, side = opts.side || 4.5, rnd = opts.rnd || Math.random;
+  const spacing = opts.spacing ?? 30, side = opts.side ?? 4.5, rnd = opts.rnd || Math.random;   // side: 0 is a real offset — Zarya has already offset its polyline
   const mats = [], tops = [];
   let total = 0; for (let i = 0; i < pts.length - 1; i++) total += Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
   const n = Math.floor(total / spacing);

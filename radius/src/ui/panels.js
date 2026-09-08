@@ -4,8 +4,21 @@
 // Every form is one sheet of stock: a header line (form · explorer · funds · load · time), a scrolling body, a
 // notice line and a key legend. The world freezes while a sheet is on the desk (main passes dt 0); panels.update
 // receives real time so timed jobs (a clean at the bench) still run.
+//
+// WORKBENCH — the bench is a real workshop: quality parts per slot (data/upgrades.js), attachments against the
+// weapon's live mounts, cleaning and repair as timed jobs with a cost in kit, time and money, all of it gated by
+// clearance. Every row prints the numbers before and after the change; nothing is hidden and nothing is rounded
+// away. Three of those numbers are computed from parts that src/weapons/weapons.js does not read yet — they carry a
+// dagger and a footnote until it does. weapons.js needs exactly three edits to clear them:
+//   1. cool = 60 / d.rpm                                  ->  cool = 60 / (d.rpm * fx.rpm)
+//   2. jamP = 0.18*dirt^3 + 0.12*(1-bolt)^2               ->  ... ) * fx.jam
+//   3. damage: a.damage * (0.85 + 0.15 * barrel/100)      ->  ... * fx.damage
+// (and, for the lapped bolt on a bolt gun, cycleTime() / fx.rpm). Then empty PENDING_FX in data/upgrades.js.
 import { def, categoryOf, WEAPONS, AMMO, MAGAZINES, ATTACHMENTS, ITEMS, CALIBERS, ammoOf, weightOf, priceOf } from '../data/index.js';
-import { makeWeapon, makeMag, makeGear, attach, detach, weaponEffects, weaponWeight, magWeight, effMounts, SLOTS } from '../player/inventory.js';
+import { UPGRADES, SLOT_BY_ID, TIER_NAME, HANDLING_STATS, COMPARE_KEYS, isPending, upgradesFor, slotName as slotLabel,
+  fitFee, removeFee, fitSeconds, repairFee, repairSeconds, armourFee, armourSeconds, CLEAN_JOBS, REPAIR_JOBS, ARMOUR_JOBS } from '../data/upgrades.js';
+import { makeWeapon, makeMag, makeGear, attach, detach, weaponEffects, weaponWeight, magWeight, effMounts, mountsOf, fitsWeapon,
+  upgradeSlotsOf, upgradesOf, upgradeIn, upgradeCondition, canFitUpgrade, fitUpgrade, removeUpgrade, previewWeapon, weaponHandling, SLOTS } from '../player/inventory.js';
 import supplyPanel from './panel_supply.js';
 import terminalPanel from './panel_terminal.js';
 import storagePanel from './panel_storage.js';
@@ -98,7 +111,7 @@ export function effectsText(e) {
   if (e.zoom && e.zoom !== 1) out.push(`${e.zoomLow ? `${e.zoomLow}–` : ''}${e.zoom}× zoom`);
   else if (e.reticle) out.push(`${e.reticle} sight`);
   const pc = (k, label) => { if (e[k] != null && e[k] !== 1) out.push(`${label} ${e[k] > 1 ? '+' : '−'}${Math.round(Math.abs(e[k] - 1) * 100)} %`); };
-  pc('recoil', 'recoil'); pc('moa', 'dispersion'); pc('noise', 'noise'); pc('flash', 'flash'); pc('adsSpeed', 'ADS'); pc('wear', 'wear');
+  pc('recoil', 'recoil'); pc('moa', 'dispersion'); pc('noise', 'noise'); pc('flash', 'flash'); pc('adsSpeed', 'ADS'); pc('wear', 'wear'); pc('rpm', 'cycle'); pc('jam', 'stoppage'); pc('damage', 'damage');
   if (e.ergo) out.push(`ergonomics ${e.ergo > 0 ? '+' : '−'}${Math.round(Math.abs(e.ergo) * 100)}`);
   if (e.light) out.push('weapon light'); if (e.laser) out.push('laser'); if (e.nvOptic) out.push('night optic'); if (e.prone) out.push('rest when crouched');
   return out.join(' · ');
@@ -203,7 +216,8 @@ export function createPanels(ctx) {
       inv.addGear(makeGear('vest_6b2', { durability: 48 })); inv.addGear(makeGear('helm_ssh68', { durability: 30 })); inv.addGear(makeGear('vest_kirasa', { durability: 70 }));
       inv.addGear(makeGear('head_lamp', { charge: 64 })); inv.addGear(makeGear('mask_resp', { charge: 80 }));
       inv.equipGear(rig.uid, 'rig'); inv.equipGear(pack.uid, 'backpack');
-      const items = { '762_fmj': 60, '762_ap': 30, '762_hp': 10, '754_fmj': 15, '9x18_ap': 8, bandage: 3, medkit: 1, morphine: 1, water: 1, tushonka: 1, cigarettes: 2, probe: 6, battery: 3, filter: 2, cleankit: 1, repairkit: 1, armorkit: 1, part_bolt: 1, part_barrel: 1, gr_rgd5: 2, gr_smoke: 1, art_pearl: 2, art_tear: 1, recorder: 1, rail_akcover: 1, rail_akhg: 1, opt_kobra: 1, opt_eotech: 1, muz_pbs1: 1, grip_rk1: 1, light_klesch: 1, lockpick: 1, binoculars: 1 };
+      const items = { '762_fmj': 60, '762_ap': 30, '762_hp': 10, '754_fmj': 15, '9x18_ap': 8, bandage: 3, medkit: 1, morphine: 1, water: 1, tushonka: 1, cigarettes: 2, probe: 6, battery: 3, filter: 2, cleankit: 1, repairkit: 1, armorkit: 1, part_bolt: 1, part_barrel: 1, gr_rgd5: 2, gr_smoke: 1, art_pearl: 2, art_tear: 1, recorder: 1, rail_akcover: 1, rail_akhg: 1, opt_kobra: 1, opt_eotech: 1, muz_pbs1: 1, grip_rk1: 1, light_klesch: 1, lockpick: 1, binoculars: 1,
+        up_barrel_chrome: 1, up_barrel_chf: 1, up_bolt_polished: 1, up_trig_two: 1, up_furn_zenit: 1, up_barrel_thread_p: 1 };
       for (const [id, n] of Object.entries(items)) inv.add(id, n);
       D().money = 4120; D().earned = 6800; D().hp = 71;
       weaponsChanged();
@@ -251,14 +265,11 @@ function useKit(ctx, id) {
   if (left <= 0) { inv.remove(id, 1); delete f.kitUses[id]; } else f.kitUses[id] = left;
   return true;
 }
-function attFitsWeapon(a, w) {
-  const d = WEAPONS[w.id]; if (!a || !d) return false;
-  if (a.slot === 'rail') return a.fits.some((f) => Object.values(d.mounts).includes(f));
-  const std = effMounts(d, w.rails)[a.slot]; return !!std && a.fits.includes(std);
-}
+const attFitsWeapon = (a, w) => fitsWeapon(a, w);
 function weaponSub(w) {
   const d = WEAPONS[w.id]; const atts = [...(w.rails || []), ...Object.values(w.attachments || {})].map((id) => def(id)?.name).filter(Boolean);
-  return `${calShort(d.cal)} · ${magText(w)} · ${Math.round(condOf(w))} %${w.jammed ? ' · stoppage' : ''}${atts.length ? ' · ' + atts.join(', ') : ''}`;
+  const parts = Object.values(w.upgrades || {}).map((id) => def(id)?.name).filter(Boolean);
+  return `${calShort(d.cal)} · ${magText(w)} · ${Math.round(condOf(w))} %${w.jammed ? ' · stoppage' : ''}${parts.length ? ' · ' + parts.join(', ') : ''}${atts.length ? ' · ' + atts.join(', ') : ''}`;
 }
 const magSub = (m) => `${calShort(m.cal)} · ${m.rounds} / ${MAGAZINES[m.id]?.cap ?? '?'}${m.ammo ? ' ' + ammoTag(m.ammo) : ''}`;
 function gearSub(g) {
@@ -371,7 +382,10 @@ function inventoryPanel(ctx, api) {
     html += sec('Parts, cells and filters', parts.length, parts.length ? parts.map((e) => { const it = ITEMS[e.id]; let acts = '';
       if (it.kind === 'battery') acts = act(`install:${e.id}`, 'Install');
       if (it.kind === 'filter') acts = act(`install:${e.id}`, 'Fit', { disabled: !i.equipped('mask') });
-      return li(e, esc(it.name), esc(it.desc || (it.part ? `Replaces the ${it.part} at the workbench.` : '')), `${e.count}<span class="u">×</span>`, acts + dropBtn(e)); }).join('') : '<div class="empty">None.</div>');
+      let sub = it.desc || (it.part ? `Replaces the ${it.part} at the workbench.` : '');
+      if (it.upgrade) { const fits = i.weapons.filter((w) => canFitUpgrade(w, e.id)).map((w) => WEAPONS[w.id].name);
+        sub = `${SLOT_BY_ID[it.slot] ? SLOT_BY_ID[it.slot].name.toLowerCase() : it.slot} · tier ${it.tier} ${TIER_NAME[it.tier]} · clearance ${it.rank} · ${effectsText(it.effects) || 'no change'} · ${fits.length ? `fits ${fits.join(', ')}` : 'fits nothing carried'}`; }
+      return li(e, esc(it.name), esc(sub), `${e.count}<span class="u">×</span>`, acts + dropBtn(e)); }).join('') : '<div class="empty">None.</div>');
     // artifacts
     const arts = by.artifact || [];
     html += sec('Artifacts', arts.length, arts.length ? arts.map((e) => { const it = ITEMS[e.id]; return li(e, esc(it.name), esc(it.desc || ''), `${e.count > 1 ? `${e.count} × ` : ''}${money(it.price)}`, dropBtn(e)); }).join('') : '<div class="empty">None recovered.</div>');
@@ -450,6 +464,14 @@ function inventoryPanel(ctx, api) {
       if (it.kind === 'grenade') h += kv('Fuse', `${it.fuse} s`) + kv('Radius', `${it.radius} m`) + kv('Damage', `${it.damage || '—'}`) + (it.flash ? kv('Effect', 'blinds') : it.smoke ? kv('Effect', `${it.smoke} s smoke`) : '');
       else h += kv('Effect', lines.join(', ') || '—') + kv('Use time', `${it.use} s`);
       h += kv('Weight', kg(it.weight, 2)) + kv('Carried', `${e.count}`) + kv('Value', money(it.price)) + quickHtml(e.id);
+    } else if (dd?.upgrade) {
+      const u = dd, slot = SLOT_BY_ID[u.slot]; const fits = i.weapons.filter((w) => canFitUpgrade(w, e.id)).map((w) => WEAPONS[w.id].name);
+      h += kv('Slot', slot ? slot.name.toLowerCase() : u.slot) + kv('Grade', `tier ${u.tier} · ${TIER_NAME[u.tier]}`) + kv('Clearance', `${u.rank}`) +
+        kv('Effect', effectsText(u.effects) || '—') + (u.gives ? kv('Adds', Object.entries(u.gives).map(([k, v]) => `${k} ${v}`).join(', ')) : '') +
+        (slot && slot.restores ? kv('Fitting restores', `${slot.restores} to 100 %`) : '') +
+        kv('Fitted weight', `${u.dw >= 0 ? '+' : '−'}${Math.abs(u.dw).toFixed(2)} kg`) +
+        kv('Fits carried', fits.length ? fits.join(', ') : 'nothing') + kv('Weight', kg(u.weight, 2)) + kv('Carried', `${e.count}`) + kv('Value', `${money(u.price)} · ${money(u.price * 0.4)} back`);
+      h += `<div class="desc">${esc(u.desc || '')} Fitted at the Vanno bench; the docket is the armourer’s time plus the condition work the new part implies.</div>`;
     } else {
       if (dd?.uses && !e.uid) h += kv('Uses', `${kitUsesLeft(ctx, e.id)} of ${dd.uses}`);
       if (dd?.damage) h += kv('Damage', `${dd.damage}`); if (dd?.part) h += kv('Replaces', dd.part); if (dd?.detect) h += kv('Range', `${dd.detect.range} m`) + kv('Direction', dd.detect.dir ? 'yes' : 'no'); if (dd?.zoom) h += kv('Magnification', `${dd.zoom}×`); if (dd?.charge) h += kv('Charge', pct(dd.charge));
@@ -518,55 +540,186 @@ function inventoryPanel(ctx, api) {
 // ---------------------------------------------------------------------------------------------------------------
 // workbench
 // ---------------------------------------------------------------------------------------------------------------
-const BENCH_TABS = [['attachments', 'Attachments'], ['maintenance', 'Maintenance'], ['magazines', 'Magazines'], ['armour', 'Armour']];
+const BENCH_TABS = [['parts', 'Parts'], ['attachments', 'Attachments'], ['maintenance', 'Maintenance'], ['magazines', 'Magazines'], ['armour', 'Armour']];
+const STAT = Object.fromEntries(HANDLING_STATS.map((st) => [st.key, st]));
+const figure = (h, st) => `${((h[st.key] || 0) * (st.scale || 1)).toFixed(st.digits)}${st.unit}`;
+const daggerOf = (h, st) => (isPending(st.fx, h.fx) ? '†' : '');
+// Every change the bench makes is reported as the numbers before and after it. compareList walks the readout in
+// data/upgrades.js and keeps only the lines that actually moved, so a row never claims a change it did not make.
+function compareList(a, b, keys = COMPARE_KEYS, html = true) {
+  const out = [];
+  for (const k of keys) {
+    const st = STAT[k]; if (!st) continue;
+    const va = (a[k] || 0) * (st.scale || 1), vb = (b[k] || 0) * (st.scale || 1);
+    if (Math.abs(va - vb) < Math.pow(10, -st.digits) * 0.5) continue;
+    const good = st.better === 'down' ? vb < va : vb > va;
+    const dag = daggerOf(a, st) || daggerOf(b, st);
+    const t = `${st.label.toLowerCase()} ${va.toFixed(st.digits)} → ${vb.toFixed(st.digits)}${st.unit}${dag}`;
+    out.push(html ? `<span class="${good ? 'amb' : 'red'}">${esc(t)}</span>` : t);
+  }
+  return out;
+}
+const compareText = (a, b, keys, html = true) => { const l = compareList(a, b, keys, html); return l.length ? l.join(' · ') : (html ? '<span class="dimink">no measurable change</span>' : 'no measurable change'); };
+// the same weapon as it left the factory: no parts, no attachments, no wear, no fouling — the column to judge against
+const asIssued = (w) => ({ uid: w.uid, id: w.id, parts: { barrel: 100, bolt: 100, frame: 100 }, dirt: 0, jammed: false, chamber: w.chamber, mag: w.mag, tube: w.tube, fireMode: w.fireMode, attachments: {}, rails: [], upgrades: {}, factory: {} });
+const feeBtn = (label, n) => `${label} · ${money(n)}`;
+
 function workbenchPanel(ctx, api) {
-  let wuid = null, tab = 'attachments'; const picks = {};   // cal -> ammo id chosen for loading
+  let wuid = null, tab = 'parts'; const picks = {};   // cal -> ammo id chosen for loading
   const inv = () => ctx.inventory;
+  const D = () => ctx.state.data;
+  const lvl = () => D().securityLevel || 1;
+  const inBase = () => !!ctx.player.inBase;
+  const refund = (n) => { D().money += n; };
   const weaponsSorted = () => { const i = inv(); const rank = (w) => { const s = slotOfUid(i, w.uid); return s ? SLOTS.indexOf(s) : 9; }; return [...i.weapons].sort((a, b) => rank(a) - rank(b)); };
   const curWeapon = () => { const list = weaponsSorted(); let w = wuid ? inv().weaponByUid(wuid) : null; if (!w) { w = list[0] || null; wuid = w ? w.uid : null; } return w; };
   const magByUid = (uid) => { const i = inv(); return i.magByUid(uid) || i.weapons.map((w) => w.mag).find((m) => m && m.uid === uid) || null; };
   const pickFor = (cal) => { const i = inv(); const p = picks[cal]; if (p && i.count(p) > 0) return p; return i.preferredAmmo(cal); };
   const kitLine = () => { const i = inv(); const k = (id) => { const n = i.count(id); return `${ITEMS[id].name} ×${n}${n ? ` (${kitUsesLeft(ctx, id)} use${kitUsesLeft(ctx, id) === 1 ? '' : 's'})` : ''}`; }; return `${k('cleankit')} · ${k('repairkit')} · ${k('armorkit')} · barrel ×${i.count('part_barrel')} · bolt ×${i.count('part_bolt')} · springs ×${i.count('part_spring')}`; };
+  const REMOVE_JOB = { base: true, rank: 1, name: 'Removing a part' };
+  const jobBar = () => { const j = api.jobState; return j ? `<div class="jobline"><span>${esc(j.label)}</span><span>${j.t.toFixed(1)} / ${j.dur} s</span></div><div class="bar job"><i style="width:${(j.k * 100).toFixed(1)}%"></i></div>` : ''; };
+  // why a job cannot be started: clearance, the bench, funds. Returns null when it can.
+  function bar(job, fee = 0) {
+    if (job.base && !inBase()) return 'Vanno bench only';
+    if ((job.rank || 1) > lvl()) return `Clearance ${job.rank}`;
+    if (job.kit && !inv().has(job.kit)) return `No ${lower(ITEMS[job.kit].name)}`;
+    if (fee > 0 && inv().money() < fee) return `${money(fee)} short`;
+    return null;
+  }
+  const pendingNote = (h) => (HANDLING_STATS.some((st) => isPending(st.fx, h.fx))
+    ? '<div class="note">† The weapon state machine does not read this multiplier yet: rate of fire, stoppage chance and the parts’ damage term are computed here from the fitted parts but weapons.js still fires on the factory figures. Three lines in src/weapons/weapons.js turn them on (the shot cooldown, the stoppage roll in tryFire, and the damage passed to ballistics.shoot).</div>'
+    : '');
 
+  // ---- handling readout: absolute numbers, with the same weapon as issued beside them --------------------------
+  function handlingHtml(w) {
+    const d = WEAPONS[w.id], h = weaponHandling(w), issue = weaponHandling(asIssued(w));
+    const rows = HANDLING_STATS.map((st) => {
+      const va = (issue[st.key] || 0) * (st.scale || 1), vb = (h[st.key] || 0) * (st.scale || 1);
+      const same = Math.abs(va - vb) < Math.pow(10, -st.digits) * 0.5;
+      const good = st.better === 'down' ? vb < va : vb > va;
+      return row3(`${esc(st.label)}${daggerOf(h, st)}`, `<span class="${same ? '' : good ? 'amb' : 'red'}">${figure(h, st)}</span>`, `<span class="dimink">as issued ${figure(issue, st)}</span>`);
+    }).join('');
+    const fitted = Object.values(upgradesOf(w)).map((u) => u.name);
+    const atts = [...(w.rails || []), ...Object.values(w.attachments || {})].map((id) => def(id)?.name).filter(Boolean);
+    return sec('Handling', esc(d.full || d.name), rows) +
+      `<div class="note">Parts fitted: ${fitted.length ? esc(fitted.join(', ')) : 'factory throughout'}. Hung on it: ${atts.length ? esc(atts.join(', ')) : 'nothing'}. Condition barrel ${Math.round(h.barrel)} % · bolt ${Math.round(h.bolt)} % · frame ${Math.round(h.frame)} % · fouling ${pct(h.dirt * 100)}.</div>` + pendingNote(h);
+  }
+
+  // ---- parts ---------------------------------------------------------------------------------------------------
+  function partsHtml(w) {
+    const i = inv(), d = WEAPONS[w.id], job = api.jobState, h0 = weaponHandling(w);
+    let h = '';
+    for (const slot of upgradeSlotsOf(w)) {
+      const label = slotLabel(slot, d), cur = upgradeIn(w, slot.id), cond = upgradeCondition(w, slot.id);
+      let body = '';
+      if (cur) {
+        const back = Math.min(cond, w.factory?.[slot.id] ?? 100);
+        const after = previewWeapon(w, { upgrades: { [slot.id]: null }, parts: slot.restores ? { [slot.restores]: back } : {} });
+        const fee = removeFee(cur), rstop = bar(REMOVE_JOB, fee);
+        body += row3(`${esc(cur.name)}<span class="tag">tier ${cur.tier} · ${TIER_NAME[cur.tier]}</span><span class="sub">Fitted. ${esc(effectsText(cur.effects) || 'no change')}${slot.restores ? ` · ${slot.restores} at ${Math.round(cond)} %` : ''}<br>Taking it off: ${compareText(h0, weaponHandling(after))}${slot.restores ? ` · the factory ${slot.restores} goes back in at ${Math.round(back)} %` : ''}</span>`,
+          `<span class="dimink">${money(fee)}</span>`,
+          act(`rmpart:${w.uid}:${slot.id}`, 'Remove', { disabled: !!job || !!rstop, deny: !!rstop, title: rstop || `Removal fee ${money(fee)} · the factory part goes back in` }));
+      } else {
+        body += row3(`Factory ${esc(label.toLowerCase())}<span class="sub">${esc(slot.note)}</span>`, `<span class="dimink">${slot.restores ? `${Math.round(cond)} %` : 'as issued'}</span>`, '');
+      }
+      const carried = Object.keys(i.items).filter((id) => UPGRADES[id] && i.count(id) > 0 && UPGRADES[id].slot === slot.id && canFitUpgrade(w, id) && id !== (cur && cur.id));
+      for (const id of carried.sort((a, b) => UPGRADES[a].tier - UPGRADES[b].tier)) {
+        const u = UPGRADES[id];
+        const after = previewWeapon(w, { upgrades: { [slot.id]: id }, parts: slot.restores ? { [slot.restores]: 100 } : {} });
+        const fee = fitFee(d, u, cond), secs = fitSeconds(u, cond), stop = bar({ base: true, rank: u.rank }, fee.total);
+        body += row3(`${esc(u.name)}<span class="tag">tier ${u.tier} · ${TIER_NAME[u.tier]}</span>${(u.rank || 1) > lvl() ? `<span class="tag dim">clearance ${u.rank} required</span>` : ''}<span class="sub">${compareText(h0, weaponHandling(after))}${u.gives ? ` · adds ${esc(Object.entries(u.gives).map(([k, v]) => `${k} → ${v}`).join(', '))}` : ''}<br>${esc(u.desc || '')}</span>`,
+          `${i.count(id)}<span class="u">×</span>`,
+          act(`fitpart:${w.uid}:${id}`, feeBtn('Fit', fee.total), { disabled: !!job || !!stop, deny: !!stop, title: stop || `${secs} s · fitting ${money(fee.labour)}${fee.cond ? ` + condition work ${money(fee.cond)}` : ''}` }));
+      }
+      if (!carried.length) {
+        const known = upgradesFor(d, slot.id).filter((u) => !cur || u.id !== cur.id).sort((a, b) => a.tier - b.tier).slice(0, 5);
+        body += `<div class="empty">Nothing carried for this slot. Made for the ${esc(d.name)}: ${known.length ? known.map((u) => `${esc(u.name)} (clearance ${u.rank}, ${money(u.price)})`).join(' · ') : 'nothing in the catalogue'}.</div>`;
+      }
+      h += sec(esc(label), cur ? esc(cur.name) : 'factory', body);
+    }
+    h += jobBar();
+    h += handlingHtml(w);
+    h += `<div class="note">Fitting is bench work at Vanno and it is charged twice over: the armourer’s time on the part, and the condition work the new part implies — timing, headspace, gauging — priced exactly as a repair of the old one would be, so a part swap is never a cheap way to buy condition. Pulling a part off returns it to the pack; the factory part goes back in at the condition it had when it came out. Clearance ${lvl()} of 5.</div>`;
+    return h;
+  }
+
+  // ---- attachments ---------------------------------------------------------------------------------------------
   function attachmentsHtml(w) {
-    const i = inv(), d = WEAPONS[w.id], m = effMounts(d, w.rails);
+    const i = inv(), d = WEAPONS[w.id], m = mountsOf(w), h0 = weaponHandling(w);
     const carried = Object.keys(i.items).filter((id) => ATTACHMENTS[id] && i.count(id) > 0).map((id) => ATTACHMENTS[id]);
     let h = '';
-    // rails
     const railsIn = (w.rails || []).map((id) => ATTACHMENTS[id]).filter(Boolean);
-    const railsFit = carried.filter((a) => a.slot === 'rail' && !w.rails.includes(a.id) && attFitsWeapon(a, w));
-    h += `<div class="mount"><div class="mk">Rails<small>${railsIn.length ? railsIn.map((r) => Object.entries(r.gives).map(([s, v]) => `${s} → ${v}`).join(', ')).join(' · ') : 'factory mounts'}</small></div><div>` +
-      railsIn.map((r) => { const would = Object.entries(w.attachments).filter(([s, id]) => { const rails = w.rails.filter((x) => x !== r.id); const std = effMounts(d, rails)[s]; return !(std && ATTACHMENTS[id].fits.includes(std)); }).map(([, id]) => ATTACHMENTS[id].name); return `<div class="cand"><span>${esc(r.name)}<span class="sub">fitted${would.length ? ` · removing drops ${would.join(', ')}` : ''}</span></span>${act(`unfit:${w.uid}:${r.id}`, 'Remove')}</div>`; }).join('') +
-      railsFit.map((a) => `<div class="cand"><span>${esc(a.name)}<span class="sub">${Object.entries(a.gives).map(([s, v]) => `${s} → ${v}`).join(', ')} · ${i.count(a.id)} carried</span></span>${act(`fit:${w.uid}:${a.id}`, 'Fit')}</div>`).join('') +
-      (!railsIn.length && !railsFit.length ? '<div class="empty">No rail carried that fits.</div>' : '') + '</div></div>';
+    const railsFit = carried.filter((a) => a.slot === 'rail' && !w.rails.includes(a.id) && fitsWeapon(a, w));
+    const givers = Object.entries(upgradesOf(w)).filter(([, u]) => u.gives);
+    h += `<div class="mount"><div class="mk">Rails<small>${railsIn.length || givers.length ? [...railsIn.map((r) => Object.entries(r.gives).map(([s, v]) => `${s} → ${v}`).join(', ')), ...givers.map(([, u]) => Object.entries(u.gives).map(([s, v]) => `${s} → ${v} (${lower(u.name)})`).join(', '))].join(' · ') : 'factory mounts'}</small></div><div>` +
+      railsIn.map((r) => { const would = Object.entries(w.attachments).filter(([s, id]) => { const rails = w.rails.filter((x) => x !== r.id); const std = effMounts(d, rails, w.upgrades)[s]; return !(std && ATTACHMENTS[id].fits.includes(std)); }).map(([, id]) => ATTACHMENTS[id].name); return `<div class="cand"><span>${esc(r.name)}<span class="sub">fitted${would.length ? ` · removing drops ${esc(would.join(', '))}` : ''}</span></span>${act(`unfit:${w.uid}:${r.id}`, 'Remove')}</div>`; }).join('') +
+      railsFit.map((a) => `<div class="cand"><span>${esc(a.name)}<span class="sub">${esc(Object.entries(a.gives).map(([s, v]) => `${s} → ${v}`).join(', '))} · ${i.count(a.id)} carried</span></span>${act(`fit:${w.uid}:${a.id}`, 'Fit')}</div>`).join('') +
+      (!railsIn.length && !railsFit.length && !givers.length ? '<div class="empty">No rail carried that fits.</div>' : '') + '</div></div>';
     for (const slot of ['top', 'muzzle', 'under', 'side', 'stock']) {
       if (!(slot in m) && !(slot in d.mounts)) continue;
-      const std = m[slot]; const cur = w.attachments[slot]; const fits = carried.filter((a) => a.slot === slot && attFitsWeapon(a, w));
-      h += `<div class="mount"><div class="mk">${slot}<small>${std && std !== 'none' ? `mount · ${std}` : 'no mount'}${std === 'integral' ? ' · integral suppressor' : ''}</small></div><div>`;
-      if (cur) { const a = ATTACHMENTS[cur]; h += `<div class="cand"><span>${esc(a.name)}<span class="sub">fitted · ${effectsText(a.effects) || 'no change'}</span></span>${act(`unfit:${w.uid}:${cur}`, 'Detach')}</div>`; }
-      else if (std && std !== 'none' && std !== 'integral') h += fits.length ? fits.map((a) => `<div class="cand"><span>${esc(a.name)}<span class="sub">${effectsText(a.effects) || 'no change'} · ${kg(a.weight, 2)} · ${i.count(a.id)} carried</span></span>${act(`fit:${w.uid}:${a.id}`, 'Fit')}</div>`).join('') : `<div class="empty">Nothing carried fits ${std}.</div>`;
-      else h += `<div class="empty">${std === 'integral' ? 'Nothing fits over it.' : 'No mount here. A rail may add one.'}</div>`;
+      const std = m[slot]; const cur = w.attachments[slot]; const fits = carried.filter((a) => a.slot === slot && fitsWeapon(a, w));
+      const earned = std && std !== (d.mounts[slot] || 'none');
+      h += `<div class="mount"><div class="mk">${slot}<small>${std && std !== 'none' ? `mount · ${std}${earned ? ' · fitted, not factory' : ''}` : 'no mount'}${std === 'integral' ? ' · integral suppressor' : ''}</small></div><div>`;
+      if (cur) { const a = ATTACHMENTS[cur]; const after = previewWeapon(w, { attachments: { [slot]: null } });
+        h += `<div class="cand"><span>${esc(a.name)}<span class="sub">off: ${compareText(h0, weaponHandling(after), COMPARE_KEYS)}</span></span>${act(`unfit:${w.uid}:${cur}`, 'Detach')}</div>`; }
+      else if (std && std !== 'none' && std !== 'integral') h += fits.length ? fits.map((a) => { const after = previewWeapon(w, { attachments: { [slot]: a.id } });
+        return `<div class="cand"><span>${esc(a.name)}<span class="sub">${compareText(h0, weaponHandling(after), COMPARE_KEYS)}${a.effects && (a.effects.zoom > 1 || a.effects.reticle) ? ` · ${esc(effectsText({ zoom: a.effects.zoom, zoomLow: a.effects.zoomLow, reticle: a.effects.reticle }))}` : ''} · ${i.count(a.id)} carried</span></span>${act(`fit:${w.uid}:${a.id}`, 'Fit')}</div>`; }).join('') : `<div class="empty">Nothing carried fits ${std}.</div>`;
+      else h += `<div class="empty">${std === 'integral' ? 'Nothing fits over it.' : 'No mount here. A rail — or a threaded barrel in the parts tray — may add one.'}</div>`;
       h += '</div></div>';
     }
-    const ef = weaponEffects(w);
-    h += `<div class="note">In effect: ${effectsText(ef) || 'factory'} · weight ${kg(weaponWeight(w), 2)}.</div>`;
+    h += handlingHtml(w);
     return h;
   }
+
+  // ---- maintenance ---------------------------------------------------------------------------------------------
   function maintenanceHtml(w) {
-    const i = inv(), d = WEAPONS[w.id], inBase = !!ctx.player.inBase, job = api.jobState;
-    const prow = (p) => { const v = w.parts?.[p] ?? 100; const item = PART_ITEM[p];
-      return `<div class="prow"><span class="k">${p}</span><span class="v ${condClass(v)}">${Math.round(v)} %</span>${mini(v / 100, condClass(v))}<span class="acts">${act(`repair:${w.uid}:${p}`, 'Repair +35', { disabled: !!job || v >= 100 || !i.has('repairkit'), title: 'Weapon repair kit' })}${act(`replace:${w.uid}:${p}`, 'Replace', { disabled: !!job || v >= 100 || !i.has(item), title: ITEMS[item].name })}</span></div>`; };
+    const i = inv(), d = WEAPONS[w.id], job = api.jobState, h0 = weaponHandling(w);
+    const prow = (p) => {
+      const v = w.parts?.[p] ?? 100, item = PART_ITEM[p];
+      const kitJob = REPAIR_JOBS[0], benchJob = REPAIR_JOBS[1];
+      const fee = repairFee(d, p, v, 100);
+      const kitStop = v >= 100 ? 'At gauge' : bar(kitJob);
+      const benchStop = v >= 100 ? 'At gauge' : bar(benchJob, fee);
+      const partStop = v >= 100 ? 'At gauge' : !i.has(item) ? `No ${lower(ITEMS[item].name)}` : null;
+      return `<div class="prow"><span class="k">${p}</span><span class="v ${condClass(v)}">${Math.round(v)} %</span>${mini(v / 100, condClass(v))}<span class="acts">` +
+        act(`repair:${w.uid}:${p}`, 'Kit +35', { disabled: !!job || !!kitStop, deny: !!kitStop, title: kitStop || `${ITEMS.repairkit.name} · ${kitJob.seconds} s` }) +
+        act(`overhaul:${w.uid}:${p}`, feeBtn('Bench', fee), { disabled: !!job || !!benchStop, deny: !!benchStop, title: benchStop || `To 100 % · ${repairSeconds(v)} s · ${money(fee)}` }) +
+        act(`replace:${w.uid}:${p}`, 'Replace', { disabled: !!job || !!partStop, deny: !!partStop, title: partStop || ITEMS[item].name }) +
+        '</span></div>';
+    };
     const dirt = w.dirt || 0;
-    let h = `<div class="parts">${['barrel', 'bolt', 'frame'].map(prow).join('')}` +
-      `<div class="prow"><span class="k">fouling</span><span class="v ${dirt > 0.5 ? 'red' : dirt > 0.25 ? 'amb' : ''}">${pct(dirt * 100)}</span>${mini(dirt, dirt > 0.5 ? 'red' : 'amb')}<span class="acts">${act(`clean:${w.uid}`, inBase ? 'Clean · 4 s' : 'Clean · kit use', { disabled: !!job || dirt < 0.005 || (!inBase && !i.has('cleankit')) })}</span></div>` +
-      (w.jammed ? `<div class="prow"><span class="k">action</span><span class="v red">stoppage</span><span></span><span class="acts">${act(`unjam:${w.uid}`, 'Clear', { disabled: !!job })}</span></div>` : '') + '</div>';
-    if (job) h += `<div class="jobline"><span>${esc(job.label)}</span><span>${job.t.toFixed(1)} / ${job.dur} s</span></div><div class="bar job"><i style="width:${(job.k * 100).toFixed(1)}%"></i></div>`;
-    const ef = weaponEffects(w); const bolt = w.parts?.bolt ?? 100, barrel = w.parts?.barrel ?? 100, frame = w.parts?.frame ?? 100;
-    const jam = 0.18 * dirt * dirt * dirt + 0.12 * (1 - bolt / 100) * (1 - bolt / 100);
-    h += sec('Effect of wear', null, row('Dispersion', `${(d.moa * ef.moa).toFixed(2)}°<span class="u">of ${d.moa}°</span>`) + row('Damage', `${pct((1 - 0.15 * (1 - barrel / 100)) * 100)}`) + row('Stoppage per shot', `${(jam * 100).toFixed(1)} %`, jam > 0.05 ? 'red' : '') + row('Misfire', frame < 30 ? '<span class="red">possible · frame worn</span>' : 'none'));
-    h += `<div class="note">${inBase ? 'At Vanno the bench is stocked: cleaning is free.' : 'In the field a clean spends a cleaning kit use.'} A repair kit adds 35 % to one part; a replacement part restores it. Carried: ${kitLine()}.</div>`;
+    let h = `<div class="parts">${['barrel', 'bolt', 'frame'].map(prow).join('')}`;
+    const cleanActs = CLEAN_JOBS.map((j) => { const stop = dirt < 0.005 && !j.part ? 'Already clean' : bar(j, j.fee);
+      return act(`clean:${w.uid}:${j.id}`, j.short, { disabled: !!job || !!stop, deny: !!stop, title: stop || `${j.name} · ${j.seconds} s${j.fee ? ` · ${money(j.fee)}` : ''}${j.kit ? ` · one ${lower(ITEMS[j.kit].name)} use` : ''}` }); }).join('');
+    h += `<div class="prow"><span class="k">fouling</span><span class="v ${dirt > 0.5 ? 'red' : dirt > 0.25 ? 'amb' : ''}">${pct(dirt * 100)}</span>${mini(dirt, dirt > 0.5 ? 'red' : 'amb')}<span class="acts">${cleanActs}</span></div>`;
+    if (w.jammed) h += `<div class="prow"><span class="k">action</span><span class="v red">stoppage</span><span></span><span class="acts">${act(`unjam:${w.uid}`, 'Clear', { disabled: !!job })}</span></div>`;
+    h += '</div>' + jobBar();
+    // what each job would buy, in the numbers the weapon uses
+    const rows = [];
+    for (const j of CLEAN_JOBS) {
+      const after = previewWeapon(w, { dirt: dirt * j.dirt, parts: j.part ? Object.fromEntries(['barrel', 'bolt', 'frame'].map((k) => [k, Math.min(100, (w.parts?.[k] ?? 100) + j.part)])) : {} });
+      const stop = bar(j, j.fee);
+      rows.push(row(`${esc(j.name)}<span class="sub">${esc(j.note)}<br>${compareText(h0, weaponHandling(after), ['moa', 'jam', 'damage'])}</span>`, `${j.seconds} s<span class="u">${j.fee ? money(j.fee) : j.kit ? 'one kit use' : 'free'}</span>`, stop ? 'dim' : ''));
+    }
+    const worst = ['barrel', 'bolt', 'frame'].reduce((a, b) => ((w.parts?.[a] ?? 100) <= (w.parts?.[b] ?? 100) ? a : b));
+    const wv = w.parts?.[worst] ?? 100;
+    if (wv < 100) {
+      const after = previewWeapon(w, { parts: { [worst]: 100 } });
+      rows.push(row(`Bench overhaul, ${worst} ${Math.round(wv)} % → 100 %<span class="sub">${esc(REPAIR_JOBS[1].note)}<br>${compareText(h0, weaponHandling(after), ['moa', 'jam', 'damage'])}</span>`, `${repairSeconds(wv)} s<span class="u">${money(repairFee(d, worst, wv))}</span>`));
+    }
+    h += sec('What the work buys', null, rows.join(''));
+    h += sec('Where the wear bites', null,
+      row('Barrel at ' + Math.round(h0.barrel) + ' %', `dispersion ×${(1 + (1 - h0.barrel / 100) * 0.9).toFixed(2)}<span class="u">of the fitted barrel</span>`) +
+      row('Fouling at ' + pct(h0.dirt * 100), `dispersion ×${(1 + h0.dirt * 0.15).toFixed(2)} · stoppage ${(0.18 * Math.pow(h0.dirt, 3) * 100).toFixed(2)} %`) +
+      row('Bolt at ' + Math.round(h0.bolt) + ' %', `stoppage ${(0.12 * Math.pow(1 - h0.bolt / 100, 2) * 100).toFixed(2)} %`) +
+      row('Frame at ' + Math.round(h0.frame) + ' %', h0.frame < 30 ? '<span class="red">misfire 5 % per shot</span>' : 'no misfires above 30 %') +
+      row('Stoppage per shot, all told', `${(h0.jam * 100).toFixed(2)} %${daggerOf(h0, STAT.jam)}`, h0.jam > 0.05 ? 'red' : ''));
+    h += handlingHtml(w);
+    h += `<div class="note">${inBase() ? 'At Vanno the tank and the gauges are here; the bench charges for solvent, plate and the armourer’s hour.' : 'In the field only the kit in your pack will do: a strip with a cleaning kit, thirty-five points with a repair kit, or a replacement part.'} Deep cleaning is issued at clearance 3, bench overhaul at clearance 2. Carried: ${kitLine()}.</div>`;
     return h;
   }
+
+  // ---- magazines -----------------------------------------------------------------------------------------------
   function magazinesHtml(w) {
     const i = inv(), d = WEAPONS[w.id], cal = d.cal;
     const types = ammoOf(cal).filter((a) => i.count(a.id) > 0); const pick = pickFor(cal);
@@ -584,48 +737,147 @@ function workbenchPanel(ctx, api) {
     h += `<div class="note">Loose rounds: ${types.length ? types.map((a) => `${esc(a.name)} ×${i.count(a.id)}`).join(' · ') : 'none for this calibre'}. One type per magazine.</div>`;
     return h;
   }
+
+  // ---- armour --------------------------------------------------------------------------------------------------
   function armourHtml() {
-    const i = inv(); const pieces = i.gear.filter((g) => { const d = def(g.id); return d && (d.kind === 'vest' || d.kind === 'helmet') && d.durability; });
+    const i = inv(), job = api.jobState;
+    const pieces = i.gear.filter((g) => { const d = def(g.id); return d && (d.kind === 'vest' || d.kind === 'helmet') && d.durability; });
     let h = pieces.length ? pieces.map((g) => { const d = def(g.id); const v = g.durability ?? d.durability; const p = (v / d.durability) * 100; const s = slotOfUid(i, g.uid);
-      return `<div class="prow"><span class="k">${esc(d.name)}${s ? '<span class="tag">worn</span>' : ''}</span><span class="v ${condClass(p)}">${Math.round(v)} / ${d.durability}</span>${mini(p / 100, condClass(p))}<span class="acts">${act(`arepair:${g.uid}`, 'Repair +40', { disabled: !!api.jobState || v >= d.durability || !i.has('armorkit'), title: 'Armour repair kit' })}</span></div>`; }).join('') : '<div class="empty">No armour carried.</div>';
-    h = `<div class="parts">${h}</div><div class="note">An armour repair kit restores 40 durability to one piece per use. Effective class falls with damage: a vest at half durability stops as class ${(3 * (0.55 + 0.45 * 0.5)).toFixed(1)} instead of 3. Carried: ${esc(ITEMS.armorkit.name)} ×${i.count('armorkit')}${i.count('armorkit') ? ` (${kitUsesLeft(ctx, 'armorkit')} uses)` : ''}.</div>`;
+      const kitJob = ARMOUR_JOBS[0], benchJob = ARMOUR_JOBS[1], fee = armourFee(d, v);
+      const kitStop = v >= d.durability ? 'Sound' : bar(kitJob);
+      const benchStop = v >= d.durability ? 'Sound' : bar(benchJob, fee);
+      return `<div class="prow"><span class="k">${esc(d.name)}${s ? '<span class="tag">worn</span>' : ''}</span><span class="v ${condClass(p)}">${Math.round(v)} / ${d.durability}</span>${mini(p / 100, condClass(p))}<span class="acts">` +
+        act(`arepair:${g.uid}`, 'Kit +40', { disabled: !!job || !!kitStop, deny: !!kitStop, title: kitStop || `${ITEMS.armorkit.name} · ${kitJob.seconds} s` }) +
+        act(`areplate:${g.uid}`, feeBtn('Re-plate', fee), { disabled: !!job || !!benchStop, deny: !!benchStop, title: benchStop || `To ${d.durability} · ${armourSeconds(d, v)} s · ${money(fee)}` }) +
+        `</span></div>`; }).join('') : '<div class="empty">No armour carried.</div>';
+    h = `<div class="parts">${h}</div>` + jobBar();
+    const worn = i.armorPieces();
+    if (worn.length) h += sec('What it stops, as it stands', null, worn.map(({ def: pd, inst }) => {
+      const v = inst.durability ?? pd.durability, dur = v / pd.durability, eff = pd.cls * (0.55 + 0.45 * dur);
+      return row(`${esc(def(inst.id)?.name || 'Armour')}<span class="sub">class ${pd.cls} · ${Math.round(v)} / ${pd.durability}</span>`, `effective class ${eff.toFixed(1)}<span class="u">of ${pd.cls}</span>`, eff < pd.cls * 0.7 ? 'red' : '');
+    }).join(''));
+    h += `<div class="note">A repair kit puts 40 durability back into one piece per use, anywhere. The bench re-plates a piece to full for money at clearance 2 — priced on what the piece is worth per point. Effective class falls with damage: a class 3 vest at half durability stops as class ${(3 * (0.55 + 0.45 * 0.5)).toFixed(1)}. Carried: ${esc(ITEMS.armorkit.name)} ×${i.count('armorkit')}${i.count('armorkit') ? ` (${kitUsesLeft(ctx, 'armorkit')} uses)` : ''}.</div>`;
     return h;
   }
+
+  // ---- handlers ------------------------------------------------------------------------------------------------
   const H = {
     weapon(uid) { wuid = +uid; api.refresh(); return 'ui_click'; },
     tab(t) { tab = t; api.refresh(); return 'ui_click'; },
     pick(arg) { const [cal, id] = arg.split(':'); picks[cal] = id; api.refresh(); return 'ui_click'; },
+    // ---- upgrade parts ----
+    fitpart(arg) {
+      const [uid, id] = arg.split(':'); const i = inv(); const w = i.weaponByUid(+uid); const u = UPGRADES[id];
+      if (!w || !u || api.jobState) return false;
+      const d = WEAPONS[w.id];
+      if (!i.has(id)) { api.notice(`No ${lower(u.name)} in the pack.`, true); return false; }
+      if (!canFitUpgrade(w, id)) { api.notice(`${u.name} does not fit the ${d.name}.`, true); return false; }
+      const slot = SLOT_BY_ID[u.slot], cond = upgradeCondition(w, u.slot), fee = fitFee(d, u, cond);
+      const stop = bar({ base: true, rank: u.rank }, fee.total);
+      if (stop) { api.notice(`${u.name}: ${stop === 'Vanno bench only' ? 'fitting a part is bench work — Vanno only' : stop === `Clearance ${u.rank}` ? `clearance ${u.rank} required, you hold ${lvl()}` : `the docket is ${money(fee.total)}; you hold ${money(i.money())}`}.`, true); return false; }
+      const before = weaponHandling(w);
+      api.job(`Fitting the ${lower(u.name)} to the ${d.name}`, fitSeconds(u, cond), () => {
+        if (!i.has(id)) { api.notice('The part is no longer in the pack.', true); return; }
+        if (!i.spend(fee.total)) { api.notice('Funds short. The docket is torn up.', true); return; }
+        i.remove(id, 1);
+        const r = fitUpgrade(w, id);
+        if (!r) { i.add(id, 1); refund(fee.total); api.notice(`${u.name} would not go on.`, true); return; }
+        if (r.replaced) i.add(r.replaced, 1);
+        for (const x of r.dropped || []) i.add(x, 1);
+        api.weaponsChanged();
+        api.notice(`${u.name} fitted. ${compareText(before, weaponHandling(w), COMPARE_KEYS, false)}. ${money(fee.total)} (${money(fee.labour)} fitting${fee.cond ? ` + ${money(fee.cond)} condition work` : ''}).${r.replaced ? ` ${def(r.replaced).name} back in the pack.` : ''}${(r.dropped || []).length ? ` Came off with it: ${r.dropped.map((x) => def(x)?.name).join(', ')}.` : ''}`);
+      });
+      api.notice(`${d.name} stripped to the ${slot.restores || u.slot}.`); return 'reload_magout';
+    },
+    rmpart(arg) {
+      const [uid, slotId] = arg.split(':'); const i = inv(); const w = i.weaponByUid(+uid); if (!w || api.jobState) return false;
+      const u = upgradeIn(w, slotId); if (!u) return false;
+      const d = WEAPONS[w.id], fee = removeFee(u), stop = bar(REMOVE_JOB, fee);
+      if (stop) { api.notice(`${u.name}: ${stop}.`, true); return false; }
+      const before = weaponHandling(w);
+      api.job(`Pulling the ${lower(u.name)} off the ${d.name}`, Math.max(8, Math.round(fitSeconds(u, 100) * 0.6)), () => {
+        if (!i.spend(fee)) { api.notice('Funds short. The docket is torn up.', true); return; }
+        const r = removeUpgrade(w, slotId);
+        if (!r) { refund(fee); return; }
+        i.add(u.id, 1);
+        for (const x of r.dropped || []) i.add(x, 1);
+        api.weaponsChanged();
+        api.notice(`${u.name} off and in the pack. ${compareText(before, weaponHandling(w), COMPARE_KEYS, false)}. ${money(fee)}.${(r.dropped || []).length ? ` Came off with it: ${r.dropped.map((x) => def(x)?.name).join(', ')}.` : ''}`);
+      });
+      return 'reload_magout';
+    },
+    // ---- attachments ----
     fit(arg) {
       const [uid, id] = arg.split(':'); const i = inv(); const w = i.weaponByUid(+uid); const a = ATTACHMENTS[id]; if (!w || !a || !i.has(id)) return false;
+      const before = weaponHandling(w);
       if (!attach(w, id)) { api.notice(`${a.name} does not fit the ${WEAPONS[w.id].name}${a.slot !== 'rail' && w.attachments[a.slot] ? ': slot occupied' : ''}.`, true); return false; }
-      i.remove(id, 1); api.weaponsChanged(); api.notice(`${a.name} fitted to the ${WEAPONS[w.id].name}.`); api.refresh(); return 'ui_click';
+      i.remove(id, 1); api.weaponsChanged();
+      api.notice(`${a.name} fitted to the ${WEAPONS[w.id].name}. ${compareText(before, weaponHandling(w), COMPARE_KEYS, false)}.`); api.refresh(); return 'ui_click';
     },
     unfit(arg) {
       const [uid, id] = arg.split(':'); const i = inv(); const w = i.weaponByUid(+uid); const a = ATTACHMENTS[id]; if (!w || !a) return false;
+      const before = weaponHandling(w);
       const r = detach(w, id); if (!r) return false;
       i.add(id, 1); const dropped = (r && r.dropped) || []; for (const x of dropped) i.add(x, 1);
-      api.weaponsChanged(); api.notice(`${a.name} removed.${dropped.length ? ` Came off with it: ${dropped.map((x) => ATTACHMENTS[x].name).join(', ')}.` : ''}`); api.refresh(); return 'ui_click';
+      api.weaponsChanged();
+      api.notice(`${a.name} removed. ${compareText(before, weaponHandling(w), COMPARE_KEYS, false)}.${dropped.length ? ` Came off with it: ${dropped.map((x) => ATTACHMENTS[x].name).join(', ')}.` : ''}`); api.refresh(); return 'ui_click';
     },
-    clean(uid) {
-      const i = inv(); const w = i.weaponByUid(+uid); if (!w || api.jobState) return false;
-      const inBase = !!ctx.player.inBase;
-      if (!inBase && !useKit(ctx, 'cleankit')) { api.notice('No cleaning kit carried.', true); return false; }
-      const name = WEAPONS[w.id].name;
-      api.job(`Stripping the ${name}`, 4, () => { w.dirt = 0; w.jammed = false; api.weaponsChanged(); api.notice(`${name} stripped, cleaned and oiled.${inBase ? '' : ' Kit use spent.'}`); });
+    // ---- cleaning and repair ----
+    clean(arg) {
+      const [uid, jid] = arg.split(':'); const i = inv(); const w = i.weaponByUid(+uid); if (!w || api.jobState) return false;
+      const j = CLEAN_JOBS.find((x) => x.id === jid) || CLEAN_JOBS[0];
+      const stop = bar(j, j.fee); if (stop) { api.notice(`${j.name}: ${stop}.`, true); return false; }
+      if ((w.dirt || 0) < 0.005 && !j.part) { api.notice('Nothing on it to take off.', true); return false; }
+      const name = WEAPONS[w.id].name, before = weaponHandling(w);
+      api.job(`${j.name}: the ${name}`, j.seconds, () => {
+        if (j.fee && !i.spend(j.fee)) { api.notice('Funds short.', true); return; }
+        if (j.kit && !useKit(ctx, j.kit)) { if (j.fee) refund(j.fee); api.notice(`No ${lower(ITEMS[j.kit].name)} carried.`, true); return; }
+        w.dirt = Math.max(0, (w.dirt || 0) * j.dirt); w.jammed = false;
+        if (j.part) for (const k of ['barrel', 'bolt', 'frame']) w.parts[k] = Math.min(100, (w.parts[k] ?? 100) + j.part);
+        api.weaponsChanged();
+        api.notice(`${name}: ${lower(j.name)} done. Fouling ${pct(before.dirt * 100)} → ${pct(w.dirt * 100)}. ${compareText(before, weaponHandling(w), ['moa', 'jam', 'damage'], false)}.${j.fee ? ` ${money(j.fee)}.` : j.kit ? ' Kit use spent.' : ''}`);
+      });
       api.notice(`${name} on the bench.`); return 'reload_magout';
     },
     unjam(uid) { const w = inv().weaponByUid(+uid); if (!w || !w.jammed) return false; w.jammed = false; api.weaponsChanged(); api.notice(`${WEAPONS[w.id].name}: stoppage cleared.`); api.refresh(); return 'unjam'; },
     repair(arg) {
-      const [uid, p] = arg.split(':'); const w = inv().weaponByUid(+uid); if (!w || !w.parts || !(p in w.parts)) return false;
+      const [uid, p] = arg.split(':'); const i = inv(); const w = i.weaponByUid(+uid); if (!w || !w.parts || !(p in w.parts) || api.jobState) return false;
       if (w.parts[p] >= 100) { api.notice(`${p}: nothing to repair.`, true); return false; }
-      if (!useKit(ctx, 'repairkit')) { api.notice('No repair kit carried.', true); return false; }
-      w.parts[p] = Math.min(100, w.parts[p] + (ITEMS.repairkit.repair || 35)); api.weaponsChanged(); api.notice(`${WEAPONS[w.id].name} ${p}: ${Math.round(w.parts[p])} %. Kit use spent.`); api.refresh(); return 'ui_click';
+      const j = REPAIR_JOBS[0]; const stop = bar(j); if (stop) { api.notice(`${j.name}: ${stop}.`, true); return false; }
+      const before = weaponHandling(w), was = w.parts[p];
+      api.job(`Repairing the ${p} of the ${WEAPONS[w.id].name}`, j.seconds, () => {
+        if (!useKit(ctx, j.kit)) { api.notice('No repair kit carried.', true); return; }
+        w.parts[p] = Math.min(100, w.parts[p] + (ITEMS.repairkit.repair || j.amount));
+        api.weaponsChanged();
+        api.notice(`${WEAPONS[w.id].name} ${p}: ${Math.round(was)} % → ${Math.round(w.parts[p])} %. ${compareText(before, weaponHandling(w), ['moa', 'jam', 'damage'], false)}. Kit use spent.`);
+      });
+      return 'ui_click';
+    },
+    overhaul(arg) {
+      const [uid, p] = arg.split(':'); const i = inv(); const w = i.weaponByUid(+uid); if (!w || !w.parts || !(p in w.parts) || api.jobState) return false;
+      const d = WEAPONS[w.id], was = w.parts[p], fee = repairFee(d, p, was, 100);
+      if (was >= 100) { api.notice(`${p}: already at gauge.`, true); return false; }
+      const j = REPAIR_JOBS[1], stop = bar(j, fee); if (stop) { api.notice(`${j.name}: ${stop}.`, true); return false; }
+      const before = weaponHandling(w);
+      api.job(`Overhauling the ${p} of the ${d.name}`, repairSeconds(was), () => {
+        if (!i.spend(fee)) { api.notice('Funds short. The docket is torn up.', true); return; }
+        w.parts[p] = 100; api.weaponsChanged();
+        api.notice(`${d.name} ${p}: ${Math.round(was)} % → 100 %. ${compareText(before, weaponHandling(w), ['moa', 'jam', 'damage'], false)}. ${money(fee)}.`);
+      });
+      api.notice(`${d.name} stripped to the ${p}.`); return 'reload_magout';
     },
     replace(arg) {
-      const [uid, p] = arg.split(':'); const i = inv(); const w = i.weaponByUid(+uid); const item = PART_ITEM[p]; if (!w || !item) return false;
+      const [uid, p] = arg.split(':'); const i = inv(); const w = i.weaponByUid(+uid); const item = PART_ITEM[p]; if (!w || !item || api.jobState) return false;
       if (!i.has(item)) { api.notice(`No ${lower(ITEMS[item].name)} carried.`, true); return false; }
-      i.remove(item, 1); w.parts[p] = 100; api.weaponsChanged(); api.notice(`${WEAPONS[w.id].name}: ${p} replaced.`); api.refresh(); return 'reload_magin';
+      const before = weaponHandling(w), was = w.parts[p];
+      api.job(`Replacing the ${p} of the ${WEAPONS[w.id].name}`, 10, () => {
+        if (!i.remove(item, 1)) { api.notice('The part is no longer in the pack.', true); return; }
+        w.parts[p] = 100; api.weaponsChanged();
+        api.notice(`${WEAPONS[w.id].name}: ${p} replaced, ${Math.round(was)} % → 100 %. ${compareText(before, weaponHandling(w), ['moa', 'jam', 'damage'], false)}.`);
+      });
+      return 'reload_magin';
     },
+    // ---- magazines ----
     load(uid) {
       const i = inv(); const m = magByUid(+uid); if (!m) return false; const ammo = pickFor(m.cal); if (!ammo) return false;
       if (m.rounds > 0 && m.ammo !== ammo) { api.notice(`Holds ${AMMO[m.ammo].name}. Unload first.`, true); return false; }
@@ -641,20 +893,41 @@ function workbenchPanel(ctx, api) {
       if (!n) return false; api.weaponsChanged(); api.notice(`${n} round${n === 1 ? '' : 's'} of ${AMMO[ammo].name} loaded.`); api.refresh(); return 'shell_insert';
     },
     tubeunload(uid) { const i = inv(); const w = i.weaponByUid(+uid); if (!w || !w.tube?.length) return false; let n = 0; while (w.tube.length) { i.add(w.tube.pop(), 1); n++; } api.weaponsChanged(); api.notice(`${n} round${n === 1 ? '' : 's'} returned to the pack.`); api.refresh(); return 'reload_magout'; },
+    // ---- armour ----
     arepair(uid) {
-      const i = inv(); const g = i.gearByUid(+uid); const d = g && def(g.id); if (!g || !d?.durability) return false;
-      if ((g.durability ?? d.durability) >= d.durability) { api.notice('Nothing to repair.', true); return false; }
-      if (!useKit(ctx, 'armorkit')) { api.notice('No armour repair kit carried.', true); return false; }
-      g.durability = Math.min(d.durability, (g.durability ?? d.durability) + (ITEMS.armorkit.repair || 40)); api.notice(`${d.name}: ${Math.round(g.durability)} / ${d.durability}. Kit use spent.`); api.refresh(); return 'ui_click';
+      const i = inv(); const g = i.gearByUid(+uid); const d = g && def(g.id); if (!g || !d?.durability || api.jobState) return false;
+      const was = g.durability ?? d.durability;
+      if (was >= d.durability) { api.notice('Nothing to repair.', true); return false; }
+      const j = ARMOUR_JOBS[0], stop = bar(j); if (stop) { api.notice(`${j.name}: ${stop}.`, true); return false; }
+      api.job(`Patching the ${lower(d.name)}`, j.seconds, () => {
+        if (!useKit(ctx, j.kit)) { api.notice('No armour repair kit carried.', true); return; }
+        g.durability = Math.min(d.durability, was + (ITEMS.armorkit.repair || j.amount));
+        api.notice(`${d.name}: ${Math.round(was)} → ${Math.round(g.durability)} of ${d.durability}. Effective class ${(d.cls * (0.55 + 0.45 * (g.durability / d.durability))).toFixed(1)} of ${d.cls}. Kit use spent.`);
+      });
+      return 'ui_click';
+    },
+    areplate(uid) {
+      const i = inv(); const g = i.gearByUid(+uid); const d = g && def(g.id); if (!g || !d?.durability || api.jobState) return false;
+      const was = g.durability ?? d.durability, fee = armourFee(d, was);
+      if (was >= d.durability) { api.notice('Nothing to repair.', true); return false; }
+      const j = ARMOUR_JOBS[1], stop = bar(j, fee); if (stop) { api.notice(`${j.name}: ${stop}.`, true); return false; }
+      api.job(`Re-plating the ${lower(d.name)}`, armourSeconds(d, was), () => {
+        if (!i.spend(fee)) { api.notice('Funds short. The docket is torn up.', true); return; }
+        g.durability = d.durability;
+        api.notice(`${d.name}: ${Math.round(was)} → ${d.durability} of ${d.durability}. Effective class ${d.cls.toFixed(1)}. ${money(fee)}.`);
+      });
+      return 'ui_click';
     },
   };
+
   function render() {
     const i = inv(); const list = weaponsSorted(); const w = curWeapon();
     let h = `<div class="bench">`;
-    if (tab !== 'armour') h += `<div class="tabs wtabs">${list.length ? list.map((x) => { const s = slotOfUid(i, x.uid); return `<button class="tab ${x.uid === wuid ? 'on' : ''}" data-a="weapon:${x.uid}">${esc(WEAPONS[x.id].name)}${s ? `<span class="n">${DOLL_LABEL[s].toLowerCase()}</span>` : ''}</button>`; }).join('') : '<span class="empty">Nothing on the bench.</span>'}</div>`;
+    if (tab !== 'armour') h += `<div class="tabs wtabs">${list.length ? list.map((x) => { const s = slotOfUid(i, x.uid); const n = Object.keys(x.upgrades || {}).length; return `<button class="tab ${x.uid === wuid ? 'on' : ''}" data-a="weapon:${x.uid}">${esc(WEAPONS[x.id].name)}${s ? `<span class="n">${DOLL_LABEL[s].toLowerCase()}</span>` : ''}${n ? `<span class="n">${n} part${n === 1 ? '' : 's'}</span>` : ''}</button>`; }).join('') : '<span class="empty">Nothing on the bench.</span>'}</div>`;
     h += tabsHtml(BENCH_TABS, tab);
     if (tab === 'armour') h += armourHtml();
     else if (!w) h += '<div class="empty">No weapon carried. The bench is bare.</div>';
+    else if (tab === 'parts') h += partsHtml(w);
     else if (tab === 'attachments') h += attachmentsHtml(w);
     else if (tab === 'maintenance') h += maintenanceHtml(w);
     else h += magazinesHtml(w);

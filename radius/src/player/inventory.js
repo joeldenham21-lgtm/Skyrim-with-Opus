@@ -156,12 +156,17 @@ export function previewWeapon(w, ch = {}) {
 // Everything fitted to a weapon, multiplied together: attachments, rails, upgrade parts, then the weapon's own wear.
 const MULT_KEYS = new Set(['zoom', 'adsSpeed', 'recoil', 'moa', 'noise', 'flash', 'wear', 'rpm', 'jam', 'damage']);
 export function weaponEffects(w) {
-  const e = { zoom: 1, reticle: null, adsSpeed: 1, recoil: 1, moa: 1, noise: 1, flash: 1, light: 0, laser: false, ergo: 0, wear: 1, nvOptic: false, prone: false, zoomLow: null, rpm: 1, jam: 1, damage: 1 };
+  const e = { zoom: 1, reticle: null, adsSpeed: 1, recoil: 1, moa: 1, noise: 1, flash: 1, light: 0, laser: false, ergo: 0, wear: 1, nvOptic: false, prone: false, proneRecoil: 1, proneMoa: 1, zoomLow: null, rpm: 1, jam: 1, damage: 1 };
   const d = WEAPONS[w.id];
   if (d.suppressed) { e.noise *= d.suppressed; e.flash *= 0.1; }
   for (const id of [...Object.values(w.attachments || {}), ...(w.rails || []), ...Object.values(w.upgrades || {})]) {
     const a = def(id); if (!a || !a.effects) continue;
+    const prone = !!a.effects.prone;
     for (const [k, v] of Object.entries(a.effects)) {
+      // A bipod steadies the rifle only once the legs are down. Folding its recoil and moa into the
+      // always-on multipliers handed the bonus out while it was stowed, and handed it out twice while
+      // deployed, because weapons.js multiplies again when it puts them down. Keep them separate.
+      if (prone && (k === 'recoil' || k === 'moa')) { e[k === 'recoil' ? 'proneRecoil' : 'proneMoa'] *= v; continue; }
       if (MULT_KEYS.has(k)) e[k] *= v;
       else if (k === 'ergo') e.ergo += v;
       else if (k === 'light') e.light = Math.max(e.light, v);
@@ -249,7 +254,17 @@ export function createInventory(ctx) {
     fillMags(w) { let loaded = 0; const cal = WEAPONS[w.id].cal; for (const m of [...api.magsForWeapon(w), ...(w.mag ? [w.mag] : [])]) { const a = m.ammo || api.preferredAmmo(cal); loaded += api.loadMag(m, a, 999); } return loaded; },
     // ---- gear (armour, packs, rigs, headgear, masks, tools with instances) ----
     addGear(g) { inv().gear.push(g); const d = def(g.id); const e = inv().equipment; const slot = d.kind === 'vest' ? 'vest' : d.kind === 'helmet' ? 'helmet' : d.kind === 'backpack' ? 'backpack' : d.kind === 'rig' ? 'rig' : d.kind === 'headgear' ? 'headgear' : d.kind === 'mask' ? 'mask' : d.kind === 'melee' ? 'melee' : null; if (slot && !e[slot]) e[slot] = g.uid; emit(g.id, 1); return g; },
-    removeGear(u) { const list = inv().gear; const i = list.findIndex((g) => g.uid === u); if (i < 0) return null; const [g] = list.splice(i, 1); const e = inv().equipment; for (const k of Object.keys(e)) if (e[k] === u) e[k] = null; emit(g.id, -1); return g; },
+    removeGear(u) {
+      const list = inv().gear; const i = list.findIndex((g) => g.uid === u); if (i < 0) return null;
+      const [g] = list.splice(i, 1); const e = inv().equipment;
+      const woreRig = e.rig === u;
+      for (const k of Object.keys(e)) if (e[k] === u) e[k] = null;
+      // Taking the rig off takes its pouches with it. setReady() gates additions on the worn rig's
+      // capacity but nothing pruned on removal, so stowing or selling a rig left its magazines flagged
+      // ready — instant reloads out of a rig that was no longer on the Explorer.
+      if (woreRig) { const cap = api.equippedDef('rig')?.readyMags || 0; const r = inv().readyMags; if (r.length > cap) r.length = cap; }
+      emit(g.id, -1); return g;
+    },
     gearByUid(u) { return inv().gear.find((g) => g.uid === u) || null; },
     equipGear(u, slot) { const e = inv().equipment; e[slot] = u; emit('equip', 0); },
     unequip(slot) { inv().equipment[slot] = null; emit('equip', 0); },

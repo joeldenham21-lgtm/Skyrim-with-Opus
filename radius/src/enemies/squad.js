@@ -18,7 +18,7 @@ import { clamp, clamp01, lerp, angleDelta, DEG } from '../core/math.js';
 import { classRank } from './loadout.js';
 import { def } from '../data/index.js';
 
-const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _dir = new THREE.Vector3(), _eye = new THREE.Vector3(), _n = new THREE.Vector3();
+const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _dir = new THREE.Vector3(), _eye = new THREE.Vector3(), _n = new THREE.Vector3(), _cam = new THREE.Vector3(0, 0, -1);
 const REINFORCE_AFTER = 30, REINFORCE_R = 160, GRENADE_CD = 40, CONVERGE_R = 120;
 const AMBUSH_MAX = 110, BREAK_MORALE = 0.3, SPRING_R = 18, CELL = 20;
 // the mimic only understands these order roles; `job` below is the squad's own vocabulary
@@ -38,7 +38,7 @@ export function createSquads(ctx) {
   let nextId = 1;
   const hold = { anchor: new THREE.Vector3(), t: 0, init: false };
   let grenadeGeo = null, grenadeMat = null;
-  let zoneSk = 0, zoneSkT = 0;
+  let zoneSk = 0, zoneSkT = 0, jobBudget = 0;
 
   // ---- how good the zone's soldiers are right now: Tide level, clearance, and how many Tides have passed ----
   function zoneSkill() {
@@ -50,11 +50,13 @@ export function createSquads(ctx) {
   }
 
   // ---- view tests (player camera frustum + line of sight), shared by every consumer ----
+  // getWorldDirection walks and updates the camera's whole parent chain, so it is read once a frame and
+  // every frustum test in every squad reads the cached vector.
+  function refreshCam() { ctx.camera.getWorldDirection(_cam); }
   function inFrustum(x, y, z, halfAngleDeg = 55) {
-    ctx.camera.getWorldDirection(_dir);
     _v.set(x, y, z).sub(ctx.player.eye);
     const d = _v.length(); if (d < 0.01) return true; _v.divideScalar(d);
-    return _dir.dot(_v) >= Math.cos(halfAngleDeg * DEG);
+    return _cam.dot(_v) >= Math.cos(halfAngleDeg * DEG);
   }
   function visibleFromPlayer(x, y, z, halfAngleDeg = 55) {
     if (!inFrustum(x, y + 0.9, z, halfAngleDeg)) return false;
@@ -105,8 +107,8 @@ export function createSquads(ctx) {
           const c = cell[i];
           const dm = Math.hypot(c.x - from.x, c.z - from.z); if (dm > maxD) continue;
           const s = score(c, dm); if (s === null || s === -Infinity) continue;
-          if (cand.length < 6) { let j = cand.length; cand.push(c); candS.push(s); while (j > 0 && candS[j - 1] < s) { cand[j] = cand[j - 1]; candS[j] = candS[j - 1]; cand[j - 1] = c; candS[j - 1] = s; j--; } }
-          else if (s > candS[5]) { let j = 5; cand[5] = c; candS[5] = s; while (j > 0 && candS[j - 1] < s) { const tc = cand[j - 1], ts = candS[j - 1]; cand[j - 1] = c; candS[j - 1] = s; cand[j] = tc; candS[j] = ts; j--; } }
+          if (cand.length < 4) { let j = cand.length; cand.push(c); candS.push(s); while (j > 0 && candS[j - 1] < s) { cand[j] = cand[j - 1]; candS[j] = candS[j - 1]; cand[j - 1] = c; candS[j - 1] = s; j--; } }
+          else if (s > candS[3]) { let j = 3; cand[3] = c; candS[3] = s; while (j > 0 && candS[j - 1] < s) { const tc = cand[j - 1], ts = candS[j - 1]; cand[j - 1] = c; candS[j - 1] = s; cand[j] = tc; candS[j] = ts; j--; } }
         }
       }
     }
@@ -133,10 +135,10 @@ export function createSquads(ctx) {
       // contact reports in flight
       this.pending = []; this.callT = -1e9; this.knowT = 0; this.shotT = 0;
       // bounding
-      this.bounding = false; this.boundT = 0; this.movingElement = 0;
+      this.bounding = false; this.boundT = 0; this.movingElement = 0; this.groups = 2;
       // patrol route (population.js hands one over)
-      this.route = null; this.routeI = 0; this.routeDir = 1; this.routeHold = 0; this.patrolT = rng.range(0, 0.6); this.file = [];
-      this.breakT = 0; this.coolT = 0; this.sightT = 0;
+      this.route = null; this.routeI = 0; this.routeDir = 1; this.routeHold = 0; this.legT = 0; this.patrolT = rng.range(0, 0.6); this.file = [];
+      this.breakT = 0; this.coolT = 0; this.sightT = 0; this.posCursor = 0;
       for (const m of members) this.add(m);
       this.initial = this.members.length;
       this.electLeader();
@@ -145,7 +147,7 @@ export function createSquads(ctx) {
       if (!m || this.members.includes(m)) return;
       if (m.squad && m.squad !== this) m.squad.remove(m);
       m.squad = this; this.members.push(m); this.initial = Math.max(this.initial, this.members.length);
-      if (!m.orders) m.orders = { role: 'idle', job: 'idle', target: new THREE.Vector3(), hasTarget: false, fire: false, hold: false, at: false, side: 0, element: 0, arrivedT: 0, flankAng: 0 };
+      if (!m.orders) m.orders = { role: 'idle', job: 'idle', target: new THREE.Vector3(), hasTarget: false, fire: false, hold: false, at: false, side: 0, element: 0, mv: 0, arrivedT: 0, flankAng: 0 };
       this.file.length = 0;
       if (!this.leaderRef) this.electLeader();
     }
@@ -215,13 +217,15 @@ export function createSquads(ctx) {
       const t = ctx.elapsed;
       if (kind === 'spotted') { this.report(ctx.player.position, 'contact', m); if (!this.inCombat) this.enterCombat(); }
       else if (kind === 'hit') {
-        this.report(ctx.player.position, 'contact', m);
+        // shot at from somewhere he was not looking: he calls in a direction, not a grid reference
+        if (m && m.aware < 0.6) { const j = 6 + rng() * 6; _v.set(ctx.player.position.x + rng.range(-j, j), ctx.player.position.y, ctx.player.position.z + rng.range(-j, j)); this.report(_v, 'contact', m); }
+        else this.report(ctx.player.position, 'contact', m);
         if (!this.inCombat) this.enterCombat();
         this.morale = Math.max(0, this.morale - 0.03);
       } else if (kind === 'killed') this.onKilled(m, t);
     }
     onKilled(m, t) {
-      if (!this.inCombat) { this.know(ctx.player.position, t); this.enterCombat(); }
+      if (!this.inCombat) { this.report(m.position, 'call', null); this.enterAlert(); }   // they know where he fell
       this.morale = Math.max(0, this.morale - 0.2);
       if (m === this.leaderRef) {
         // the man giving the orders is gone: nobody flanks, nobody bounds, everyone gets behind something
@@ -229,7 +233,7 @@ export function createSquads(ctx) {
         this.shaken = lerp(9, 3.5, this.skill);
         this.morale = Math.max(0, this.morale - 0.2);
         this.bounding = false;
-        for (const o of this.members) if (o.alive && o !== m) { o.cooldown = Math.max(o.cooldown || 0, rng.range(0.4, 1.1)); }
+        for (const x of this.members) if (x.alive && x !== m) { x.cooldown = Math.max(x.cooldown || 0, rng.range(0.4, 1.1)); }   // a beat of hesitation
         const c = this.members.find((x) => x.alive && x !== m);
         if (c) c.sound('mimic_radio', { gain: 0.95, max: 110, rate: 1.28 });
       }
@@ -245,7 +249,7 @@ export function createSquads(ctx) {
       this.bounding = false; this.shaken = 0; this.pending.length = 0;
       for (const m of this.members) {
         const o = m.orders;
-        if (o) { o.role = 'idle'; o.job = 'idle'; o.hasTarget = false; o.fire = false; o.hold = false; o.at = false; o.side = 0; o.element = 0; }
+        if (o) { o.role = 'idle'; o.job = 'idle'; o.hasTarget = false; o.fire = false; o.hold = false; o.at = false; o.side = 0; o.element = 0; o.mv = 0; }
         if (!m.alive) continue;
         if (hard) { m.aware = Math.min(m.aware, 0.22); m.engaged = false; m.target = null; if (m.state === 'engage' || m.state === 'search') m.setState('patrol'); }
       }
@@ -329,13 +333,41 @@ export function createSquads(ctx) {
       if (this.state === 'breakoff') this.breakoffTick(dt, alive);
 
       // bounding clock: the elements swap while the squad is closing
-      if (this.bounding) { this.boundT -= dt; if (this.boundT <= 0) { this.boundT = lerp(6.5, 3.5, this.skill); this.movingElement ^= 1; this.roleT = 0; this.radioT = Math.min(this.radioT, 0.6); } }
+      if (this.bounding) {
+        this.boundT -= dt;
+        if (this.boundT <= 0) { this.boundT = lerp(6.5, 3.5, this.skill); this.movingElement = (this.movingElement + 1) % (this.groups || 2); this.roleT = 0; this.radioT = Math.min(this.radioT, 0.6); }
+        // a man who has reached his cover is down and firing again; he does not wait for the next order
+        for (const m of this.members) {
+          const o = m.orders; if (!o || !m.alive) continue;
+          if (!o.hasTarget && o.element === this.movingElement && (o.job === 'point' || o.job === 'support')) { o.role = 'base'; o.fire = true; o.hold = true; }
+        }
+      }
+
+      // A man walking a flank or crossing on a bound has nothing in sight, and on his own he would give up
+      // after six seconds and wander off to the last place he saw you. He is not on his own: while anyone in
+      // the squad is in contact, the radio keeps him in the fight. His sighting is never made fresher than
+      // three seconds, so he still cannot shoot at something he cannot see.
+      if ((this.state === 'combat' || this.state === 'regroup') && (this.eyesOn || t - this.lastKnownT < 8)) {
+        for (const m of this.members) {
+          const o = m.orders;
+          if (!m.alive || !o || (o.job !== 'flanker' && o.mv !== 1)) continue;
+          m.engaged = true;
+          if (m.aware < 0.85) m.aware = 0.85;
+          if (t - m.lastVisT > 3) m.lastVisT = t - 3;
+        }
+      }
 
       // jobs
       this.roleT -= dt;
       if (this.roleT <= 0) {
-        this.roleT = lerp(3.2, 1.6, this.skill) * rng.range(0.85, 1.15);
-        if (this.inCombat && this.centroid.distanceTo(p.position) < 220) this.assignJobs(alive);
+        // two squads re-plan per frame at most; the rest wait a tenth of a second. Six groups all deciding
+        // on the same frame is the only way this file can cost a frame, and this is what stops it.
+        if (jobBudget <= 0) this.roleT = 0.08 + rng() * 0.12;
+        else {
+          jobBudget--;
+          this.roleT = lerp(3.2, 1.6, this.skill) * rng.range(0.85, 1.15);
+          if (this.inCombat && this.centroid.distanceTo(p.position) < 220) this.assignJobs(alive);
+        }
       }
       // patrol: only when nothing is happening, and cheaply
       if (this.state === 'idle' && this.route) { this.patrolT -= dt; if (this.patrolT <= 0) { this.patrolT = 0.6; if (this.centroid.distanceTo(p.position) < 230) this.drivePatrol(); } }
@@ -438,10 +470,12 @@ export function createSquads(ctx) {
         for (const m of this.members) if (m.alive && m.orders) { m.orders.job = 'ambush'; m.orders.role = 'ambush'; m.orders.hold = true; }
         return;
       }
+      // No picture, no plan. In the second between the first man seeing you and his call landing, the squad
+      // has nothing to manoeuvre against and does not pretend otherwise — he fights, the rest wait for it.
+      if (!this.hasKnown && !this.eyesOn) return;
       const members = [];
       for (const m of this.members) if (m.alive && m.stunned <= 0) members.push(m);
       if (!members.length) return;
-      _eye.copy(this.eyesOn ? p.eye : this.aimEye);
       for (const m of members) m._dA = Math.hypot(m.position.x - A.x, m.position.z - A.z);
       members.sort((a, b) => a._dA - b._dA);
 
@@ -462,7 +496,7 @@ export function createSquads(ctx) {
       if (!hasPoint && free.length) { jobs.set(free.shift(), 'point'); hasPoint = true; }   // nearest man takes point
       if (n >= 4 && free.length) jobs.set(free.pop(), 'overwatch');              // farthest hangs back and watches
       // flankers: a squad that can spare men sends them round, and sends more as the zone gets deeper
-      const wantFlank = n <= 2 ? 0 : Math.min(free.length, sk > 0.55 ? 2 : sk > 0.15 ? 1 : 0);
+      const wantFlank = n <= 2 ? 0 : Math.min(free.length - 1, sk > 0.55 ? 2 : sk > 0.15 ? 1 : 0);
       for (let i = 0; i < wantFlank; i++) jobs.set(free.pop(), 'flanker');
       for (const m of free) jobs.set(m, 'support');
       if (n === 1) jobs.set(members[0], 'point');
@@ -473,21 +507,38 @@ export function createSquads(ctx) {
       for (const [m, j] of jobs) if (j === 'point' || j === 'support') movers.push(m);
       const gap = this.centroid.distanceTo(A);
       const wantBound = movers.length >= 2 && sk >= 0.18 && gap > 20 && this.morale > 0.45;
+      this.groups = movers.length >= 3 ? 3 : 2;
       if (wantBound && !this.bounding) { this.bounding = true; this.boundT = lerp(6.5, 3.5, sk); this.movingElement = 0; }
       else if (!wantBound) this.bounding = false;
-      if (this.bounding) for (let i = 0; i < movers.length; i++) movers[i].orders.element = i & 1;
+      if (this.bounding) { this.movingElement %= this.groups; for (let i = 0; i < movers.length; i++) movers[i].orders.element = i % this.groups; }
 
       let flankSide = rng() < 0.5 ? 1 : -1;
+      // Picking a firing position is a handful of line-of-sight rays; doing it for five men at once is a
+      // visible hitch on a handset. Two men are repositioned a tick, round robin — plus anyone whose job
+      // has just changed and anyone whose turn it is to move. The rest keep the orders they have, which is
+      // what a real squad does anyway. A man whose bound has just ended goes firm on the cover he was
+      // walking to and opens fire; that costs nothing at all.
+      let budget = 2, seat = 0;
+      const cursor = this.posCursor | 0;
       for (const [m, job] of jobs) {
         const o = m.orders; if (!o) continue;
         const prev = o.job; o.job = job;
+        const line = job === 'point' || job === 'support';
+        const mv = this.bounding && line ? (o.element === this.movingElement ? 1 : 2) : 0;
+        const was = o.mv | 0; o.mv = mv;
+        if (mv === 2 && was === 1) { o.role = 'base'; o.fire = true; o.hold = true; continue; }
+        const changed = prev !== job || (mv === 1 && was !== 1);
+        const turn = seat++ === cursor % members.length;
+        if (!changed && !turn && o.hasTarget) continue;
+        if (!changed && budget-- <= 0) continue;
         if (job === 'flanker') {
           if (prev !== 'flanker' || o.side === 0) { o.side = flankSide; flankSide = -flankSide; o.arrivedT = 0; }
           this.orderFlank(m, o);
         } else if (job === 'overwatch') this.orderOverwatch(m, o);
-        else if (this.bounding && o.element === this.movingElement) this.orderAdvance(m, o);
+        else if (mv === 1) this.orderAdvance(m, o);
         else this.orderHold(m, o, job === 'point');
       }
+      this.posCursor = (cursor + 1) % Math.max(1, members.length);
     }
 
     // base of fire: cover with a line of sight onto the called position, at the band this man's gun likes
@@ -596,7 +647,7 @@ export function createSquads(ctx) {
     setRoute(points, opts = {}) {
       if (!points || points.length < 2) { this.route = null; return; }
       this.route = points; this.routeI = opts.startAt != null ? opts.startAt % points.length : Math.floor(rng() * points.length);
-      this.routeDir = 1; this.routeLoop = opts.loop !== false; this.routeHold = rng.range(2, 8);
+      this.routeDir = 1; this.routeLoop = opts.loop !== false; this.routeHold = rng.range(1, 4); this.legT = 0;
     }
     drivePatrol() {
       const route = this.route; if (!route || route.length < 2) return;
@@ -611,18 +662,26 @@ export function createSquads(ctx) {
         if (!m.alive) continue;
         if (m.aware > 0.35 || (m.state !== 'patrol' && m.state !== 'watch' && m.state !== 'idle')) continue;
         walking++;
-        const back = hold ? 0 : i * 4.5, side = ((i % 2) ? 1.7 : -1.7) * (hold ? 1.6 : 1);
-        const hx = wp.x - dx * back - dz * side, hz = wp.z - dz * back + dx * side;
+        let hx, hz;
+        if (hold) { const a = i * 2.3999632 + this.id, r = 3.5 + (i % 3) * 2.5; hx = wp.x + Math.cos(a) * r; hz = wp.z + Math.sin(a) * r; }
+        else { const back = i * 4.5, side = (i % 2) ? 1.7 : -1.7; hx = wp.x - dx * back - dz * side; hz = wp.z - dz * back + dx * side; }
         if (walkable(hx, hz, _v)) m.home.copy(_v); else m.home.copy(wp);
-        m.poiR = hold ? 7 : 4.5;
-        if (m.state === 'patrol') { if (!m.target) m.target = new THREE.Vector3(); m.target.copy(m.home); }
+        m.poiR = hold ? 6 : 4.5;
+        if (m.state === 'patrol') { if (m.setTarget) m.setTarget(m.home); else { if (!m.target) m.target = new THREE.Vector3(); m.target.copy(m.home); } }
         else if (m.state === 'watch' && !hold) m.waitT = Math.min(m.waitT, 0.4);
-        if (Math.hypot(m.position.x - wp.x, m.position.z - wp.z) < 9) near++;
+        // arrival is measured against his own slot, not the waypoint: the tail of a file is fifteen metres
+        // back by design, and counting it against the waypoint would mean the squad never moved on
+        if (Math.hypot(m.position.x - m.home.x, m.position.z - m.home.z) < 6) near++;
       }
       if (!walking) return;
       if (hold) { this.routeHold -= 0.6; return; }
-      if (near >= Math.max(1, Math.ceil(walking * 0.6))) {
-        this.routeHold = rng.range(5, 14);
+      // A procedural waypoint can turn out to be somewhere nobody can actually walk to — behind a fence, on
+      // the wrong side of a wall. Forty seconds on one leg and the patrol moves on regardless, so a route is
+      // never a squad standing forever against a hedge.
+      this.legT += 0.6;
+      if (near >= Math.max(1, Math.ceil(walking * 0.6)) || this.legT > 40) {
+        this.legT = 0;
+        this.routeHold = rng.range(4, 11);
         if (this.routeLoop) this.routeI = (this.routeI + 1) % route.length;
         else {
           this.routeI += this.routeDir;
@@ -748,6 +807,8 @@ export function createSquads(ctx) {
     },
     update(dt) {
       if (dt <= 0) return;
+      refreshCam();
+      jobBudget = 2;
       zoneSkT -= dt; if (zoneSkT <= 0) { zoneSkT = 3; zoneSk = zoneSkill(); }
       // how long has the player held one spot? (grenade trigger)
       const p = ctx.player.position;

@@ -310,11 +310,12 @@ class Phantom extends Enemy {
     u.uTime.value = t;
     u.uRim.value = 0.35 + rv * 1.8 + scream * 0.6 + ctx.time.night * 0.15;
     u.uShimmer.value = 1 + rv * 3 + (this.state === 'rush' ? 1.5 : 0);
-    this.rim.visible = !nvg;
-    // the transmission pass is not free: only render the glass within forty-five metres; a vanish blinks it out
+    // the transmission pass is not free: only render the glass within forty-five metres; a vanish blinks it out.
+    // The rim used to be switched on unconditionally before this test and only corrected on a change of `show`,
+    // so a vanished or culled phantom lit its rim again every frame and neither the blink nor the cull held.
     const show = d < 45 && this.vanishT <= 0;
-    if (show !== this.shown) { this.shown = show; rig.mesh.visible = show; this.rim.visible = show && !nvg; }
-    if (show && this.rim.visible !== !nvg) this.rim.visible = !nvg;
+    if (show !== this.shown) { this.shown = show; rig.mesh.visible = show; }
+    this.rim.visible = show && !nvg;
   }
 }
 

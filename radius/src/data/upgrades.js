@@ -168,14 +168,14 @@ export const upgradesFor = (weaponDef, slotId = null) => Object.values(UPGRADES)
 export const PART_SHARE = { barrel: 0.35, bolt: 0.28, frame: 0.16 };
 export const LABOUR = 1.5;            // the armourer's multiple over the value of the metal
 export const FEE_FLOOR = 40;
-export const FIT = { labour: 0.22, remove: 0.12, removeFloor: 50, seconds: 11, perTier: 5 };
+export const FIT = { labour: 0.22, remove: 0.12, removeFloor: 50, seconds: 8, perTier: 3 };
 
 export function repairFee(weaponDef, part, from, to = 100) {
   const missing = Math.max(0, Math.min(100, to) - Math.max(0, from));
   if (missing <= 0) return 0;
   return Math.max(FEE_FLOOR, Math.ceil((missing / 100) * (weaponDef?.price || 500) * (PART_SHARE[part] || 0.2) * LABOUR));
 }
-export const repairSeconds = (from, to = 100) => Math.round((8 + 26 * Math.max(0, (Math.min(100, to) - Math.max(0, from))) / 100) * 10) / 10;
+export const repairSeconds = (from, to = 100) => Math.round((6 + 14 * Math.max(0, (Math.min(100, to) - Math.max(0, from))) / 100) * 10) / 10;
 // Fitting a part is two jobs on one docket: the part's own fitting labour, and bringing the weapon back to the
 // condition a new part implies. That second half is priced exactly like a repair, so swapping parts is never a
 // cheaper way to buy condition than repairing is.
@@ -188,7 +188,7 @@ export function fitFee(weaponDef, u, curCondition = 100) {
 export const fitSeconds = (u, curCondition = 100) => {
   const slot = SLOT_BY_ID[u.slot];
   const base = FIT.seconds + FIT.perTier * (u.tier || 0);
-  return Math.round((base + (slot && slot.restores ? repairSeconds(curCondition) - 8 : 0)) * 10) / 10;
+  return Math.round((base + (slot && slot.restores ? repairSeconds(curCondition) - 6 : 0)) * 10) / 10;
 };
 export const removeFee = (u) => Math.max(FIT.removeFloor, Math.ceil((u.price || 0) * FIT.remove));
 
@@ -197,37 +197,37 @@ export const removeFee = (u) => Math.max(FIT.removeFloor, Math.ceil((u.price || 
 // dirt is the multiplier fouling is left at; part is the condition added to every part.
 // ---------------------------------------------------------------------------------------------------------------
 export const CLEAN_JOBS = [
-  { id: 'field', name: 'Field strip', short: 'Strip', seconds: 9, fee: 0, kit: 'cleankit', rank: 1, base: false, dirt: 0.25, part: 0,
+  { id: 'field', name: 'Field strip', short: 'Strip', seconds: 7, fee: 0, kit: 'cleankit', rank: 1, base: false, dirt: 0.25, part: 0,
     note: 'A rag, a rod and the oil in the kit. It takes most of it out and costs a kit use.' },
-  { id: 'bench', name: 'Bench strip and clean', short: 'Clean', seconds: 16, fee: 90, kit: null, rank: 1, base: true, dirt: 0, part: 2,
+  { id: 'bench', name: 'Bench strip and clean', short: 'Clean', seconds: 12, fee: 90, kit: null, rank: 1, base: true, dirt: 0, part: 2,
     note: 'Solvent tank, brass brushes, fresh oil. Everything the rag missed, for the price of the solvent.' },
-  { id: 'deep', name: 'Ultrasonic deep clean', short: 'Deep clean', seconds: 34, fee: 320, kit: null, rank: 3, base: true, dirt: 0, part: 8,
+  { id: 'deep', name: 'Ultrasonic deep clean', short: 'Deep', seconds: 20, fee: 320, kit: null, rank: 3, base: true, dirt: 0, part: 8,
     note: 'The whole group in the tank for half an hour. Carbon comes out of the wear surfaces and the parts gauge better after.' },
 ];
 export const REPAIR_JOBS = [
-  { id: 'kit', name: 'Repair kit', short: 'Kit +35', seconds: 12, kit: 'repairkit', rank: 1, base: false, amount: 35, fee: 0,
+  { id: 'kit', name: 'Repair kit', short: 'Kit +35', seconds: 10, kit: 'repairkit', rank: 1, base: false, amount: 35, fee: 0,
     note: 'Springs, pins and a file out of the kit. Thirty-five points to one part, anywhere.' },
   { id: 'bench', name: 'Bench overhaul', short: 'Overhaul', kit: null, rank: 2, base: true, amount: 100, fee: null,
     note: 'The armourer takes the part back to gauge. Priced on what is missing and on what the weapon is worth.' },
 ];
 export const ARMOUR_JOBS = [
-  { id: 'kit', name: 'Armour repair kit', short: 'Kit +40', seconds: 14, kit: 'armorkit', rank: 1, base: false, amount: 40, fee: 0 },
+  { id: 'kit', name: 'Armour repair kit', short: 'Kit +40', seconds: 12, kit: 'armorkit', rank: 1, base: false, amount: 40, fee: 0 },
   { id: 'bench', name: 'Bench re-plate', short: 'Re-plate', kit: null, rank: 2, base: true, amount: 999, fee: null },
 ];
-export const ARMOUR_LABOUR = 1.1;     // fee per durability point, as a fraction of price/durability
+export const ARMOUR_LABOUR = 0.32;     // fee per durability point, as a fraction of price/durability
 export function armourFee(armorDef, from) {
   const missing = Math.max(0, (armorDef?.durability || 0) - Math.max(0, from));
   if (missing <= 0) return 0;
   return Math.max(FEE_FLOOR, Math.ceil(missing * ((armorDef.price || 400) / (armorDef.durability || 40)) * ARMOUR_LABOUR));
 }
-export const armourSeconds = (armorDef, from) => Math.round((10 + 24 * Math.max(0, ((armorDef?.durability || 1) - from) / (armorDef?.durability || 1))) * 10) / 10;
+export const armourSeconds = (armorDef, from) => Math.round((8 + 14 * Math.max(0, ((armorDef?.durability || 1) - from) / (armorDef?.durability || 1))) * 10) / 10;
 
 // ---------------------------------------------------------------------------------------------------------------
 // the readout. Every number the bench shows the player comes from this table — nothing is computed for display
-// that the weapon does not actually use. `better` says which direction is an improvement.
-//   key: the field on inventory.weaponHandling(w).  live: false marks a number weapons.js does not read yet.
+// that the weapon does not actually use. `key` is the field on inventory.weaponHandling(w), `better` says which
+// direction is an improvement, and `fx` names the weaponEffects key the line leans on, so the sheet can mark
+// anything weapons.js does not read yet.
 // ---------------------------------------------------------------------------------------------------------------
-// `fx` names the weaponEffects key a line depends on, so the sheet can mark anything weapons.js does not read yet.
 export const HANDLING_STATS = [
   { key: 'moa', label: 'Dispersion', unit: '°', digits: 2, better: 'down', fx: 'moa' },
   { key: 'moaAds', label: 'Dispersion, aimed', unit: '°', digits: 2, better: 'down', fx: 'moa' },
@@ -254,7 +254,12 @@ export const COMPARE_KEYS = ['moa', 'recoil', 'ads', 'rpm', 'jam', 'damage', 'no
 // register the parts into the item catalogue so they are found, carried, priced and sold like anything else
 // ---------------------------------------------------------------------------------------------------------------
 export function registerUpgrades(table = ITEMS) {
-  for (const u of Object.values(UPGRADES)) if (!table[u.id]) table[u.id] = u;
+  for (const u of Object.values(UPGRADES)) {
+    // `part` is what the rest of the catalogue already understands about a part item: which piece of the weapon it
+    // is. attachmesh.js builds a dropped part's world mesh off it, and the supply crate names it in its one line.
+    if (!u.part) u.part = (SLOT_BY_ID[u.slot] && SLOT_BY_ID[u.slot].restores) || u.slot;
+    if (!table[u.id]) table[u.id] = u;
+  }
   return table;
 }
 registerUpgrades();

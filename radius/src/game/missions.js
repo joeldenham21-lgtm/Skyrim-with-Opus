@@ -469,6 +469,29 @@ export function createMissions(ctx) {
       if (m.type === 'ARTIFACT') return ctx.inventory.has(m.artifact);
       return false;
     },
+    // The terminal calls this when it has it and falls back to withdrawing the record itself when it
+    // does not — and it never did, so an abandoned contract kept its crate, beacon or relay standing in
+    // the zone with a live pickup prompt for an objective that no longer existed.
+    abandon(idOrM) {
+      const md = missionsData();
+      const id = typeof idOrM === 'string' ? idOrM : idOrM?.id;
+      const i = md.active.findIndex((m) => m.id === id);
+      if (i < 0) return false;
+      const [m] = md.active.splice(i, 1);
+      disposeMission(m.id);
+      m.status = 'abandoned';
+      // issued kit goes back to the Committee, same as the terminal did on its own
+      if (m.points) { const n = Math.min(ctx.inventory.count('beacon'), m.points.filter((p) => !p.done).length); if (n > 0) ctx.inventory.remove('beacon', n); }
+      if (m.chain === 1 && !m.installed && ctx.inventory.has('recorder')) ctx.inventory.remove('recorder', 1);
+      if (m.relay && !m.planted && m.item && ctx.inventory.has(m.item)) ctx.inventory.remove(m.item, 1);
+      m.recovered = false; m.spot = null; m.installed = false; m.planted = false;
+      if (m.points) for (const p of m.points) p.done = false;
+      ctx.events.emit('missionFailed', m);
+      if (md.active.length === 0) api.generate();
+      refreshObjective(true);
+      ctx.state.save();
+      return true;
+    },
     complete(idOrM, opts = {}) {
       const md = missionsData(), d = ctx.state.data;
       const id = typeof idOrM === 'string' ? idOrM : idOrM?.id;

@@ -67,5 +67,11 @@ export function createTide(ctx) {
   };
   ctx.events.on('tideWarning', api.warn);
   ctx.events.on('tideNow', api.arrive);
+  // Quitting to the title mid-Tide left phase on 'rising' or 'white', so the next game started inside a
+  // white-out it had not earned — and, on 'rising', killed the player a few seconds in.
+  ctx.events.on('gameStart', () => {
+    phase = 'idle'; t = 0; sirenT = 0;
+    ctx.post.setTide(0); ctx.sky.tideBase = 0; ctx.lighting.storm = 0;
+  });
   return api;
 }

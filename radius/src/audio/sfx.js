@@ -188,6 +188,7 @@ const LEVEL = {
   crow: 5, bird: 3, slider_screech: 3, slider_click: 1.8, slider_death: 2.2, slider_lunge: 1.8, slider_step: 1.8, mimic_radio: 2.2, mimic_skip: 3,
   spawn_skitter: 3, spawn_death: 1.6, spawn_bite: 1.4, seeker_hiss: 1.4, reflector_whip: 1.3, bullet_whiz: 1.4, impact_concrete: 1.3, drip: 1.4, gas_cough: 2.5,
   phantom_hiss: 1.5, phantom_scream: 0.9, phantom_grab: 1.1,
+  armor_hit: 1.1, armor_pen: 1.2, helmet_ring: 1.0, ricochet: 2.2, thunder: 1.4,
   ads_in: 4, ads_out: 3.8, click: 4.5, jump: 3.2, ui_slip: 3, ui_click: 1.8, ui_open: 1.3, hurt: 1.3,
   mag_load_round: 3, probe_throw: 3, probe_land: 2, weapon_holster: 2.8, weapon_draw: 2.2, pickup_item: 3, pickup_ammo: 2.2, reload_magout: 2.6,
   bandage_use: 2.5, medkit_use: 1.6, stim_use: 1.3, step_grass: 2, dry_click: 1.8, bolt_open: 2, shell_insert: 1.5, break_open: 1.5, unjam: 1.5,
@@ -260,6 +261,57 @@ export function registerSfx(audio) {
     burst(v, { type: 'white', filt: 'bandpass', f0: 2200, f1: 500, q: 1, dur: 0.05, g: 0.5, atk: 0.001 });
     grunt(v, { at: 0.01, f0: 150, f1: 90, dur: 0.12, g: 0.5, atk: 0.006 });
     thump(v, { f0: 90, f1: 40, dur: 0.1, g: 0.6 });
+  });
+  // Armour impacts: damage.js has played these three since the armour system landed and none of them
+  // existed, so a plate stopping a rifle round made the same noise as one that was not there.
+  // A round the plate stops: a flat hard slap into the chest, the ceramic cracking, and the carrier
+  // taking the load. No ring-out — a plate is a dead thing that just moved.
+  def('armor_hit', (v) => {
+    click(v, { f: 5200, g: 0.5, dur: 0.003 });
+    burst(v, { type: 'white', filt: 'bandpass', f0: 3200, f1: 900, q: 1.1, dur: 0.045, g: 0.85, atk: 0.0006 });
+    thump(v, { f0: 150, f1: 52, dur: 0.13, g: 1.0 });
+    ring(v, { at: 0.002, freqs: [1180, 1930, 2740], decay: 0.055, g: 0.22, fall: 0.6 });
+    cloth(v, { at: 0.02, n: 3, span: 0.14, f: 1800, g: 0.22 });
+    grunt(v, { at: 0.05, f0: 140, f1: 96, dur: 0.14, g: 0.3, atk: 0.02 });
+  });
+  // The plate loses: less slap, more punch-through — a duller entry, the backing tearing, and the body
+  // behind it taking what the ceramic did not.
+  def('armor_pen', (v) => {
+    burst(v, { type: 'white', filt: 'bandpass', f0: 2600, f1: 600, q: 0.9, dur: 0.05, g: 0.6, atk: 0.0008 });
+    burst(v, { at: 0.008, type: 'pink', filt: 'bandpass', f0: 1400, f1: 380, q: 1.4, dur: 0.11, g: 0.5, atk: 0.004, pr: 1.15, pr1: 0.55 });
+    thump(v, { f0: 105, f1: 40, dur: 0.14, g: 0.9 });
+    pulses(v, { n: irnd(3, 5), at: 0.012, span: 0.09, type: 'white', f0: 2400, f1: 3600, q: 3, dur: 0.007, g: 0.2, decay: 0.7 });
+    grunt(v, { at: 0.02, f0: 158, f1: 88, dur: 0.16, g: 0.55, atk: 0.008 });
+  });
+  // A round off the helmet: the shell rings, and so does the head inside it — the low sine is the part
+  // that lingers after the metal has stopped.
+  def('helmet_ring', (v) => {
+    click(v, { f: 6000, g: 0.6, dur: 0.003 });
+    burst(v, { type: 'white', filt: 'bandpass', f0: 4200, f1: 1600, q: 1.2, dur: 0.04, g: 0.8, atk: 0.0005 });
+    ring(v, { freqs: [1640, 2480, 3310, 4720], decay: 0.55, g: 0.4, fall: 0.62, spread: 0.002 });
+    thump(v, { f0: 190, f1: 70, dur: 0.1, g: 0.7 });
+    tone(v, { at: 0.01, f0: 900, f1: 820, dur: 1.6, g: 0.16, atk: 0.02, curve: 'lin', vib: { f: 4.5, depth: 5 } });
+    tone(v, { at: 0.02, f0: 62, f1: 44, dur: 1.2, g: 0.2, atk: 0.03, lp: 220, curve: 'lin' });
+  });
+  // ballistics.js has asked for this on every grazing hit behind an audio.has() guard, so the zone has
+  // been ricocheting in silence. The spang: a hard transient, then the whine of a deformed round
+  // spinning away, pitch falling as it goes.
+  def('ricochet', (v) => {
+    const f = rnd(1500, 2600);
+    click(v, { f: f * 2.2, g: 0.5, dur: 0.003 });
+    burst(v, { type: 'white', filt: 'bandpass', f0: f * 2.4, f1: f, q: 1.6, dur: 0.03, g: 0.6, atk: 0.0005 });
+    fm(v, { at: 0.006, type: 'sawtooth', f0: f * 1.6, f1: f * 0.28, ratio: 1.99, index: 1.1, index1: 0.25, dur: rnd(0.32, 0.55), g: 0.35, atk: 0.004, shape: 8, bp: f, bq: 3.5 });
+    tone(v, { at: 0.01, f0: f * 1.5, f1: f * 0.3, dur: 0.4, g: 0.16, atk: 0.006, lp: 5200, vib: { f: rnd(16, 30), depth: 40 } });
+    tail(v, { at: 0.03, dur: 0.35, g: 0.1, f0: 3000, f1: 400 });
+  });
+  // sky.js schedules this seconds behind each lightning flash, also behind an audio.has() guard, so the
+  // storms have been mute. Distant thunder: no crack, just the rumble arriving and rolling over.
+  def('thunder', (v) => {
+    burst(v, { type: 'brown', filt: 'lowpass', f0: 220, f1: 70, q: 0.6, dur: 2.6, g: 0.9, atk: 0.55, sweep: 0.8 });
+    burst(v, { at: 0.15, type: 'brown', filt: 'lowpass', f0: 420, f1: 110, q: 0.8, dur: 1.8, g: 0.55, atk: 0.35 });
+    tone(v, { f0: 38, f1: 22, dur: 3.2, g: 0.45, atk: 0.7, curve: 'lin', shape: 4 });
+    seq(v, irnd(3, 5), 0.3, 2.4, (at) => burst(v, { at, type: 'brown', filt: 'lowpass', f0: rnd(160, 340), f1: 60, q: 0.7, dur: rnd(0.5, 1.1), g: rnd(0.2, 0.4), atk: 0.2 }));
+    tail(v, { at: 1.2, dur: 2.4, g: 0.22, f0: 700, f1: 90 });
   });
   def('death', (v) => {
     thump(v, { f0: 70, f1: 28, dur: 0.45, g: 1.0 });

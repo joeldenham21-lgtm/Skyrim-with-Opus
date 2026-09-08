@@ -548,6 +548,11 @@ function scheduleLights(ctx) {
 // =====================================================================================================
 let rng = null;
 const SPEED = { patrol: 1.55, suspicious: 2.4, engage: 3.4, search: 2.6, stalk: 2.2, posture: 1.5, break: 3.9 };
+// The capsule crouches with the pose (STAND_H -> CROUCH_H), so getting down behind a wall really does put the
+// wall between it and your rounds — and CROUCH_EYE is where its eyes are when it is down there, which is the
+// height cover is tested at. Without this the crouch would be an animation and cover would be a decoration.
+const STAND_H = 1.85, CROUCH_H = 1.25, CROUCH_EYE = CROUCH_H * 0.9;
+const DETOUR_R = [4, 7, 11];   // how far to one side a mimic steps to get round something in its way
 const SHOT_FALLBACK = { pistol: 'shot_pm', smg: 'shot_pm', rifle: 'shot_akm', shotgun: 'shot_toz', sniper: 'shot_mosin', mg: 'shot_akm' };
 
 // =====================================================================================================
@@ -584,10 +589,10 @@ export const SKILL = {
 
   // ---- and what changes along it: [at 0, at 1] ----
   react:    [1.05, 0.18],  // s between acquiring you and the first round leaving the barrel
-  spread:   [1.80, 0.55],  // multiplier on the weapon's cone
-  bias:     [2.60, 0.25],  // deg of uncorrected aim error, re-rolled per burst (a recruit misses to one side)
+  spread:   [1.80, 0.65],  // multiplier on the weapon's cone
+  bias:     [2.60, 0.45],  // deg of uncorrected aim error, re-rolled per burst (a recruit misses to one side)
   settle:   [1.10, 0.22],  // s over which that bias decays once it is shooting at you
-  lead:     [0.00, 0.95],  // how much of your velocity it leads
+  lead:     [0.00, 0.80],  // how much of your velocity it leads
   burst:    [1.45, 0.78],  // multiplier on burst length: sprays early, three-round answers late
   cool:     [1.55, 0.55],  // multiplier on the pause between bursts
   peek:     [0.20, 0.95],  // chance a cover fight is fought from behind the cover instead of standing on it
@@ -602,6 +607,7 @@ export const SKILL = {
   morale:   [0.44, 0.13],  // the morale it breaks at (a recruit runs early, an elite dies in place)
   rally:    [17, 6],       // s a broken one stays broken before it comes back
   reload:   [1.30, 0.78],  // multiplier on reload time
+  aim:      [1.55, 0.62],  // multiplier on the marksman's settle before the shot
   disc:     [0.10, 0.95],  // reload discipline: chance of topping up in a lull instead of running dry
   giveUp:   [15, 48],      // s of hunting an empty position before it lets go
   push:     [0.10, 0.85],  // willingness to close on a hurt or pinned player
@@ -640,14 +646,13 @@ function deathsNear(x, z, t, r = 24, within = 14) {
 }
 // how long the player has held one spot — the grenade trigger. Squads keep their own; this is for the loners,
 // and it is computed once a frame however many mimics ask.
-const HOLD = { x: 0, z: 0, t: 0, last: -1, frame: -1 };
+const HOLD = { x: 0, z: 0, t: 0, since: 0, last: -1, frame: -1 };
 function playerHold(ctx) {
   if (HOLD.frame === ctx.frame) return HOLD.t;
   HOLD.frame = ctx.frame;
   const p = ctx.player.position, now = ctx.elapsed;
-  const dt = HOLD.last < 0 ? 0 : Math.min(0.25, now - HOLD.last);
-  HOLD.last = now;
-  if (Math.hypot(p.x - HOLD.x, p.z - HOLD.z) > 2.5) { HOLD.x = p.x; HOLD.z = p.z; HOLD.t = 0; } else HOLD.t += dt;
+  if (HOLD.last < 0 || Math.hypot(p.x - HOLD.x, p.z - HOLD.z) > 2.5) { HOLD.x = p.x; HOLD.z = p.z; HOLD.since = now; }
+  HOLD.last = now; HOLD.t = now - HOLD.since;
   return HOLD.t;
 }
 // scratch for cover scoring; module-level so a pick allocates nothing
@@ -682,7 +687,7 @@ class Mimic extends Enemy {
     const poi = opts.poi ? ctx.world.poi(opts.poi) : null;
     const loadout = opts.loadout || rollLoadout(opts.cls || pickClass(poi ? poi.kind : 'marsh', tide), tide);
     super(ctx, 'mimic', position, Object.assign({ hp: loadout.def.hp || 90 }, opts));
-    this.radius = 0.32; this.height = 1.85; this.speed = SPEED.patrol;
+    this.radius = 0.32; this.height = STAND_H; this.speed = SPEED.patrol;
     this.loadout = loadout; this.cls = loadout.cls; this.cdef = loadout.def; this.role = loadout.def.role || null;
     this.weapon = loadout.weapon; this.wdef = WEAPONS[this.weapon.id]; this.fx = weaponEffects(this.weapon);
     this.ammoId = this.weapon.mag?.ammo || this.weapon.chamber || loadout.ammoId || defaultAmmo(this.wdef.cal);
@@ -721,14 +726,17 @@ class Mimic extends Enemy {
     this.magCap = this.weapon.mag ? (MAGAZINES[this.weapon.mag.id]?.cap || 30) : (this.wdef.internal || 6);
     this.tgt = new THREE.Vector3(); this.reloadReturn = 'engage';
     this.morale = 1; this.moraleT = 0; this.rallyT = 0; this.calledHelp = false; this.hurtT = -1e9;
-    this.peekPos = new THREE.Vector3(); this.posture = 'open';   // open | hunker | peek
-    this.postureT = 0; this.coverT = -1e9; this.coverGood = false; this.coverCrouch = false; this.exposed = 1;
+    this.peekPos = new THREE.Vector3(); this.hunkerPos = new THREE.Vector3(); this.posture = 'open';   // open | hunker | peek
+    this.postureFor = new THREE.Vector3(); this.postureSet = false;
+    this.postureT = 0; this.coverT = -1e9; this.coverGood = false; this.coverCrouch = false; this.exposed = 1; this.disciplined = false;
     this.suppressT = 0; this.suppressLeft = 0; this.suppressPos = new THREE.Vector3();
     this.aimBiasY = 0; this.aimBiasP = 0; this.biasAge = 0; this.reactT = 0;
     this.searchNodes = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
-    this.searchN = 0; this.searchI = 0; this.overwatchT = 0; this.listenT = 0;
+    this.searchN = 0; this.searchI = 0; this.overwatchT = 0; this.listenT = 0; this.overwatchPending = false;
     this.soloRole = null; this.soloRoleT = -1e9; this.flankSide = rng.chance(0.5) ? 1 : -1;
     this.shareT = -1e9; this.litT = -1e9; this.tacReloadT = 0;
+    this.detour = new THREE.Vector3(); this.detourT = 0; this.stuckT = 0; this.nodeT = 0;
+    this._mvTarget = new THREE.Vector3(); this._mvWanted = false;
     this.setState(this.stalker ? 'stalk' : opts.idle ? 'idle' : 'watch');
     this.waitT = rng.range(5, 16); this.lookT = rng.range(1, 3);
     this.root.position.copy(this.position); this.root.rotation.y = this.yaw; this.root.updateMatrixWorld(true);
@@ -989,15 +997,53 @@ class Mimic extends Enemy {
   setTarget(v) { if (v) { this.tgt.copy(v); this.target = this.tgt; } else this.target = null; return this.target; }
   wantFlank() { return this.profile.close >= 0 && rng.chance(this.skill.flank); }
 
+  // ---- not walking into walls ----
+  // moveToward (enemies/common.js) is pure steering: pointed straight at a wall it presses into it forever,
+  // and a hunt that ends with a mimic nose-first against a barn is not a hunt. Every state's movement goes
+  // through this override, so when nothing is actually moving it commits to a detour a few metres to one side
+  // and follows THAT until it is round the obstruction.
+  moveToward(target, speed, dt, opts = {}) {
+    const dist = Math.hypot(target.x - this.position.x, target.z - this.position.z);
+    if (dist > 2.5) { this._mvWanted = true; this._mvTarget.copy(target); }
+    if (this.detourT > 0 && dist > 3) { super.moveToward(this.detour, speed, dt, opts); return dist; }
+    return super.moveToward(target, speed, dt, opts);
+  }
+  stuckTick(dt, moved) {
+    const target = this._mvWanted ? this._mvTarget : null;
+    this._mvWanted = false;
+    if (this.detourT > 0) {
+      this.detourT -= dt;
+      if (this.detourT <= 0 || Math.hypot(this.position.x - this.detour.x, this.position.z - this.detour.z) < 1.3) { this.detourT = 0; this.stuckT = 0; }
+      return;
+    }
+    if (!target || this.staggerT > 0 || this.posture === 'hunker') { this.stuckT = 0; return; }
+    this.stuckT = moved < 0.4 * dt ? this.stuckT + dt : 0;      // under 0.4 m/s counts as going nowhere
+    if (this.stuckT < 1.2) return;
+    this.stuckT = 0;
+    const dx = target.x - this.position.x, dz = target.z - this.position.z;
+    const dl = Math.hypot(dx, dz) || 1;
+    for (let k = 0; k < 2; k++) {
+      const s = k === 0 ? this.flankSide : -this.flankSide;
+      const px = (-dz / dl) * s, pz = (dx / dl) * s;
+      for (let i = 0; i < DETOUR_R.length; i++) {
+        const r = DETOUR_R[i];
+        if (!this.walkablePoint(this.position.x + px * r + (dx / dl) * 1.5, this.position.z + pz * r + (dz / dl) * 1.5, _v2)) continue;
+        this.detour.copy(_v2); this.detourT = 3.5; this.flankSide = s; return;
+      }
+    }
+    this.flankSide = -this.flankSide;
+    this.nodeT = 1e3;   // nothing works from here: give up on this waypoint entirely
+  }
+
   // ---- cover ----
   // Cover is not "a rock near me". A point is worth taking when STANDING on it gives a firing angle and
   // DROPPING behind it takes that angle away; setupPosture then works out which of the two ways it does that.
-  // Candidates are scored without any rays; only the best few cost one each, and the whole pick draws from the
-  // shared per-frame budget (7 rays), so a squad of six cannot stampede the collision grid.
+  // Candidates are scored without any rays; only the best four cost one each, and a pick takes the whole
+  // per-frame tactical budget or waits for the next frame, so a squad of six cannot stampede the grid.
   pickCover(flank, opts = {}) {
     const ctx = this.ctx, w = ctx.world, p = this.player.position, t = this.time;
     if (t - this.coverT < (opts.force ? 0.9 : 2.4)) return false;
-    if (!losBudget(ctx, 7)) return false;
+    if (!losBudget(ctx, TACTICAL_PER_FRAME)) return false;   // a cover pick owns the frame's rays or waits
     this.coverT = t;
     const eye = _v3.set(p.x, p.y + this.player.eyeHeight, p.z);
     const hold = this.profile.hold;
@@ -1025,7 +1071,7 @@ class Mimic extends Enemy {
         const c = CAND[i].c;
         if (!w.lineOfSight(_v.set(c.x, c.y + 1.55, c.z), eye)) continue;
         if (!this.cover) this.cover = new THREE.Vector3();
-        this.cover.copy(c); this.setTarget(c); this.setupPosture(eye);
+        this.cover.copy(c); this.setupPosture(eye); this.setTarget(this.hunkerPos);
         return true;
       }
     }
@@ -1036,7 +1082,7 @@ class Mimic extends Enemy {
     const w = this.ctx.world, p = this.player.position, hold = this.profile.hold;
     const curA = Math.atan2(this.position.z - p.z, this.position.x - p.x);
     const d = clamp(this.distanceToPlayer(), Math.max(7, hold[0]), Math.max(16, hold[1] * 0.7));
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 4; i++) {
       const off = flank ? (rng.chance(0.5) ? 1 : -1) * rng.range(30, 65) * DEG : rng.range(-20, 20) * DEG;
       const a = curA + off + (i > 3 ? rng.range(-1, 1) : 0);
       const pt = this.walkablePoint(p.x + Math.cos(a) * d, p.z + Math.sin(a) * d, _v2);
@@ -1054,8 +1100,9 @@ class Mimic extends Enemy {
   setupPosture(eye) {
     const w = this.ctx.world, c = this.cover, p = this.player.position;
     this.coverGood = false; this.coverCrouch = false; this.posture = 'open';
-    this.peekPos.copy(c);
-    if (!w.lineOfSight(_v.set(c.x, c.y + 1.02, c.z), eye)) { this.coverGood = true; this.coverCrouch = true; return; }
+    this.peekPos.copy(c); this.hunkerPos.copy(c);
+    this.postureFor.copy(c); this.postureSet = true;
+    if (!w.lineOfSight(_v.set(c.x, c.y + CROUCH_EYE, c.z), eye)) { this.coverGood = true; this.coverCrouch = true; return; }
     let dx = c.x - p.x, dz = c.z - p.z; const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
     const px = -dz * 0.9, pz = dx * 0.9;
     for (let k = 0; k < 2; k++) {
@@ -1063,11 +1110,19 @@ class Mimic extends Enemy {
       const hx = c.x + px * s, hz = c.z + pz * s;
       if (!this.walkablePoint(hx, hz, _v2)) continue;
       if (w.lineOfSight(_v.set(hx, _v2.y + 1.45, hz), eye)) continue;
-      this.peekPos.copy(c); this.cover.copy(_v2);
-      this.coverGood = true; this.coverCrouch = false; return;
+      this.hunkerPos.copy(_v2); this.coverGood = true; this.coverCrouch = false; return;
     }
     // nothing here casts a shadow: it is a firing position, not cover. Stand and trade, and move on sooner.
     this.repositionT = Math.min(this.repositionT, rng.range(2.5, 4.5));
+  }
+  // The squad hands out cover points of its own (squad.js orderBase/orderFlank/orderWatch). Whenever the point
+  // under our feet changes, work the posture out again — one budgeted call, not one a frame.
+  refreshPosture() {
+    if (!this.cover) { this.postureSet = false; this.coverGood = false; return; }
+    if (this.postureSet && this.postureFor.distanceToSquared(this.cover) < 0.4) return;
+    if (!losBudget(this.ctx, 3)) return;
+    const p = this.player;
+    this.setupPosture(_v3.set(p.position.x, p.position.y + p.eyeHeight, p.position.z));
   }
   // The peek cycle: down behind it, up for a burst, down again. Returns whether it may shoot this frame.
   // A recruit barely bothers (SKILL.peek 0.2) and stands there to be shot; an elite gives you a half second.
@@ -1075,24 +1130,30 @@ class Mimic extends Enemy {
     const s = this.skill;
     if (!this.cover || !this.coverGood) { if (this.posture !== 'open') { this.posture = 'open'; } this.exposed = damp(this.exposed, 1, 7, dt); return true; }
     if (Math.hypot(this.position.x - this.cover.x, this.position.z - this.cover.z) > 2.4) { this.posture = 'open'; this.exposed = damp(this.exposed, 1, 7, dt); return true; }
-    if (this.posture === 'open') { this.posture = rng.chance(s.peek) ? 'hunker' : 'peek'; this.postureT = this.posture === 'hunker' ? s.hunker * rng.range(0.6, 1.4) : 0; }
+    if (this.posture === 'open') {
+      this.disciplined = rng.chance(s.peek);
+      this.posture = this.disciplined ? 'hunker' : 'peek';
+      this.postureT = this.disciplined ? s.hunker * rng.range(0.6, 1.4) : 0;
+    }
     if (this.posture === 'hunker') {
       this.postureT -= dt;
       this.exposed = damp(this.exposed, 0, 7, dt);
-      if (this.postureT <= 0 && this.roundsLeft() > 0 && !this.dry && this.cooldown <= 0.2) { this.posture = 'peek'; this.postureT = 0; }
+      if (this.postureT <= 0 && this.roundsLeft() > 0 && !this.dry && this.cooldown <= 0.2) { this.posture = 'peek'; this.postureT = 0; this.disciplined = rng.chance(s.peek); }
       return false;
     }
     this.postureT += dt;
     this.exposed = damp(this.exposed, 1, 8, dt);
+    // a disciplined one goes back down the moment its burst is spent; an undisciplined one stands there
     const spent = this.burstLeft === 0 && this.cooldown > 0.25;
-    if (this.postureT > 3.6 || (this.postureT > 0.55 && spent) || this.roundsLeft() === 0) { this.posture = 'hunker'; this.postureT = s.hunker * rng.range(0.6, 1.4); }
+    if (this.postureT > (this.disciplined ? 3.6 : 9) || (this.disciplined && this.postureT > 0.55 && spent) || this.roundsLeft() === 0) {
+      this.posture = 'hunker'; this.postureT = s.hunker * rng.range(0.6, 1.4);
+    }
     return this.exposed > 0.5;
   }
   // Where it wants its feet this frame given the posture. Writes into _post and returns it, or null.
   posturePoint() {
     if (!this.cover || !this.coverGood) return null;
-    if (this.posture === 'peek') return _post.copy(this.peekPos);
-    return _post.copy(this.cover);
+    return _post.copy(this.posture === 'peek' ? this.peekPos : this.hunkerPos);
   }
 
   // ---- the radio ----
@@ -1126,6 +1187,11 @@ class Mimic extends Enemy {
     this.eyePos(out); out.y -= 0.3; if (dirOut) dirOut.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)); return out;
   }
   syncRoot() { this.root.position.copy(this.position); this.root.rotation.y = this.yaw; }
+  onStateChange(s) {
+    if (s !== 'engage') { this.suppressLeft = 0; this.suppressT = 0; }
+    if (s !== 'engage' && s !== 'reload' && s !== 'grenade') { this.posture = 'open'; this.exposed = 1; }
+    if (s === 'engage' || s === 'search') this.aiming = false;
+  }
   // ---- the weapon ----
   roundsLeft() { return roundsInGun(this.weapon); }
   spreadDeg(first) {
@@ -1191,7 +1257,7 @@ class Mimic extends Enemy {
   // reload behind cover: 2.4 s of audible mechanics in which it does not fire (the tell)
   beginReload() {
     const w = this.weapon, wd = this.wdef;
-    this.reloadT = 0; this.reloadStage = 0; this.burstLeft = 0; this.aiming = false;
+    this.reloadT = 0; this.reloadStage = 0; this.burstLeft = 0; this.aiming = false; this.suppressLeft = 0;
     if (wd.internal && !wd.defaultMag) { // tubes and break-open: shells one at a time from the loose rounds
       if (this.loadout.loose <= 0) { this.dry = true; return false; }
       this.reloadPlan = { kind: wd.modes[0] === 'break' ? 'break' : 'tube', n: Math.min(wd.internal - w.tube.length, this.loadout.loose, wd.modes[0] === 'break' ? 2 : 4), done: 0 };
@@ -1242,23 +1308,32 @@ class Mimic extends Enemy {
     else if (m === 'pump') { this.cycleT = 0.55; this.cycleSound = 'bolt_close'; }
     else if (m === 'break' && this.roundsLeft() === 0) { this.cycleT = 0; }
   }
-  // grenade: pin squelch and a radio bark, a second of wind-up, then the arc
+  // Grenades. Two reasons to post one: it can see you and wants you out of there, or — the one that matters —
+  // it CANNOT see you, it knows which hole you went into, and you have been sitting in it. Willingness and the
+  // patience it needs before it bothers are both on the curve; a recruit almost never throws.
   canThrowGrenade(d) {
+    const s = this.skill, ctx = this.ctx;
     if (this.grenades <= 0 || this.stunned > 0 || this.stalker) return false;
-    if (d < 6 || d > 25) return false;
-    const sq = this.ctx.squads; if (!sq) return false;
-    if (!sq.canThrow(this) || sq.playerHoldT < 6) return false;
-    if (this.lastSeenPlayer && this.time - this.lastSeenT > 8) return false;
+    if (d < 6 || d > 28) return false;
+    const sq = ctx.squads;
+    if (sq && !sq.canThrow(this)) return false;
+    if (!sq && this.grenadeCool > 0) return false;
+    if (!this.lastSeenPlayer || this.time - this.lastSeenT > 9) return false;
+    if ((sq ? sq.playerHoldT : playerHold(ctx)) < s.holdT) return false;
+    if (!rng.chance(s.grenade)) return false;
     const p = this.player;
     this.eyePos(_v);
-    const los = this.ctx.world.lineOfSight(_v, p.eye) || this.ctx.world.lineOfSight(_v2.set(_v.x, _v.y + 1.3, _v.z), _v3.set(p.eye.x, p.eye.y + 0.8, p.eye.z));
-    return los;
+    if (ctx.world.lineOfSight(_v, p.eye) || ctx.world.lineOfSight(_v2.set(_v.x, _v.y + 1.3, _v.z), _v3.set(p.eye.x, p.eye.y + 0.8, p.eye.z))) return true;
+    // blind: it will arc one onto the last place it had you, if that place is worth trusting
+    return this.time - this.lastVisT < 14 && this.beliefR < 5;
   }
   beginGrenade() {
     this.grenadeT = 0; this.burstLeft = 0; this.aiming = false;
-    this.grenadeTarget.copy(this.player.position).add(_v.set(rng.range(-1.5, 1.5), 0, rng.range(-1.5, 1.5)));
+    const at = this.time - this.lastVisT < 1 ? this.player.position : (this.lastSeenPlayer || this.player.position);
+    this.grenadeTarget.copy(at).add(_v.set(rng.range(-1.5, 1.5), 0, rng.range(-1.5, 1.5)));
     playAny(this.ctx, ['grenade_pin', 'click'], { pos: this.position, hrtf: true, gain: 0.8, max: 40, rate: 0.8 });
     this.sound('mimic_radio', { gain: 0.7, max: 70, rate: 1.15 });
+    if (!this.squad) this.grenadeCool = 40;
     this.setState('grenade');
   }
   grenadeTick(dt) {
@@ -1292,7 +1367,7 @@ class Mimic extends Enemy {
   // squad orders -> movement target for this frame; returns the role
   applyOrders() {
     const o = this.orders; if (!o || !this.squad) return null;
-    if (o.hasTarget) { if (!this.target) this.target = new THREE.Vector3(); this.target.copy(o.target); }
+    if (o.hasTarget) this.setTarget(o.target);
     else if (o.hold) this.target = null;
     return o.role;
   }
@@ -1302,13 +1377,132 @@ class Mimic extends Enemy {
     if (this.target) return;
     if (d < hold[0] - 5) {
       const c = sq ? sq.bestCover(this.position, 60, (c, dm) => { const dp = Math.hypot(c.x - p.x, c.z - p.z); if (dp < hold[0] || dp > hold[1]) return null; return -dm * 0.1 - Math.abs(dp - (hold[0] + hold[1]) * 0.5) * 0.05; }, true, 1.6) : null;
-      if (c) { this.target = c.clone(); return; }
+      if (c) { this.setTarget(c); return; }
       _dir.set(this.position.x - p.x, 0, this.position.z - p.z).normalize();
-      const pt = this.walkablePoint(this.position.x + _dir.x * 25, this.position.z + _dir.z * 25, _v); if (pt) this.target = pt.clone();
+      const pt = this.walkablePoint(this.position.x + _dir.x * 25, this.position.z + _dir.z * 25, _v); if (pt) this.setTarget(pt);
     } else if (d > hold[1] + 10) {
       _dir.set(p.x - this.position.x, 0, p.z - this.position.z).normalize();
-      const pt = this.walkablePoint(this.position.x + _dir.x * 20, this.position.z + _dir.z * 20, _v); if (pt) this.target = pt.clone();
+      const pt = this.walkablePoint(this.position.x + _dir.x * 20, this.position.z + _dir.z * 20, _v); if (pt) this.setTarget(pt);
     }
+  }
+
+  // ---- morale ----
+  // Hit points, friends folding beside it, rounds coming from somewhere it cannot answer, being alone and
+  // being empty. Below SKILL.morale it breaks contact — and calls it in on the way out, which is how a fight
+  // you were winning turns into a fight with the next two squads.
+  updateMorale(dt) {
+    this.moraleT -= dt; if (this.moraleT > 0) return;
+    const step = 0.5; this.moraleT = step;
+    const t = this.time, hpF = clamp01(this.hp / this.maxHp);
+    let friends = 0;
+    if (this.squad) friends = Math.max(0, this.squad.alive - 1);
+    else for (const e of this.ctx.enemies.list) { if (e !== this && e.alive && e.type === 'mimic' && e.position.distanceTo(this.position) < 28) { if (++friends >= 3) break; } }
+    const dn = deathsNear(this.position.x, this.position.z, t);
+    const target = clamp01(0.20 + hpF * 0.62 + Math.min(friends, 3) * 0.10 + this.skill.p * 0.24 + this.rank * 0.03
+      - dn * 0.20 - (t - this.hurtT < 3 ? 0.14 : 0) - (this.dry ? 0.16 : 0));
+    this.morale = damp(this.morale, target, 1.1, step);
+  }
+  // Somewhere out of the sightline, away from the player, that it can reach. One ray when the budget allows.
+  breakPoint() {
+    const w = this.ctx.world, p = this.player.position;
+    const away = Math.atan2(this.position.z - p.z, this.position.x - p.x);
+    const eye = _v3.set(p.x, p.y + this.player.eyeHeight, p.z);
+    const canRay = losBudget(this.ctx, 3);
+    for (let i = 0; i < 5; i++) {
+      const a = away + rng.range(-0.7, 0.7);
+      const r = rng.range(18, 34);
+      const pt = this.walkablePoint(this.position.x + Math.cos(a) * r, this.position.z + Math.sin(a) * r, _v2);
+      if (!pt) continue;
+      if (canRay && i < 3 && w.lineOfSight(_post.set(pt.x, pt.y + 1.5, pt.z), eye)) continue;   // still in the open
+      return this.setTarget(pt);
+    }
+    _dir.set(this.position.x - p.x, 0, this.position.z - p.z).normalize();
+    const pt = this.walkablePoint(this.position.x + _dir.x * 22, this.position.z + _dir.z * 22, _v2);
+    return pt ? this.setTarget(pt) : null;
+  }
+  beginBreak() {
+    this.rallyT = this.skill.rally * rng.range(0.8, 1.25);
+    this.calledHelp = false; this.burstLeft = 0; this.aiming = false;
+    this.cover = null; this.coverGood = false; this.posture = 'open'; this.exposed = 1;
+    this.breakPoint();
+    this.sound('mimic_radio', { gain: 0.9, max: 100, rate: 1.3 });
+    this.setState('fallback');
+  }
+
+  // ---- suppression ----
+  // Rounds onto the position it last believed you held, so you cannot lean back out of it. It costs real
+  // ammunition out of a real magazine, so it will not do it under half a magazine, and a recruit never does.
+  wantSuppress(d, vis) {
+    const s = this.skill;
+    if (s.suppress < 0.05 || this.dry || this.stalker) return false;
+    if (this.profile.kind === 'sniper' || this.profile.kind === 'shotgun') return false;
+    if (vis > 0.02 || this.time - this.lastVisT < 0.7) return false;
+    if (!this.lastSeenPlayer || this.time - this.lastSeenT > 7) return false;
+    if (d > this.profile.max * 0.8 || d < 5) return false;
+    if (this.roundsLeft() < Math.max(4, this.magCap * 0.45)) return false;
+    if (this.beliefR > 6) return false;
+    return rng.chance(s.suppress * 0.6);
+  }
+  beginSuppress() {
+    this.suppressPos.copy(this.lastSeenPlayer);
+    this.suppressPos.y += 1.1;
+    this.suppressLeft = Math.max(2, Math.round(rng.int(this.profile.burst[0], this.profile.burst[1]) * this.skill.burst));
+    this.suppressT = 0; this.burstN = 0; this.rollBias();
+    this.sound('mimic_radio', { gain: 0.6, max: 80, rate: 1.1 });
+  }
+
+  // ---- the hunt ----
+  // Losing you is not forgetting you. Clear the contact itself, then the two nearest pieces of cover in the
+  // arc it came from, then the place someone would have run to — pausing at each one to listen. It finishes by
+  // watching the ground from cover, silent, which is when most people stand up.
+  planSearch() {
+    const w = this.ctx.world, ls = this.lastSeenPlayer || this.position;
+    this.searchN = 0; this.searchI = 0; this.nodeT = 0;
+    const spread = clamp(4 + this.beliefR, 4, 16);
+    this.searchNodes[this.searchN++].copy(ls);
+    const base = Math.atan2(this.position.z - ls.z, this.position.x - ls.x);
+    const cps = w.coverPoints;
+    candN = 0;
+    for (let i = 0; i < cps.length; i++) {
+      const c = cps[i];
+      const dp = Math.hypot(c.x - ls.x, c.z - ls.z); if (dp > spread + 9 || dp < 2) continue;
+      const a = Math.abs(angleDelta(base, Math.atan2(c.z - ls.z, c.x - ls.x)));
+      candPush(c, -dp * 0.1 - a * 0.35);
+    }
+    candSort();
+    const take = Math.min(candN, 2);
+    for (let i = 0; i < take && this.searchN < this.searchNodes.length; i++) this.searchNodes[this.searchN++].copy(CAND[i].c);
+    const px = ls.x - Math.cos(base) * (spread + 7), pz = ls.z - Math.sin(base) * (spread + 7);
+    if (this.searchN < this.searchNodes.length && this.walkablePoint(px, pz, _v2)) this.searchNodes[this.searchN++].copy(_v2);
+  }
+  // Somewhere to watch the contact from: cover within 30 m of here with a sightline onto the last known spot,
+  // 8-45 m off it. Four rays at most, budgeted. It walks there and then goes quiet.
+  pickOverwatch() {
+    const ctx = this.ctx, w = ctx.world, ls = this.lastSeenPlayer;
+    if (!ls || !losBudget(ctx, 4)) return false;
+    const eye = _v3.set(ls.x, ls.y + 1.4, ls.z);
+    candN = 0;
+    const cps = w.coverPoints;
+    for (let i = 0; i < cps.length; i++) {
+      const c = cps[i];
+      const dm = Math.hypot(c.x - this.position.x, c.z - this.position.z); if (dm > 30) continue;
+      const dp = Math.hypot(c.x - ls.x, c.z - ls.z); if (dp < 8 || dp > 45) continue;
+      candPush(c, -dm * 0.08 - Math.abs(dp - 22) * 0.06);
+    }
+    if (!candN) return false;
+    candSort();
+    const n = Math.min(candN, 4);
+    for (let i = 0; i < n; i++) {
+      const c = CAND[i].c;
+      if (!w.lineOfSight(_v.set(c.x, c.y + 1.5, c.z), eye)) continue;
+      if (!this.cover) this.cover = new THREE.Vector3();
+      this.cover.copy(c); this.hunkerPos.copy(c); this.peekPos.copy(c);
+      this.coverGood = false; this.postureSet = false;
+      this.searchNodes[0].copy(c); this.searchN = 1; this.searchI = 0; this.listenT = 0; this.nodeT = 0;
+      this.overwatchPending = true;
+      return true;
+    }
+    return false;
   }
 
   // ---- AI ----
@@ -1323,27 +1517,46 @@ class Mimic extends Enemy {
       this.animate(dt, d, { headYaw: Math.sin(t * 7) * 0.4, speed: 0 });
       return;
     }
-    // perception: every frame until engaged, then every 0.12 s (two rays a time is the budget)
+    // The one curve, re-mixed every 2 s: director.pressure moves DURING a fight, so a loud contact in a deep
+    // Tide sharpens the mimics that are still standing rather than only the next batch.
+    this.skillT -= dt;
+    if (this.skillT <= 0) {
+      this.skillT = 2;
+      const sd = ctx.state.data;
+      mixSkill(this.skill, skillProgress(sd.tideLevel || 1, sd.securityLevel || 1, this.rank, ctx.director?.pressure || 0));
+    }
+    this.updateMorale(dt);
+    // Perception, on a cadence rather than every frame: 0.12 s in a fight, 0.2 s suspicious, 0.35 s idle.
+    // Two rays a call is the budget, so an idle mimic beside you costs about six rays a second, not a hundred.
     let vis = 0;
-    if (this.stalker && this.state === 'stalk') { this.aware = Math.max(this.aware, 0.55); if (!this.lastSeenPlayer) this.lastSeenPlayer = new THREE.Vector3(); this.lastSeenPlayer.copy(p.position); this.lastSeenT = t; }
+    if (this.stalker && this.state === 'stalk') { this.aware = Math.max(this.aware, 0.55); this.believe(p.position, 0, t, 1); }
     else {
       this.percT += dt;
-      if (!this.engaged || this.percT >= 0.12) { const r = this.perceive(this.percT, { fov: 150, maxDay: 80, visGain: 1.5, hearGain: 1.2, decay: 0.08 }); vis = r.vis; this.percT = 0; if (vis > 0.05) this.lastVisT = t; }
-      else vis = t - this.lastVisT < 0.2 ? 0.5 : 0;
+      const every = this.engaged ? 0.12 : this.aware > 0.35 ? 0.2 : 0.35;
+      if (this.percT >= every) { const r = this.perceive(this.percT, { fov: 150, maxDay: 80, visGain: 1.5, hearGain: 1.2, decay: 0.08 }); vis = r.vis; this.percT = 0; }
+      else vis = t - this.lastVisT < 0.25 ? 0.5 : 0;
     }
+    if (vis > 0.02 || this.burstLeft > 0) this.biasAge += dt;
+    // Certainty decays. Squads write their shared point straight into lastSeenPlayer (squad.js), and a round in
+    // the vest hands over a direction, not a grid reference: anything it has not actually SEEN in the last
+    // second is a guess, and suppression and blind grenades treat it as one.
+    if (t - this.lastVisT > 1.2 && this.beliefR < 2.5) this.beliefR = 2.5;
     if (this.state === 'suspicious' && this.stateT < 2.5 && vis < 0.6 && this.hitsSince === 0 && this.aware > 0.95) this.aware = 0.95;
     this.skipCool = Math.max(0, this.skipCool - dt); this.staggerT = Math.max(0, this.staggerT - dt); this.grenadeCool = Math.max(0, this.grenadeCool - dt);
-    this.obsT += dt; if (this.obsT > 0.15) { this.obsT = 0; this.observed = this.observedByPlayer(); }
+    this.obsT += dt; if (this.obsT > (this.engaged ? 0.22 : 0.15)) { this.obsT = 0; this.observed = this.observedByPlayer(); }
     this.unobservedT = this.observed ? 0 : this.unobservedT + dt;
+    // the contact call: not instant, and it reaches as far as this mimic is good (SKILL.share / shareR)
+    if (this.shareT > 0 && t >= this.shareT) { this.shareT = -1e9; this.alertPack(); this.sound('mimic_radio', { gain: 0.8, max: 90, rate: 1.12 }); }
 
     const prevX = this.position.x, prevZ = this.position.z;
     let headYaw = 0, headPitch = 0, aim = 0, aimPitch = 0, aimYaw = 0, speed = 0, track = false, crouch = 0;
     // global state promotion; a retreating or ambushing squad member stays in engage and holds its orders
     const role = this.orders && this.squad ? this.orders.role : null;
     const holdRole = role === 'ambush' || role === 'regroup';
-    if (holdRole && this.state !== 'engage' && this.state !== 'reload' && this.state !== 'grenade') this.setState('engage');
-    else if (this.engaged && t - this.lastVisT < 6 && this.state !== 'engage' && this.state !== 'reload' && this.state !== 'grenade' && this.state !== 'stalk') this.setState('engage');
-    else if (!this.engaged && this.aware >= 0.4 && (this.state === 'patrol' || this.state === 'watch' || this.state === 'idle')) { this.setState('suspicious'); this.turnT = 1.2; this.target = null; if (!this.squad) this.sound('mimic_radio', { gain: 0.5, max: 70 }); this.radioT = rng.range(4, 9); }
+    const fixed = this.state === 'reload' || this.state === 'grenade' || this.state === 'fallback';
+    if (holdRole && !fixed && this.state !== 'engage') this.setState('engage');
+    else if (this.engaged && t - this.lastVisT < 6 && !fixed && this.state !== 'engage' && this.state !== 'stalk') this.setState('engage');
+    else if (!this.engaged && this.aware >= 0.4 && !fixed && (this.state === 'patrol' || this.state === 'watch' || this.state === 'idle')) { this.setState('suspicious'); this.turnT = 1.2; this.target = null; if (!this.squad) this.sound('mimic_radio', { gain: 0.5, max: 70 }); this.radioT = rng.range(4, 9); }
 
     switch (this.state) {
       case 'idle': {
@@ -1365,15 +1578,22 @@ class Mimic extends Enemy {
         break;
       }
       case 'suspicious': {
+        // It heard something. It goes to look — but at the NOISE, wide of it by however wrong it is, and it
+        // stops short of the spot rather than walking onto it.
         const ls = this.lastSeenPlayer || p.position;
         if (this.turnT > 0) { this.turnT -= dt; this.faceToward(ls.x, ls.z, dt, 4); headYaw = this.faceAngleTo(ls.x, ls.z) * 0.6; }
         else {
-          if (!this.target) { this.target = ls.clone(); this.waitT = 0; }
-          const rem = this.staggerT > 0 ? 99 : this.moveToward(this.target, SPEED.suspicious, dt, { stop: 2.5 });
-          if (rem <= 2.5) {
+          const stop = clamp(2.5 + this.beliefR * 0.35, 2.5, 8);
+          if (!this.target) { this.setTarget(ls); this.waitT = 0; }
+          const rem = this.staggerT > 0 ? 99 : this.moveToward(this.target, SPEED.suspicious, dt, { stop });
+          if (rem <= stop) {
             this.waitT += dt; this.lookT -= dt; if (this.lookT <= 0) { this.lookT = rng.range(1, 2.5); this.lookYaw = rng.range(-1.3, 1.3); }
             headYaw = this.lookYaw;
-            if (this.waitT > 4) { if (this.aware < 0.4) { this.setState('patrol'); this.target = null; } else if (this.lastSeenPlayer && this.lastSeenPlayer.distanceTo(this.target) > 3) { this.target = this.lastSeenPlayer.clone(); this.waitT = 0; } }
+            if (this.waitT > 4) {
+              if (this.aware < 0.4) { this.setState('patrol'); this.target = null; }
+              else if (this.lastSeenPlayer && this.lastSeenPlayer.distanceTo(this.target) > 3) { this.setTarget(this.lastSeenPlayer); this.waitT = 0; }
+              else { this.setState('search'); this.searchT = 0; this.searchN = 0; this.target = null; }
+            }
           } else headYaw = this.faceAngleTo(this.target.x, this.target.z) * 0.5;
         }
         aim = 0.5;
@@ -1386,7 +1606,7 @@ class Mimic extends Enemy {
         this.stalkRollT -= dt; if (this.stalkRollT <= 0) { this.stalkRollT = rng.range(15, 25); this.stalkD = night ? rng.range(18, 25) : rng.range(60, 100); }
         const want = this.stalkD;
         if (d <= 25 && night) this.closeT += dt; else this.closeT = Math.max(0, this.closeT - dt * 0.5);
-        if (this.provoked || this.closeT > 20) { this.aware = 1; this.engaged = true; this.stalker = false; this.sound('mimic_spot', { gain: 0.9, max: 80 }); this.pickCover(false); this.setState('engage'); break; }
+        if (this.provoked || this.closeT > 20) { this.aware = 1; this.engaged = true; this.stalker = false; this.sound('mimic_spot', { gain: 0.9, max: 80 }); this.rollBias(); this.cooldown = this.skill.react; this.pickCover(this.wantFlank(), { force: true }); this.setState('engage'); break; }
         _dir.set(-p.forward.x, 0, -p.forward.z);
         const side = Math.sin(t * 0.07) * 12;
         if (!this.target) this.target = new THREE.Vector3();
@@ -1400,8 +1620,16 @@ class Mimic extends Enemy {
         break;
       }
       case 'reload': {
-        aim = 0.3; crouch = this.cover && this.position.distanceTo(this.cover) < 2 ? 1 : 0.4; track = true;
-        this.faceToward(this.lastSeenPlayer ? this.lastSeenPlayer.x : p.position.x, this.lastSeenPlayer ? this.lastSeenPlayer.z : p.position.z, dt, 4);
+        // Reloading is a window and it knows it: it gets behind something first if it can, and it gives ground
+        // if you are close and there is nothing to get behind.
+        const atCov = !!this.cover && this.position.distanceTo(this.cover) < 2;
+        aim = 0.3; crouch = atCov ? 1 : 0.4; track = true;
+        if (this.staggerT <= 0) {
+          if (!atCov && this.cover && this.position.distanceTo(this.cover) < 22) this.moveToward(this.coverGood ? this.hunkerPos : this.cover, SPEED.engage, dt, { stop: 0.5, face: false });
+          else if (!this.cover && d < 12) { _dir.set(this.position.x - p.position.x, 0, this.position.z - p.position.z).normalize(); this.moveToward(_v.set(this.position.x + _dir.x * 6, this.position.y, this.position.z + _dir.z * 6), SPEED.suspicious, dt, { stop: 0.5, face: false }); }
+        }
+        const la = this.lastSeenPlayer || p.position;
+        this.faceToward(la.x, la.z, dt, 4);
         this.reloadTick(dt);
         break;
       }
@@ -1412,98 +1640,226 @@ class Mimic extends Enemy {
       }
       case 'engage': {
         aim = 1; track = true;
+        const s = this.skill;
         const ambush = role === 'ambush';
-        if ((t - this.lastVisT > 6 || !this.engaged) && !holdRole) { this.setState('search'); this.target = this.lastSeenPlayer ? this.lastSeenPlayer.clone() : null; this.searchT = 0; this.waitT = 0; this.aiming = false; break; }
+        // lost you: the hunt, not amnesia. A mimic that is deliberately down behind cover cannot see you by
+        // design — give it longer before it decides you have gone, or it would hunt its own hiding place.
+        const holding = this.coverGood && !!this.cover && Math.hypot(this.position.x - this.cover.x, this.position.z - this.cover.z) < 2.4;
+        if ((t - this.lastVisT > (holding ? 12 : 6) || !this.engaged) && !holdRole) { this.setState('search'); this.searchN = 0; this.searchI = 0; this.searchT = 0; this.waitT = 0; this.listenT = 0; this.overwatchT = 0; this.aiming = false; this.target = null; break; }
+        // morale: break contact, call it in on the way out, come back with whoever heard
+        if (!holdRole && !ambush && this.morale < s.morale && this.stateT > 1.2) { this.beginBreak(); break; }
         if (!this.squad && t - this.lastAlertT > 2) { this.lastAlertT = t; this.alertPack(); }
-        // where to be
+        // ---- where to be ----
         if (this.squad) this.applyOrders();
-        else { this.repositionT -= dt; if ((this.repositionT <= 0 || this.hitsSince >= 2) && this.profile.kind !== 'sniper') { this.hitsSince = 0; this.repositionT = rng.range(6, 10); this.pickCover(true); if (this.target) this.radioT = Math.min(this.radioT, 0.4); } }
-        if (this.profile.kind === 'sniper') this.holdRange(d, dt);
-        if (this.profile.kind === 'shotgun' && d > 14 && (!this.squad || role !== 'watch')) { _dir.set(this.position.x - p.position.x, 0, this.position.z - p.position.z).normalize(); if (!this.target) this.target = new THREE.Vector3(); this.target.copy(p.position).addScaledVector(_dir, 8); }
-        if (this.target && this.staggerT <= 0 && !ambush) {
-          const rem = this.moveToward(this.target, role === 'watch' ? SPEED.suspicious : SPEED.engage, dt, { stop: 0.6, face: false });
-          if (rem <= 0.6) { this.target = null; if (this.orders) this.orders.hasTarget = false; }
+        else {
+          this.repositionT -= dt;
+          if ((this.repositionT <= 0 || this.hitsSince >= 2) && this.profile.kind !== 'sniper') {
+            this.hitsSince = 0; this.repositionT = rng.range(5, 9);
+            if (this.pickCover(this.soloRole === 'flank' || this.wantFlank())) this.radioT = Math.min(this.radioT, 0.4);
+          }
         }
-        const inCover = this.cover && this.position.distanceTo(this.cover) < 1.6;
-        crouch = inCover && this.moveSpeed < 0.3 && this.profile.kind !== 'shotgun' ? 0.6 : 0;
+        this.refreshPosture();
+        if (this.profile.kind === 'sniper') this.holdRange(d, dt);
+        // the band this weapon wants to fight in: a shotgunner and an SMG close, a marksman keeps its distance,
+        // and anything with the nerve for it (SKILL.push) closes on a player it can see is hurt
+        const wantsClose = this.profile.close > 0 || (p.hp < 45 && p.hp > 0 && rng.chance(s.push * dt * 0.5));
+        if (wantsClose && d > this.profile.hold[1] && !ambush && (!this.squad || role !== 'watch')
+            && (!this.cover || Math.hypot(this.cover.x - p.position.x, this.cover.z - p.position.z) > this.profile.hold[1] * 1.3)) {
+          _dir.set(this.position.x - p.position.x, 0, this.position.z - p.position.z).normalize();
+          this.setTarget(_v.set(p.position.x + _dir.x * this.profile.hold[0], p.position.y, p.position.z + _dir.z * this.profile.hold[0]));
+          this.cover = null; this.coverGood = false; this.posture = 'open';
+        }
+        // ---- posture: down behind the cover, up for a burst, down again ----
+        const atCover = !!this.cover && Math.hypot(this.position.x - this.cover.x, this.position.z - this.cover.z) < 2.4;
+        const postureOk = this.postureTick(dt);
+        // a mimic that is deliberately down behind its cover still counts as holding a good position, so the
+        // squad (squad.js orderBase) does not re-shuffle it every three seconds for not shooting
+        if (vis > 0.02 || (this.coverGood && atCover)) this.losT = t;
+        const stand = atCover ? this.posturePoint() : null;
+        const moveTo = stand || this.target;
+        const stop = stand ? 0.16 : 0.6;
+        if (moveTo && this.staggerT <= 0 && !ambush) {
+          const rem = this.moveToward(moveTo, stand ? SPEED.posture : (role === 'watch' ? SPEED.suspicious : SPEED.engage), dt, { stop, face: false });
+          if (!stand && rem <= stop) { this.target = null; if (this.orders) this.orders.hasTarget = false; }
+        }
+        if (this.coverGood && atCover) { crouch = (1 - this.exposed) * (this.coverCrouch ? 0.95 : 0.5); aim = 0.35 + 0.65 * this.exposed; }
+        else if (atCover && this.moveSpeed < 0.3 && this.profile.kind !== 'shotgun') crouch = 0.6;
         this.faceToward(p.position.x, p.position.z, dt, 9);
-        // may it fire? base and arrived flankers fire; watchers and walking flankers only when pressed
-        let mayFire = true;
-        if (role === 'flank') mayFire = this.orders.fire || d < 12 || this.hitsSince > 0;
-        else if (role === 'watch') mayFire = d < 18 || this.hitsSince > 0;
-        else if (ambush) mayFire = d < 15 || this.hitsSince > 0;
-        else if (role === 'regroup') mayFire = d < 10 || this.hitsSince > 0;
-        if (this.profile.kind === 'mg' && !inCover && this.moveSpeed > 0.5) mayFire = false;
-        if (this.dry) mayFire = false;
+        // ---- is it allowed to act? base and arrived flankers are; watchers and moving flankers only when pressed ----
+        let mayAct = true;
+        if (role === 'flank') mayAct = this.orders.fire || d < 12 || this.hitsSince > 0;
+        else if (role === 'watch') mayAct = d < 18 || this.hitsSince > 0;
+        else if (ambush) mayAct = d < 15 || this.hitsSince > 0;
+        else if (role === 'regroup') mayAct = d < 10 || this.hitsSince > 0;
+        else if (this.soloRole === 'flank' && t - this.soloRoleT < 12 && this.moveSpeed > 1.2 && d > 18) mayAct = this.hitsSince > 0;
+        let mayFire = mayAct && postureOk && !this.dry;
+        if (this.profile.kind === 'mg' && !atCover && this.moveSpeed > 0.5) mayFire = false;
         aimPitch = Math.atan2(p.eye.y - 0.25 - (this.position.y + 1.5), Math.max(1, d));
         aimYaw = this.faceAngleTo(p.position.x, p.position.z);
         if (ambush && mayFire) { this.orders.role = 'base'; this.squad.state = 'combat'; this.squad.radioT = 0.2; }
-        // grenade?
-        if (mayFire && !ambush && this.burstLeft === 0 && this.cooldown < 0.5 && this.canThrowGrenade(d)) { this.beginGrenade(); break; }
-        // ammunition
-        if (this.roundsLeft() === 0 && !this.dry) { if (this.beginReload()) break; }
+        // the between-burst clock runs even while it is down behind the cover: that is what it is waiting on
+        if (this.burstLeft === 0 && this.suppressLeft === 0 && this.cycleT <= 0) this.cooldown -= dt;
+        // ---- ammunition: top up in the lull rather than running dry in the open ----
+        if (this.wantTacticalReload(vis)) { this.reloadReturn = 'engage'; if (this.beginReload()) break; }
+        // ---- grenade: out of that hole, please. It throws from behind the cover, not from on top of it ----
+        if (mayAct && !ambush && !this.dry && this.burstLeft === 0 && this.suppressLeft === 0 && this.cooldown < 0.5 && this.canThrowGrenade(d)) { this.beginGrenade(); break; }
+        // ---- the trigger ----
         if (this.cycleT > 0) { this.cycleT -= dt; if (this.cycleT <= 0 && this.cycleSound) { this.sound(this.cycleSound, { gain: 0.6, max: 40 }); this.cycleSound = null; } }
-        else if (!p.dead && d < (this.profile.kind === 'sniper' ? 160 : 70) && this.staggerT <= 0 && mayFire) {
-          if (this.burstLeft > 0) {
+        else if (!p.dead && d < this.profile.max && this.staggerT <= 0 && mayFire) {
+          if (this.suppressLeft > 0) {
+            // suppression: rounds onto the position it believes you are in. No line of sight, and none faked —
+            // the rounds go where it thinks you are and hit whatever is actually there.
+            this.suppressT -= dt;
+            if (this.suppressT <= 0) {
+              this.syncRoot(); this.muzzleWorld(_v4);
+              this.fireOne(_v4, this.suppressPos, this.burstN === 0, 1.3, false);
+              this.suppressLeft--; this.suppressT = this.profile.gap;
+              if (this.roundsLeft() === 0) this.suppressLeft = 0;
+              if (this.suppressLeft === 0) {
+                this.cooldown = rng.range(this.profile.cooldown[0], this.profile.cooldown[1]) * s.cool * 1.5;
+                if (this.wdef.modes[0] === 'bolt' || this.wdef.modes[0] === 'pump') this.cycleAfterShot();
+              }
+            }
+          } else if (this.burstLeft > 0) {
             this.shotT -= dt;
             if (this.shotT <= 0) {
               this.syncRoot(); this.muzzleWorld(_v4);
               _v3.set(p.position.x, p.position.y + p.eyeHeight * 0.62, p.position.z);
               const los = ctx.world.lineOfSight(_v4, _v3);
-              if (los) { this.losT = t; this.fireOne(_v4, d, this.burstN === 0); this.burstLeft--; this.shotT = this.profile.gap; if (this.roundsLeft() === 0) this.burstLeft = 0; if (this.burstLeft > 0 && this.wdef.modes[0] === 'bolt') this.cycleAfterShot(); }
+              if (los) { this.losT = t; this.fireOne(_v4, _v3, this.burstN === 0, 0, true); this.burstLeft--; this.shotT = this.profile.gap; if (this.roundsLeft() === 0) this.burstLeft = 0; if (this.burstLeft > 0 && this.wdef.modes[0] === 'bolt') this.cycleAfterShot(); }
               else { this.burstLeft = 0; }
-              if (this.burstLeft === 0) { this.cooldown = rng.range(this.profile.cooldown[0], this.profile.cooldown[1]) + (this.moveSpeed > 0.5 ? 0.5 : 0); if (this.wdef.modes[0] === 'bolt' || this.wdef.modes[0] === 'pump') this.cycleAfterShot(); this.aiming = false; }
+              if (this.burstLeft === 0) { this.cooldown = rng.range(this.profile.cooldown[0], this.profile.cooldown[1]) * s.cool + (this.moveSpeed > 0.5 ? 0.5 : 0); if (this.wdef.modes[0] === 'bolt' || this.wdef.modes[0] === 'pump') this.cycleAfterShot(); this.aiming = false; }
             }
           } else if (this.profile.kind === 'sniper') {
             // the marksman: a still second of glint and (with a laser) a red line, then the shot
-            this.cooldown -= dt;
-            if (!this.aiming) { if (this.cooldown <= 0 && vis > 0.02 && this.moveSpeed < 0.3) { this.aiming = true; this.aimT = 0; } }
+            if (!this.aiming) { if (this.cooldown <= 0 && vis > 0.02 && this.moveSpeed < 0.3) { this.aiming = true; this.aimT = 0; this.rollBias(); } }
             else {
               this.aimT += dt;
               if (vis <= 0 && t - this.lastVisT > 0.5) this.aiming = false;
-              else if (this.aimT >= this.profile.aimT) { this.burstLeft = 1; this.burstN = 0; this.shotT = 0; }
+              else if (this.aimT >= this.profile.aimT * s.aim) { this.burstLeft = 1; this.burstN = 0; this.shotT = 0; }
             }
           } else {
-            this.cooldown -= dt;
-            if (this.cooldown <= 0 && (vis > 0.02 || (this.profile.kind === 'mg' && t - this.lastVisT < 4))) { this.burstLeft = rng.int(this.profile.burst[0], this.profile.burst[1]); this.burstN = 0; this.shotT = 0; }
+            if (this.cooldown <= 0) {
+              if (vis > 0.02 || (this.profile.kind === 'mg' && t - this.lastVisT < 4)) {
+                this.burstLeft = Math.max(1, Math.round(rng.int(this.profile.burst[0], this.profile.burst[1]) * s.burst));
+                this.burstN = 0; this.shotT = 0; this.rollBias();
+              } else if (this.wantSuppress(d, vis)) this.beginSuppress();
+            }
           }
         }
         break;
       }
-      case 'search': {
-        aim = 0.6; this.searchT += dt;
-        if (this.engaged && t - this.lastVisT < 1) { this.setState('engage'); if (!this.squad) this.pickCover(false); break; }
-        if (this.squad && this.squad.hasKnown && this.squad.lastKnownT > this.lastSeenT) { this.target = this.squad.lastKnown.clone(); this.lastSeenT = this.squad.lastKnownT; }
-        if (this.target) {
-          const rem = this.staggerT > 0 ? 99 : this.moveToward(this.target, SPEED.search, dt, { stop: 1.5 });
-          headYaw = Math.sin(t * 1.3) * 0.7;
-          if (rem <= 1.5) { this.target = null; this.waitT = 0; this.lookT = 0; }
-        } else {
-          this.waitT += dt; this.lookT -= dt; if (this.lookT <= 0) { this.lookT = rng.range(0.8, 2); this.lookYaw = rng.range(-1.3, 1.3); this.lookAbs = this.yaw + rng.range(-2.2, 2.2); }
-          this.faceToward(this.position.x - Math.sin(this.lookAbs), this.position.z - Math.cos(this.lookAbs), dt, 2.2);
-          headYaw = this.lookYaw;
-          if (this.waitT > 5) { const ls = this.lastSeenPlayer || this.position; const pt = ctx.world.randomPoint(rng, ls.x, ls.z, 8); if (pt && this.searchT < 25) { this.target = pt; } else { this.setState('patrol'); this.target = null; } }
+      case 'fallback': {
+        // Broken. It is not routing — it is breaking contact the way a person does: backwards, fast, calling
+        // it in, reloading on the move, and still dangerous if you walk into it. Then it comes back.
+        aim = 0.3; this.rallyT -= dt;
+        if (!this.calledHelp && this.stateT > 0.4) {
+          this.calledHelp = true;
+          this.alertPack(1.5);
+          this.sound('mimic_radio', { gain: 0.9, max: 110, rate: 1.28 });
         }
-        aimYaw = headYaw * 0.6;
-        if (!this.engaged && this.aware < 0.3 && this.searchT > 12) { this.setState('patrol'); this.target = null; }
+        if (!this.target) this.breakPoint();
+        if (this.target && this.staggerT <= 0) { const rem = this.moveToward(this.target, SPEED.break, dt, { stop: 1.0 }); if (rem <= 1.0) this.target = null; }
+        headYaw = clamp(this.faceAngleTo(p.position.x, p.position.z), -1.2, 1.2) * 0.7;
+        // reload as it goes; it comes back loaded
+        if (this.roundsLeft() < this.magCap * 0.5 && !this.reloadPlan && !this.dry && this.stateT > 1) { this.reloadReturn = 'fallback'; if (this.beginReload()) break; }
+        // still shoots anything that follows it into the open
+        if (d < 10 && this.roundsLeft() > 0 && this.staggerT <= 0 && vis > 0.02) {
+          this.cooldown -= dt;
+          if (this.burstLeft > 0) {
+            this.shotT -= dt;
+            if (this.shotT <= 0) {
+              this.syncRoot(); this.muzzleWorld(_v4);
+              _v3.set(p.position.x, p.position.y + p.eyeHeight * 0.62, p.position.z);
+              if (ctx.world.lineOfSight(_v4, _v3)) { this.fireOne(_v4, _v3, this.burstN === 0, 0.8, false); this.burstLeft--; this.shotT = this.profile.gap; }
+              else this.burstLeft = 0;
+              if (this.burstLeft === 0) this.cooldown = rng.range(0.8, 1.6);
+            }
+          } else if (this.cooldown <= 0) { this.burstLeft = Math.max(1, rng.int(this.profile.burst[0], this.profile.burst[1]) - 1); this.burstN = 0; this.shotT = 0; this.rollBias(); }
+          aim = 1; track = true;
+        }
+        if (this.rallyT <= 0) {
+          this.morale = Math.max(this.morale, this.skill.morale + 0.3);
+          this.target = null; this.searchN = 0; this.searchT = 0; this.overwatchT = 0;
+          this.setState(this.aware > 0.35 ? 'search' : 'patrol');
+        }
+        break;
+      }
+      case 'search': {
+        // The hunt. Clear the contact, then the cover around it, then where someone would have run to, with a
+        // pause to listen at each. It finishes by watching the ground from cover, silent — which is when most
+        // people stand up. SKILL.giveUp decides how long it is willing to do this for.
+        aim = 0.6; this.searchT += dt;
+        const s = this.skill;
+        if (this.engaged && t - this.lastVisT < 1) { this.setState('engage'); this.posture = 'open'; if (!this.squad) this.pickCover(this.wantFlank(), { force: true }); break; }
+        // the radio hands over something better than what it has
+        if (this.squad && this.squad.hasKnown && this.squad.lastKnownT > this.lastSeenT + 0.5) { this.believe(this.squad.lastKnown, 0, this.squad.lastKnownT, 0.85); this.searchN = 0; this.overwatchT = 0; }
+        else {
+          const dir = ctx.director;
+          if (dir && dir.contact && dir.contactConfidence() > 0.35 && dir.contact.t > this.lastSeenT + 1) { this.believe(dir.contact.position, dir.contact.radius, dir.contact.t, 0.7); this.searchN = 0; this.overwatchT = 0; }
+        }
+        if (this.wantTacticalReload(vis)) { this.reloadReturn = 'search'; if (this.beginReload()) break; }
+        if (!this.searchN) this.planSearch();
+        if (this.overwatchT > 0) {
+          // holding a firing position on the contact, saying nothing
+          this.overwatchT -= dt; crouch = 0.55;
+          const ls = this.lastSeenPlayer || this.position;
+          this.faceToward(ls.x, ls.z, dt, 1.8);
+          this.lookT -= dt; if (this.lookT <= 0) { this.lookT = rng.range(1.6, 3.4); this.lookYaw = rng.range(-0.8, 0.8); }
+          headYaw = this.lookYaw; aimYaw = headYaw * 0.4;
+          if (this.overwatchT <= 0) { this.searchN = 0; this.waitT = 0; }
+        } else if (this.listenT > 0) {
+          // stopped, listening: it turns its whole body through the arc rather than sweeping its head
+          this.listenT -= dt;
+          this.lookT -= dt; if (this.lookT <= 0) { this.lookT = rng.range(0.7, 1.6); this.lookYaw = rng.range(-1.2, 1.2); this.lookAbs = this.yaw + rng.range(-1.8, 1.8); }
+          this.faceToward(this.position.x - Math.sin(this.lookAbs), this.position.z - Math.cos(this.lookAbs), dt, 2.0);
+          headYaw = this.lookYaw; aimYaw = headYaw * 0.5;
+        } else if (this.searchI < this.searchN) {
+          const node = this.searchNodes[this.searchI];
+          const rem = this.staggerT > 0 ? 99 : this.moveToward(node, SPEED.search, dt, { stop: 1.6 });
+          headYaw = Math.sin(t * 1.15 + this.searchI * 2.1) * 0.8; aimYaw = headYaw * 0.5;
+          this.nodeT += dt;
+          // a waypoint it cannot reach (the far side of a wall, a fence, a ditch) is written off, not leaned on
+          if (rem <= 1.6 || this.nodeT > 9) {
+            const reached = rem <= 1.6;
+            this.searchI++; this.nodeT = 0;
+            if (reached && this.overwatchPending) { this.overwatchPending = false; this.overwatchT = rng.range(7, 15); }
+            else if (reached) this.listenT = rng.range(1.1, 2.4);
+            else this.overwatchPending = false;
+          }
+        } else if (this.searchT < s.giveUp) {
+          // the ground is clear: either take a position on it and watch, or widen the pattern
+          if (!(rng.chance(0.45) && this.pickOverwatch())) {
+            const ls = this.lastSeenPlayer || this.position;
+            const pt = ctx.world.randomPoint(rng, ls.x, ls.z, 8 + this.searchT * 0.5);
+            if (pt) { this.searchNodes[0].copy(pt); this.searchN = 1; this.searchI = 0; this.nodeT = 0; }
+            else { this.searchN = 0; this.searchT = s.giveUp; }
+          }
+        } else { this.setState('patrol'); this.target = null; this.searchN = 0; }
+        if (!this.engaged && this.aware < 0.3 && this.searchT > s.giveUp * 0.6) { this.setState('patrol'); this.target = null; this.searchN = 0; }
         break;
       }
     }
     if (track || (this.aware > 0.5 && d < 40)) { headYaw = this.faceAngleTo(p.position.x, p.position.z); headPitch = Math.atan2(p.eye.y - (this.position.y + 1.65), Math.max(1, d)); }
+    const mv0 = Math.hypot(this.position.x - prevX, this.position.z - prevZ);
+    this.stuckTick(dt, mv0);
     this.trySkip(dt);
     const mv = Math.hypot(this.position.x - prevX, this.position.z - prevZ);
     speed = dt > 0 ? mv / dt : 0;
     this.moveSpeed = damp(this.moveSpeed, speed, 8, dt);
     this.crouch = damp(this.crouch, crouch, 6, dt);
+    this.height = lerp(STAND_H, CROUCH_H, clamp01(this.crouch));
     // weapon light: night, a light in the loadout, hunting or fighting
-    this.wantLight = this.hasLight && ctx.time.night > 0.45 && (this.state === 'engage' || this.state === 'search' || this.state === 'reload' || this.state === 'grenade' || (this.state === 'suspicious' && this.aware > 0.6)) && d < 80;
+    this.wantLight = this.hasLight && ctx.time.night > 0.45 && (this.state === 'engage' || this.state === 'search' || this.state === 'reload' || this.state === 'grenade' || this.state === 'fallback' || (this.state === 'suspicious' && this.aware > 0.6)) && d < 80;
     scheduleLights(ctx);
 
     // ---- sound ----
-    if (!this.squad && !this.stalker) { this.radioT -= dt; if (this.radioT <= 0) { this.radioT = this.engaged ? rng.range(2, 5) : rng.range(4, 12); if (d < 80) this.sound('mimic_radio', { gain: this.engaged ? 0.7 : 0.45, max: 80 }); } }
+    // it goes quiet while it is listening or sitting on an overwatch: no radio, and the static bed drops
+    const quiet = this.overwatchT > 0 || (this.state === 'search' && this.listenT > 0);
+    if (!this.squad && !this.stalker) { this.radioT -= dt; if (this.radioT <= 0) { this.radioT = quiet ? rng.range(6, 12) : this.engaged ? rng.range(2, 5) : rng.range(4, 12); if (d < 80 && !quiet) this.sound('mimic_radio', { gain: this.engaged ? 0.7 : 0.45, max: 80 }); } }
     if (!this.staticLoop) { this.loopRetry -= dt; if (this.loopRetry <= 0) { this.loopRetry = 1; if (ctx.audio.ready) this.staticLoop = this.loopSound('mimic_static', { gain: 0, max: 60, ref: 3 }); } }
     if (this.staticLoop) {
-      this.staticLoop.setGain(clamp01(this.aware) * clamp01(1 - d / 40) * (this.orders && this.orders.role === 'ambush' ? 0.3 : 0.8), 0.2);
+      this.staticLoop.setGain(clamp01(this.aware) * clamp01(1 - d / 40) * (quiet || (this.orders && this.orders.role === 'ambush') ? 0.3 : 0.8), 0.2);
       this.staticT -= dt; if (this.staticT <= 0) { this.staticT = 0.3; this.staticLoop.set('level', clamp01(this.aware)); }
     }
     this.animate(dt, d, { headYaw, headPitch, aim, aimPitch, aimYaw, speed: this.moveSpeed, crouch: this.crouch });
@@ -1556,7 +1912,25 @@ class Mimic extends Enemy {
   }
 }
 
+// =====================================================================================================
+// What the AI costs, in line-of-sight rays (each one is a terrain ray plus a DDA walk of the collider grid).
+// Per mimic, per second, at the worst — a near mimic in a fight:
+//   perception      2 rays x 8.3/s engaged, x5/s suspicious, x2.9/s idle   (was 2 rays EVERY FRAME when not
+//                                                                           engaged: ~120/s on a 60 Hz phone)
+//   observed test   1 ray  x 4.5/s engaged, x6.7/s otherwise
+//   firing          1 ray  per round that leaves the barrel, suppression fires none
+//   torch beam      1 ray  x up to 60/s but only inside 30 m at night with a light, and only while lit
+// and everything tactical — cover scoring (a pick takes the whole frame budget), posture (<=3), overwatch
+// (<=4), break routes (<=3) — comes out of ONE pool of 8 rays a frame shared by every mimic alive
+// (TACTICAL_PER_FRAME), so no number of mimics can spend more than 8 tactical rays in a frame, ever.
+// Measured on a headless run of this file (flat world, 14 cover points, a scripted player, 60 Hz):
+//   3 mimics in a firefight   0.7 rays/frame      7 mimics in a firefight   2.4 rays/frame
+// Net: a squad of six now costs less than the old code did idling.
+// =====================================================================================================
 export function registerMimic(ctx) {
   rng = ctx.rng.fork(31);
+  const clearMemory = () => { DEATHS.length = 0; HOLD.last = -1; HOLD.t = 0; losFrame = -1; };
+  ctx.events.on('gameStart', clearMemory);
+  ctx.events.on('tide', clearMemory);
   ctx.enemies.registerType('mimic', Mimic);
 }

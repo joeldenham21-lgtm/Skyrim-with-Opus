@@ -63,7 +63,9 @@ export function createProbes(ctx) {
     const mesh = new THREE.Mesh(probeGeometry(), probeMaterial());
     mesh.castShadow = true; mesh.frustumCulled = true;
     const p = { mesh, pos: new THREE.Vector3(), vel: new THREE.Vector3(), rot: new THREE.Euler(), spin: new THREE.Vector3(), state: 'fly', t: 0, restT: 0, settle: 0, revealed: new Set(), spiral: null, bounces: 0 };
-    p.pos.copy(pl.eye).addScaledVector(_d, 0.4).addScaledVector(_r, 0.14).addScaledVector(UP, -0.06);
+    // -0.14: the throw is a left-hand flick (buildThrowHand, and the anim runs x from -0.21 to -0.14),
+    // so a +right offset launched the probe from the opposite side of the screen to the hand throwing it
+    p.pos.copy(pl.eye).addScaledVector(_d, 0.4).addScaledVector(_r, -0.14).addScaledVector(UP, -0.06);
     p.vel.copy(_d).multiplyScalar(12).addScaledVector(UP, 3).addScaledVector(pl.velocity, 0.8);
     p.rot.set(Math.random() * TAU, Math.random() * TAU, Math.random() * TAU);
     p.spin.set((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 14);
@@ -132,7 +134,10 @@ export function createProbes(ctx) {
           // rest: lie on the surface with the tip pointing along the last travel direction
           p.state = 'rest'; p.settle = 0.22;
           p.pos.copy(hit.point).addScaledVector(_n, 0.018);
-          p.rot.set(Math.PI / 2 + (Math.random() - 0.5) * 0.3, Math.atan2(_d.x, _d.z), (Math.random() - 0.5) * 0.4);
+          // 'YXZ': in the default XYZ order the yaw is applied before the X rotation that lays the probe
+          // down, so it spun the still-upright cylinder about its own axis and did nothing — every probe
+          // in the zone came to rest pointing along world +Z. Yaw has to be the outermost rotation.
+          p.rot.set(Math.PI / 2 + (Math.random() - 0.5) * 0.3, Math.atan2(_d.x, _d.z), (Math.random() - 0.5) * 0.4, 'YXZ');
           p.vel.set(0, 0, 0);
           ctx.audio.play('probe_land', { pos: p.pos, hrtf: true, gain: 0.8, variant: hit.surface });
           if (hit.surface === 'water') { ctx.vfx.impact(hit.point, _n, 'water'); ctx.audio.play('impact_water', { pos: p.pos, hrtf: true, gain: 0.5 }); remove(p); return; }

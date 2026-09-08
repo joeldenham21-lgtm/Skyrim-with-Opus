@@ -297,7 +297,7 @@ export function createWeapons(ctx) {
     w.parts.barrel = Math.max(0, w.parts.barrel - wear * 0.5); w.parts.bolt = Math.max(0, w.parts.bolt - wear * 0.35); w.parts.frame = Math.max(0, w.parts.frame - wear * 0.15);
     w.dirt = Math.min(1, w.dirt + 0.012 * (suppressed() ? 1.5 : 1) * (d.cal === '12ga' ? 1.4 : 1));
     // recoil: pitch up with a little random yaw; steadier when aiming, crouched, braked or on the bipod
-    const steady = lerp(1, 0.8, adsBlend) * (p.crouched ? 0.85 : 1) * fx.recoil * (bipodActive ? 0.6 : 1) * (ctx.damage?.steadyMul ?? 1) ** 0.5;
+    const steady = lerp(1, 0.8, adsBlend) * (p.crouched ? 0.85 : 1) * fx.recoil * (bipodActive ? fx.proneRecoil : 1) * (ctx.damage?.steadyMul ?? 1) ** 0.5;
     const pitch = d.recoil[0] * 0.012 * (0.85 + Math.random() * 0.3) * steady;
     const yaw = d.recoil[1] * 0.0065 * (Math.random() - 0.5) * 2 * steady;
     p.kick(pitch, yaw); hands.kick(pitch, yaw);
@@ -454,7 +454,9 @@ export function createWeapons(ctx) {
         break;
       }
       case 'tubeEnd':
-        if (!w.chamber && w.tube.length) { if (isPump()) { stage = null; state = 'pump'; timer = cycleTime(); stageDur = timer; cycleT = 0; cycleStep = 0; hands.playAnim('pump', timer); refresh(true); } else setStage('chamber', 0.4, 'reload_chamber', 'chamber'); }
+        // cycleStep 1, not 0: the chamber is empty, so this rack has nothing to throw out. Starting at 0
+        // ran updateCycle's eject branch and spat a live shell onto the ground after every tube load.
+        if (!w.chamber && w.tube.length) { if (isPump()) { stage = null; state = 'pump'; timer = cycleTime(); stageDur = timer; cycleT = 0; cycleStep = 1; hands.playAnim('pump', timer); audio.play(snd('pump_back', 'bolt_open'), { gain: 0.75 }); refresh(true); } else setStage('chamber', 0.4, 'reload_chamber', 'chamber'); }
         else finish();
         break;
       // break-open
@@ -681,7 +683,7 @@ export function createWeapons(ctx) {
       if (ctx.state.data.stamina < 20) mult *= 1.4;
       if (ctx.damage) mult *= ctx.damage.steadyMul;
       if (rec && rec.laserOn && fx && fx.laser) mult *= lerp(0.7, 1, adsBlend);
-      if (bipodActive) mult *= 0.8;
+      if (bipodActive) mult *= fx.proneMoa;
       if (rec && !meleeHeld) { const a = AMMO[isBreak() ? rec.tube[0] : rec.chamber]; if (a && a.accuracy) mult *= a.accuracy; }
       bloom = damp(bloom, 0, 4.5, dt);
       spreadDeg = base * mult + bloom;

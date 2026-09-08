@@ -114,7 +114,7 @@ function glowSprite(r, g, b, scale) {
 
 export function createArtifacts(ctx) {
   const list = [];
-  let pending = 0, hintShown = false;
+  let pending = 0;
 
   function build(a) {
     const g = sharedGeo(), d = DEF[a.type];
@@ -172,7 +172,9 @@ export function createArtifacts(ctx) {
     ctx.inventory.add(d.id, 1);
     const st = ctx.state.data.stats; if (st) st.artifacts = (st.artifacts || 0) + 1;
     ctx.events.emit('artifactPicked', d.id, a);
-    if (!hintShown) { hintShown = true; const f = ctx.state.data.flags; if (f && !f.artifactHint) { f.artifactHint = true; ctx.hud.hint?.('Committee advisory: artifacts are UNPSC property. Tender at the terminal for payment.', 6000); } }
+    // the saved flag is the only record that matters: a module-level one survived state.reset() and
+    // swallowed the advisory for every new game after the first in a session
+    { const f = ctx.state.data.flags; if (f && !f.artifactHint) { f.artifactHint = true; ctx.hud.hint?.('Committee advisory: artifacts are UNPSC property. Tender at the terminal for payment.', 6000); } }
     dispose(a);
   }
   function dispose(a) {
