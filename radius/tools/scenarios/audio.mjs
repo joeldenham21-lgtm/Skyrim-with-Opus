@@ -42,26 +42,45 @@ export default async function (page, api) {
     return { nonFinite: bad, peak: +peak.toFixed(4), rms: +Math.sqrt(sum / len).toFixed(5) };`)));
 
   // ---- tap the master bus and measure each sound ----
+  // A ScriptProcessor sees every sample the master bus produces. An AnalyserNode polled from JS
+  // does not: ui_click is a 10ms burst plus a 20ms tone, short enough to fall between two polls on
+  // a loaded machine and read as silence when it is in fact perfectly audible.
   await R(`
     const ac = c.audio.ctx;
-    const an = ac.createAnalyser(); an.fftSize = 2048;
-    c.audio.master.connect(an);
-    window.__an = an; window.__buf = new Float32Array(an.fftSize);
-    window.__rms = () => { an.getFloatTimeDomainData(window.__buf); let s = 0; for (const v of window.__buf) s += v * v; return Math.sqrt(s / window.__buf.length); };
-    window.__peakOver = async (ms) => { let p = 0; const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = window.__rms(); if (Number.isFinite(v) && v > p) p = v; await new Promise(r => setTimeout(r, 8)); } return p; };
-    window.__nonFinite = () => { an.getFloatTimeDomainData(window.__buf); return [...window.__buf].filter(v => !Number.isFinite(v)).length; };`);
+    const sp = ac.createScriptProcessor(2048, 2, 2);
+    const sink = ac.createGain(); sink.gain.value = 0;   // keep the node pulled without doubling output
+    c.audio.master.connect(sp); sp.connect(sink); sink.connect(ac.destination);
+    window.__acc = { peak: 0, sumSq: 0, n: 0, nonFinite: 0 };
+    sp.onaudioprocess = (e) => {
+      const a = window.__acc;
+      for (let ch = 0; ch < e.inputBuffer.numberOfChannels; ch++) {
+        const d = e.inputBuffer.getChannelData(ch);
+        for (let i = 0; i < d.length; i++) {
+          const v = d[i];
+          if (!Number.isFinite(v)) { a.nonFinite++; continue; }
+          const m = v < 0 ? -v : v; if (m > a.peak) a.peak = m;
+          a.sumSq += v * v; a.n++;
+        }
+      }
+    };
+    window.__reset = () => { window.__acc = { peak: 0, sumSq: 0, n: 0, nonFinite: 0 }; };
+    window.__read = () => { const a = window.__acc; return { peak: a.peak, rms: a.n ? Math.sqrt(a.sumSq / a.n) : 0, nonFinite: a.nonFinite, samples: a.n }; };
+    window.__peakOver = async (ms) => { window.__reset(); await new Promise(r => setTimeout(r, ms)); return window.__read().peak; };
+    window.__nonFinite = () => window.__read().nonFinite;`);
 
   const baseline = await page.evaluate(`window.__peakOver(400)`);
   console.log('BASELINE_RMS', JSON.stringify({ rms: +baseline.toFixed(6), nonFinite: await page.evaluate('window.__nonFinite()') }));
 
   const results = {};
   for (const name of SOUNDS) {
+    await page.evaluate('window.__reset()');
     await R(`c.audio.play(${JSON.stringify(name)}, { gain: 1 });`);
-    const peak = await page.evaluate(`window.__peakOver(500)`);
-    results[name] = +peak.toFixed(6);
+    await api.wait(600);
+    const m = await page.evaluate('window.__read()');
+    results[name] = { peak: +m.peak.toFixed(5), rms: +m.rms.toFixed(6) };
   }
   console.log('SOUNDS', JSON.stringify(results, null, 1));
-  console.log('SILENT', JSON.stringify(Object.entries(results).filter(([, v]) => v < 1e-5).map(([k]) => k)));
+  console.log('SILENT', JSON.stringify(Object.entries(results).filter(([, v]) => v.peak < 1e-4).map(([k]) => k)));
   console.log('NONFINITE_AFTER', await page.evaluate('window.__nonFinite()'));
 
   // music and ambience beds
