@@ -3,5 +3,6 @@ dist/bundle.js
 dist/bundle.js.map
 .smoke/
 .audit/
-.gt*.mjs
+# agent scratch: dot-prefixed probes written at the repo root while self-testing
+.*.mjs
 .loottest/

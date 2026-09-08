@@ -16,13 +16,17 @@
 //     edge rub back to bare nylon or bright metal, long scuffs, a fabric weave and a wrinkle normal.
 //
 // Exports (buildVest/buildHelmet/buildPack keep their original names and signatures):
-//   buildVest(id)   -> THREE.Group | null   authored in CHEST-BONE local space (chest bone sits at y 1.32)
-//   buildHelmet(id) -> THREE.Group | null   authored in HEAD-BONE local space (head bone sits at y 1.66)
-//   buildPack(id)   -> THREE.Group | null   chest-bone local, rides the back
-//   buildRig(id)    -> THREE.Group | null   chest-bone local, layers OVER a vest
-//   buildMask(id)   -> THREE.Group | null   head-bone local, over the lower face
-//   buildGear(id)   -> THREE.Group | null   dispatch by ARMOR[id].kind
-//   setContext(ctx) / disposeGear()
+//   buildVest(id)              -> Group | null   CHEST-BONE local space (the chest bone rests at world y 1.32)
+//   buildHelmet(id)            -> Group | null   HEAD-BONE local space (the head bone rests at world y 1.66)
+//   buildPack(id)              -> Group | null   chest-bone local, rides the back at +z
+//   buildRig(id, {overVest})   -> Group | null   chest-bone local; overVest false pulls it in onto a bare torso
+//   buildMask(id)              -> Group | null   head-bone local, a respirator cup or a full rubber head
+//   buildHeadgear(id)          -> Group | null   head-bone local, headlamp and night sights on a brow bracket
+//   buildGear(id, opts)        -> Group | null   dispatch by ARMOR[id].kind, for a loadout's `kit` entries
+//   gearBone(id) / GEAR_BONE                     which bone a kind belongs on: 'chest' or 'head'
+//   prewarmGear(ids?)          -> n              build prototypes behind the loading screen, not mid-fight
+//   fadeGear(group, 0..1)                        collapse a piece by hand as its wearer dissolves
+//   setGearGrime(0..1), gearMaterial(), visorMaterial(), setContext(ctx), disposeGear()
 import * as THREE from 'three';
 import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GLSL_NOISE } from '../render/glsl.js';
@@ -420,7 +424,7 @@ function magPouches(B, F, n, yTop, off, wide) {
     band(B, { y0: y0 - 0.004, y1: yTop - 0.008, a0: a - 0.026, a1: a + 0.026, t: 0.040, seg: 2, rows: 1, out: off, capTop: false });                 // the pull tab
     B.tint(F.metal, S.steel);
     const R = torsoR(y0 + 0.02);
-    buckle(B, Math.sin(a) * (R[0] + off + 0.041), y0 + 0.012, -Math.cos(a) * (R[1] + off + 0.041), 0.020, 0.013, 0, a);
+    buckle(B, Math.sin(a) * (R[0] + off + 0.037), y0 + 0.012, -Math.cos(a) * (R[1] + off + 0.037), 0.020, 0.013, 0, a);   // on the pouch face, not floating off it
   }
 }
 // PALS: rows of webbing loops across a panel. Cheap, and it is what makes modern kit read as modern kit.
@@ -462,7 +466,7 @@ function buildVestGeo(id) {
   if (sp.quilt) {
     B.tint(F.shell2, S.fabricStiff);
     for (let i = 0; i < sp.quilt; i++) {
-      const y = lerp(yBot + 0.03, yTop - 0.03, i / (sp.quilt - 1));
+      const y = lerp(yBot + 0.03, yTop - 0.03, sp.quilt > 1 ? i / (sp.quilt - 1) : 0.5);
       band(B, { y0: y - 0.003, y1: y + 0.003, a0: -sp.fa + 0.10, a1: sp.fa - 0.10, t: 0.004, seg: 8, rows: 1, out: off + t, capTop: false, capBot: false });
     }
   }
@@ -644,11 +648,11 @@ function buildHelmetGeo(id) {
   if (sp.rails) {
     B.tint(F.hard, S.plate);
     for (const sgn of [1, -1]) {
-      const g = new THREE.BoxGeometry(0.010, 0.014, 0.086);
-      B.geo(g, new THREE.Matrix4().makeRotationY(sgn * 0.30).setPosition(sgn * (sp.rx * 0.94), SKULL.cy + 0.010, SKULL.cz + 0.004));
-      for (let i = 0; i < 4; i++) {
-        const t = new THREE.BoxGeometry(0.013, 0.004, 0.007);
-        B.geo(t, new THREE.Matrix4().makeRotationY(sgn * 0.30).setPosition(sgn * (sp.rx * 0.94), SKULL.cy + 0.018, SKULL.cz - 0.030 + i * 0.020));
+      const g = new THREE.BoxGeometry(0.011, 0.014, 0.086);
+      B.geo(g, new THREE.Matrix4().makeRotationY(sgn * 0.30).setPosition(sgn * (sp.rx * 1.01), SKULL.cy + 0.008, SKULL.cz + 0.004));
+      for (let i = 0; i < 4; i++) {                    // the teeth, so it reads as a rail and not a strip
+        const t = new THREE.BoxGeometry(0.014, 0.004, 0.007);
+        B.geo(t, new THREE.Matrix4().makeRotationY(sgn * 0.30).setPosition(sgn * (sp.rx * 1.03), SKULL.cy + 0.016, SKULL.cz - 0.030 + i * 0.020));
       }
     }
   }
@@ -735,11 +739,15 @@ function buildHelmetGeo(id) {
       }
       return out;
     };
-    // frame band across the top of the aperture
-    const fTop = ring(vy1, 0.002), fTop2 = ring(vy1 - 0.014, 0.002);
-    for (let i = 0; i < seg; i++) B.quad(fTop[i], fTop2[i], fTop2[i + 1], fTop[i + 1]);
-    const fBot = ring(vy0, 0.002), fBot2 = ring(vy0 + 0.012, 0.002);
-    for (let i = 0; i < seg; i++) B.quad(fBot2[i], fBot[i], fBot[i + 1], fBot2[i + 1]);
+    // frame bands across the top and bottom of the aperture, both faces (the gear material is single sided)
+    const sheet = (rowA, rowB) => {
+      for (let i = 0; i < seg; i++) {
+        B.quad(rowA[i], rowA[i + 1], rowB[i + 1], rowB[i]);
+        B.quad(rowB[i], rowB[i + 1], rowA[i + 1], rowA[i]);
+      }
+    };
+    sheet(ring(vy1, 0.002), ring(vy1 - 0.014, 0.002));
+    sheet(ring(vy0 + 0.012, 0.002), ring(vy0, 0.002));
     // the glass itself, on its own material so the face blot burns through it
     G.tint(0x141a1d, S.plate);
     const gTop = ring(vy1 - 0.012, 0.0), gBot = ring(vy0 + 0.010, 0.0);
@@ -758,12 +766,14 @@ const RIG = {
   rig_tv110: { fam: 'blk', mags: 6, y: -0.005, h: 0.125, belt: 0, harness: 1, panel: 1, out: 0.062, dump: 1, soft: 1 },
   rig_smersh: { fam: 'grn', mags: 8, y: -0.020, h: 0.115, belt: 1, harness: 1, panel: 0.8, out: 0.058, dump: 1, back: 1 },
 };
-function buildRigGeo(id) {
+// `lift` is how far the rig stands off the skin: the table is written for a rig worn over body armour, and a
+// mimic with no vest wants it pulled in or it floats.
+function buildRigGeo(id, lift = 0) {
   const def = ARMOR[id]; if (!def) return null;
   const sp = RIG[id] || RIG.rig_6sh112;
   const F = FAM[sp.fam] || FAM.sov;
   const B = new Build();
-  const off = sp.out;
+  const off = sp.out + lift;
   const rows = sp.mags > 4 ? 2 : 1;
   const perRow = Math.ceil(sp.mags / rows);
 
@@ -852,9 +862,11 @@ function buildPackGeo(id) {
     B.tint(F.shell2, S.fabric);
     B.geo(slab(sp.w * 0.98, sp.h * 0.24 * sp.lid, sp.d * 1.05, 0.024, 0.003), new THREE.Matrix4().makeRotationX(-0.16).setPosition(0, sp.y + sp.h * 0.44, zc + 0.006));
     B.tint(F.strap, S.webbing);
-    for (const sgn of [1, -1]) ribbon(B, [[sgn * sp.w * 0.24, sp.y + sp.h * 0.50, zc - sp.d / 2 - 0.004], [sgn * sp.w * 0.24, sp.y + sp.h * 0.30, zc - sp.d / 2 - 0.010], [sgn * sp.w * 0.24, sp.y + sp.h * 0.24, zc - sp.d / 2 - 0.002]], 0.020, 0.006, [0, 0, 1]);
+    // the lid straps run down the OUTSIDE of the pack, not the face against the spine
+    const lz = zc + sp.d / 2;
+    for (const sgn of [1, -1]) ribbon(B, [[sgn * sp.w * 0.24, sp.y + sp.h * 0.50, lz + 0.004], [sgn * sp.w * 0.24, sp.y + sp.h * 0.30, lz + 0.010], [sgn * sp.w * 0.24, sp.y + sp.h * 0.24, lz + 0.002]], 0.020, 0.006, [0, 0, 1]);
     B.tint(F.metal, S.steel);
-    for (const sgn of [1, -1]) buckle(B, sgn * sp.w * 0.24, sp.y + sp.h * 0.27, zc - sp.d / 2 - 0.014, 0.024, 0.018, 0.15, 0);
+    for (const sgn of [1, -1]) buckle(B, sgn * sp.w * 0.24, sp.y + sp.h * 0.27, lz + 0.014, 0.024, 0.018, -0.15, 0);
   }
   // side pockets
   if (sp.pockets) {
@@ -1026,9 +1038,12 @@ function publish() {
   const r = typeof globalThis !== 'undefined' ? globalThis.__radius : null;
   if (!r) return;
   published = true;
-  if (!r.gearmesh) r.gearmesh = { buildVest, buildHelmet, buildPack, buildRig, buildMask, buildHeadgear, buildGear, gearBone, prewarmGear, setGearGrime, gearMaterial };
+  if (!r.gearmesh) r.gearmesh = { buildVest, buildHelmet, buildPack, buildRig, buildMask, buildHeadgear, buildGear, gearBone, prewarmGear, fadeGear, setGearGrime, gearMaterial };
 }
-function assemble(key, build) {
+// main.js sets window.__radius on its first synchronous line, after the module graph has evaluated, so a
+// microtask is the earliest this can land. The call in assemble() is the belt to that pair of braces.
+if (typeof queueMicrotask === 'function') queueMicrotask(publish);
+function assemble(key, build, id = key) {
   publish();
   if (!CACHE.has(key)) {
     let g = null;
@@ -1042,14 +1057,47 @@ function assemble(key, build) {
           g.name = key;
           if (shell) { const m = new THREE.Mesh(shell, gearMaterial()); m.name = 'gear'; m.castShadow = true; m.receiveShadow = false; g.add(m); }
           if (glass) { const m = new THREE.Mesh(glass, visorMaterial()); m.name = 'gearGlass'; m.castShadow = false; m.receiveShadow = false; m.renderOrder = 2; g.add(m); }
-          g.userData.gear = true; g.userData.gearId = key;
+          g.userData.gear = true; g.userData.gearId = id;
         }
       }
     } catch (e) { console.warn('[gearmesh] failed to build', key, e); g = null; }
     CACHE.set(key, g);
   }
   const proto = CACHE.get(key);
-  return proto ? proto.clone() : null;
+  if (!proto) return null;
+  const inst = proto.clone();                    // shares geometry and material; only the Object3Ds are new
+  for (const c of inst.children) if (c.isMesh) c.onBeforeRender = followBody;   // Object3D.copy does not carry it
+  return inst;
+}
+
+// ---- dying with the body ----
+// A mimic folds and goes to ash over its last two seconds. Its gear is a rigid prop on the bones, so without
+// this it sits there solid, floating, until the entity is removed. Each piece finds the dissolve uniform on
+// the skinned body it hangs from and collapses with it. The lookup runs inside onBeforeRender, which only
+// fires for a mesh that is about to be drawn, so gear off screen costs nothing. Whoever owns mimic.js can
+// drive it explicitly with fadeGear() instead and this hook stands down.
+function findDissolve(o) {
+  for (let p = o.parent, i = 0; p && i < 8; p = p.parent, i++) {
+    const u = p.isMesh && p.material && p.material.userData ? p.material.userData.u : null;
+    if (u && u.uDissolve) return u.uDissolve;
+  }
+  return null;
+}
+function followBody() {                          // called as a method on the mesh; three passes render args we do not need
+  const ud = this.userData;
+  if (ud.manual) return;
+  if (ud.dis === undefined) ud.dis = findDissolve(this);
+  if (!ud.dis) return;
+  const d = ud.dis.value;
+  const k = d > 0.02 ? Math.max(0, 1 - d * 1.35) : 1;
+  if (this.scale.x !== k) this.scale.setScalar(k);
+  this.visible = k > 0.06;
+}
+// Drive the collapse by hand: v runs 0 (worn) to 1 (gone). Calling it once takes the automatic hook off.
+export function fadeGear(group, v) {
+  if (!group) return;
+  const k = Math.max(0, 1 - clamp01(v) * 1.35);
+  group.traverse((o) => { if (o.isMesh) { o.userData.manual = true; o.scale.setScalar(k); o.visible = k > 0.06; } });
 }
 
 // ---- the exported builders. Signatures are fixed: callers pass an ARMOR id and get a Group or null. ----
@@ -1069,10 +1117,12 @@ export function buildPack(id) {
   if (!id || id === 'pack_none' || !ARMOR[id]) return null;
   return assemble(id, () => buildPackGeo(id));
 }
-// Chest rigs and belt kit. Attach to the CHEST bone; authored to layer over a vest.
-export function buildRig(id) {
+// Chest rigs and belt kit. Attach to the CHEST bone. The default sits the rig where it would ride over body
+// armour; pass { overVest: false } for a mimic wearing nothing under it, or it hangs in the air.
+export function buildRig(id, opts = {}) {
   if (!id || !ARMOR[id]) return null;
-  return assemble(id, () => buildRigGeo(id));
+  const bare = opts.overVest === false;
+  return assemble(bare ? id + '|bare' : id, () => buildRigGeo(id, bare ? -0.026 : 0), id);
 }
 // Respirators and gas masks. Attach to the HEAD bone.
 export function buildMask(id) {
@@ -1085,21 +1135,22 @@ export function buildHeadgear(id) {
   return assemble(id, () => buildHeadgearGeo(id));
 }
 // Dispatch by catalogue kind, for callers that just have an id (a loadout's `kit` entries, for instance).
-export function buildGear(id) {
+export function buildGear(id, opts = {}) {
   const d = ARMOR[id]; if (!d) return null;
   switch (d.kind) {
     case 'vest': return buildVest(id);
     case 'helmet': return buildHelmet(id);
     case 'backpack': return buildPack(id);
-    case 'rig': return buildRig(id);
+    case 'rig': return buildRig(id, opts);
     case 'mask': return buildMask(id);
     case 'headgear': return buildHeadgear(id);
     default: return null;
   }
 }
 // Build prototypes ahead of time so the first mimic wearing a new model does not cost a hitch mid-fight.
-// Call it once at load (all vests and helmets is about 25 ms and 3 MB); with no argument it does every piece
-// mimics can roll. Returns how many prototypes it built this call.
+// A cold piece costs 10-15 ms (the crease pass), which is a dropped frame the first time each model appears;
+// the 16 vests and helmets together are about a quarter of a second and 3 MB, so this belongs behind the
+// loading screen, or spread a few ids per frame. Returns how many prototypes it built this call.
 export function prewarmGear(ids = null) {
   const list = ids || Object.keys(ARMOR).filter((id) => {
     const k = ARMOR[id].kind;

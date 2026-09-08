@@ -130,7 +130,7 @@ function scopeRings(P, M, dx, axis, r, zs) {
   for (const z of zs) {
     P.add(M.painted, at(zrect(-0.011, 0.011, 0, axis - r + 0.003, 0.020, 0.0012, 0.002), dx, 0, z));
     for (const sx of [-1, 1]) P.add(M.painted, at(zrect(-0.010, 0.010, -0.0078, 0.0006, 0.0038, 0.001), dx + sx * 0.0126, 0, z));
-    P.add(M.painted, at(ringX(r + 0.0035, 0.0038, 0, Math.PI * 2, hi() ? 16 : 8, 5), dx, axis, z));
+    P.add(M.painted, at(ringZ(r + 0.0035, 0.0038, 0, Math.PI * 2, hi() ? 14 : 8, 4), dx, axis, z));
     P.add(M.painted, at(box(0.020, 0.006, 0.020), dx, axis + r + 0.004, z));
     if (hi()) { P.addAll(M.gunmetal, screw(dx + 0.007, axis + r + 0.0072, z, 0.0022, 'y')); P.addAll(M.gunmetal, screw(dx - 0.007, axis + r + 0.0072, z, 0.0022, 'y')); }
   }
@@ -194,20 +194,20 @@ function reticleMesh(kind, r, mat) {
 // ---------------------------------------------------------------- optics
 // body: tube | collimator | holo | acog | nspu. axis = optical axis above the anchor; relief = eye behind the eyepiece.
 const OPTICS = {
-  opt_okp7: { body: 'collimator', len: 0.088, r: 0.021, axis: 0.048, relief: 0.115, ret: 'dot' },
-  opt_kobra: { body: 'collimator', len: 0.096, r: 0.026, axis: 0.058, relief: 0.115, ret: 'chevron', dial: true },
-  opt_pka: { body: 'tube', len: 0.112, r: 0.0195, obj: 0, eye: 0.021, axis: 0.056, relief: 0.100, ret: 'dot', turret: 'small' },
-  opt_1p78: { body: 'tube', len: 0.138, r: 0.0195, obj: 0.024, eye: 0.022, axis: 0.058, relief: 0.082, ret: 'chevron', turret: 'small', hood: 0.020 },
-  opt_pso1: { body: 'tube', len: 0.190, r: 0.020, obj: 0.028, eye: 0.024, axis: 0.062, relief: 0.078, ret: 'pso', turret: 'drum', battery: true, hood: 0.030 },
-  opt_1p29: { body: 'tube', len: 0.172, r: 0.0205, obj: 0.025, eye: 0.024, axis: 0.062, relief: 0.080, ret: 'chevron', turret: 'drum', hood: 0.025 },
-  opt_pu: { body: 'tube', len: 0.169, r: 0.0135, obj: 0.0155, eye: 0.017, axis: 0.022, relief: 0.078, ret: 'pu', turret: 'pu', rings: true },
-  opt_t1: { body: 'tube', len: 0.064, r: 0.0165, obj: 0, eye: 0.0165, axis: 0.034, relief: 0.105, ret: 'dot', turret: 'cap' },
-  opt_eotech: { body: 'holo', len: 0.106, r: 0.026, axis: 0.037, relief: 0.100, ret: 'holo' },
-  opt_valday: { body: 'holo', len: 0.098, r: 0.025, axis: 0.036, relief: 0.100, ret: 'holo' },
-  opt_acog: { body: 'acog', len: 0.106, r: 0.019, obj: 0.0195, eye: 0.021, axis: 0.038, relief: 0.070, ret: 'acog' },
-  opt_specter: { body: 'acog', len: 0.126, r: 0.021, obj: 0.022, eye: 0.023, axis: 0.041, relief: 0.075, ret: 'chevron', lever: true },
-  opt_mark4: { body: 'tube', len: 0.252, r: 0.0195, obj: 0.031, eye: 0.023, axis: 0.046, relief: 0.084, ret: 'mildot', turret: 'target', rings: true },
-  opt_nspu: { body: 'nspu', len: 0.212, r: 0.036, obj: 0.040, eye: 0.026, axis: 0.070, relief: 0.062, ret: 'chevron', nv: true },
+  opt_okp7: { body: 'collimator', len: 0.088, r: 0.021, axis: 0.048, relief: 0.205, ret: 'dot' },
+  opt_kobra: { body: 'collimator', len: 0.096, r: 0.026, axis: 0.058, relief: 0.205, ret: 'chevron', dial: true },
+  opt_pka: { body: 'tube', len: 0.112, r: 0.0195, obj: 0, eye: 0.021, axis: 0.056, relief: 0.200, ret: 'dot', turret: 'small' },
+  opt_1p78: { body: 'tube', len: 0.138, r: 0.0195, obj: 0.024, eye: 0.022, axis: 0.058, relief: 0.185, ret: 'chevron', turret: 'small', hood: 0.020 },
+  opt_pso1: { body: 'tube', len: 0.190, r: 0.020, obj: 0.028, eye: 0.024, axis: 0.062, relief: 0.180, ret: 'pso', turret: 'drum', battery: true, hood: 0.030 },
+  opt_1p29: { body: 'tube', len: 0.172, r: 0.0205, obj: 0.025, eye: 0.024, axis: 0.062, relief: 0.182, ret: 'chevron', turret: 'drum', hood: 0.025 },
+  opt_pu: { body: 'tube', len: 0.169, r: 0.0135, obj: 0.0155, eye: 0.017, axis: 0.022, relief: 0.180, ret: 'pu', turret: 'pu', rings: true },
+  opt_t1: { body: 'tube', len: 0.064, r: 0.0165, obj: 0, eye: 0.0165, axis: 0.034, relief: 0.205, ret: 'dot', turret: 'cap' },
+  opt_eotech: { body: 'holo', len: 0.106, r: 0.026, axis: 0.037, relief: 0.205, ret: 'holo' },
+  opt_valday: { body: 'holo', len: 0.098, r: 0.025, axis: 0.036, relief: 0.205, ret: 'holo' },
+  opt_acog: { body: 'acog', len: 0.106, r: 0.019, obj: 0.0195, eye: 0.021, axis: 0.038, relief: 0.180, ret: 'acog' },
+  opt_specter: { body: 'acog', len: 0.126, r: 0.021, obj: 0.022, eye: 0.023, axis: 0.041, relief: 0.182, ret: 'chevron', lever: true },
+  opt_mark4: { body: 'tube', len: 0.252, r: 0.0195, obj: 0.031, eye: 0.023, axis: 0.046, relief: 0.185, ret: 'mildot', turret: 'target', rings: true },
+  opt_nspu: { body: 'nspu', len: 0.212, r: 0.036, obj: 0.040, eye: 0.026, axis: 0.070, relief: 0.175, ret: 'chevron', nv: true },
 };
 // A dovetail anchor sits on the left rail face; this is how far in +x the bore centreline is, by weapon family.
 const DOVETAIL_DX = { mosin: 0.016, mg: 0.0235, rifle: 0.0215, vss: 0.0205, svd: 0.0205, ak: 0.021, smg: 0.021 };
@@ -217,9 +217,9 @@ function opticSpec(id, def) {
   if (s) return s;
   const z = (def.effects && def.effects.zoom) || 1;
   const ret = (def.effects && def.effects.reticle) || (z > 1.2 ? 'mildot' : 'dot');
-  if (z <= 1.2) return { body: 'tube', len: 0.075, r: 0.018, obj: 0, eye: 0.018, axis: 0.036, relief: 0.105, ret, turret: 'cap' };
+  if (z <= 1.2) return { body: 'tube', len: 0.075, r: 0.018, obj: 0, eye: 0.018, axis: 0.036, relief: 0.205, ret, turret: 'cap' };
   const len = clamp(0.09 + z * 0.019, 0.11, 0.26);
-  return { body: 'tube', len, r: 0.0195, obj: 0.020 + z * 0.0013, eye: 0.023, axis: 0.046, relief: 0.080, ret, turret: 'drum', hood: 0.020 };
+  return { body: 'tube', len, r: 0.0195, obj: 0.020 + z * 0.0013, eye: 0.023, axis: 0.046, relief: 0.185, ret, turret: 'drum', hood: 0.020 };
 }
 function buildOptic(id, def, M, opts) {
   const g = new THREE.Group(); g.name = id;
@@ -240,7 +240,7 @@ function buildOptic(id, def, M, opts) {
     else prof.push([r, s.len - 0.006], [r - 0.002, s.len]);
     P.add(M.anodised, at(latheZ(prof), dx, axis, zR));
     P.add(M.rubber, at(latheZ([[eyeR + 0.0025, -0.008], [eyeR + 0.004, -0.004], [eyeR + 0.004, 0.006], [eyeR + 0.0005, 0.010]]), dx, axis, zR + 0.008));
-    if (hi()) P.add(M.gunmetal, at(knurlZ(eyeR + 0.0015, 0.008, 20), dx, axis, zR - 0.016));                  // dioptre ring
+    if (hi() && s.len > 0.10) P.add(M.gunmetal, at(knurlZ(eyeR + 0.0015, 0.008, 14), dx, axis, zR - 0.016));   // dioptre ring
     if (s.hood) P.add(M.painted, at(latheZ([[objR || r, 0], [(objR || r) + 0.0018, 0.003], [(objR || r) + 0.0018, s.hood], [(objR || r) - 0.001, s.hood]]), dx, axis, zF + 0.002));
     if (s.turret) {
       P.add(M.anodised, at(cylX(r + 0.0015, r + 0.0015, 0.008, hi() ? 14 : 8), dx, axis, zR - 0.052));        // turret boss
@@ -256,47 +256,49 @@ function buildOptic(id, def, M, opts) {
     else {
       railClamp(P, M, 0.062);
       P.add(M.painted, at(zrect(-0.026, 0.026, 0.008, axis - r + 0.004, 0.024, 0.0012, 0.003), dx, 0, 0));
-      for (const z of [-0.014, 0.020]) P.add(M.painted, at(ringX(r + 0.004, 0.004, 0, Math.PI * 2, hi() ? 16 : 8, 5), dx, axis, z));
+      for (const z of [-0.014, 0.020]) P.add(M.painted, at(ringZ(r + 0.004, 0.004, 0, Math.PI * 2, hi() ? 16 : 8, 5), dx, axis, z));
     }
     P.into(g, 'optic');
     glassDisc(g, M, (objR || r) - 0.002, dx, axis, zF + 0.003);
     glassDisc(g, M, eyeR - 0.002, dx, axis, zR - 0.004);
     const ret = reticleMesh(s.ret, (objR || r) * 0.75, retMat); ret.position.set(dx, axis, zF + 0.030); g.add(ret);
   } else if (s.body === 'collimator') {
-    // OKP-7 / Kobra: an open box collimator. Hood over an angled combiner, a peep frame at the rear, dial on the left.
-    const hw = s.r, y0 = axis - hw, y1 = axis + hw;
-    P.add(M.painted, side([[half, y0 + 0.006], [half, y1 - 0.004], [half - 0.010, y1], [-half + 0.008, y1], [-half, y1 - 0.006], [-half, y0], [half - 0.006, y0]], 0.050, 0.0022));
-    P.add(M.bore, at(box(0.034, hw * 1.2, s.len - 0.022), dx, axis, 0));                                       // the hollow window channel
-    P.add(M.painted, at(zrect(zF, zF + 0.012, y0 + 0.004, y1, 0.050, 0.0018, 0.003), dx, 0, 0));                // front hood lip
-    P.add(M.painted, at(zrect(zR - 0.014, zR, y0 + 0.004, axis + 0.012, 0.050, 0.0018, 0.003), dx, 0, 0));      // rear frame
+    // OKP-7 / Kobra: an open box collimator - deck, hood roof and two side walls, so the window really is a window.
+    const hw = s.r, y0 = axis - hw, y1 = axis + hw, wx = 0.0215;
+    P.add(M.painted, at(zrect(zF, zR, y0, y0 + 0.010, 0.050, 0.0018, 0.003), dx, 0, 0));                        // electronics deck
+    P.add(M.painted, at(zrect(zF, zR - 0.012, y1 - 0.007, y1, 0.050, 0.0018, 0.003), dx, 0, 0));                // hood roof
+    for (const sx of [-1, 1]) P.add(M.painted, at(zrect(zF, zR, y0 + 0.007, y1, 0.007, 0.0015, 0.002), dx + sx * wx, 0, 0));
+    P.add(M.painted, at(zrect(zR - 0.012, zR, y1 - 0.012, y1, 0.050, 0.0015, 0.002), dx, 0, 0));                // rear roof frame
     if (hi()) {
-      if (s.dial) P.add(M.gunmetal, at(knurlZ(0.008, 0.007, 12), dx - 0.028, axis + 0.008, zR - 0.030, 0, Math.PI / 2));
-      P.add(M.gunmetal, at(cylX(0.010, 0.010, 0.010, 10), dx + 0.028, axis - 0.008, zR - 0.030));               // battery cap
-      for (let i = 0; i < 4; i++) P.add(M.painted, at(box(0.052, 0.0022, 0.003), dx, y1 - 0.001, zR - 0.020 - i * 0.012));
+      if (s.dial) P.add(M.gunmetal, at(knurlZ(0.008, 0.007, 12), dx - wx - 0.010, axis + 0.006, zR - 0.026, 0, Math.PI / 2));
+      P.add(M.gunmetal, at(cylX(0.010, 0.010, 0.010, 10), dx + wx + 0.008, axis - 0.006, zR - 0.026));          // battery cap
+      for (let i = 0; i < 3; i++) P.add(M.painted, at(box(0.052, 0.0022, 0.003), dx, y1 - 0.001, zR - 0.026 - i * 0.013));
       turret(P, M, dx, y1 - 0.002, zF + 0.020, 'cap');
+      P.add(M.bore, at(box(0.030, 0.0025, 0.004), dx, y0 + 0.010, zR - 0.014));
     }
-    sideBracket(P, M, dx, y0 + 0.002, 0.086);
+    sideBracket(P, M, dx, y0 + 0.004, 0.086);
     P.into(g, 'optic');
-    const gl = glassDisc(g, M, hw * 0.66, dx, axis, zF + 0.026); gl.rotation.x = 0.22;
-    const ret = reticleMesh(s.ret, hw * 0.55, retMat); ret.position.set(dx, axis, zF + 0.029); g.add(ret);
+    const gl = glassDisc(g, M, hw * 0.62, dx, axis, zF + 0.024); gl.rotation.x = 0.22;
+    const ret = reticleMesh(s.ret, hw * 0.52, retMat); ret.position.set(dx, axis, zF + 0.027); g.add(ret);
   } else if (s.body === 'holo') {
-    // EOTech / Valday: hood walls around a rectangular window, battery hood behind, buttons on the left rear.
-    const y0 = 0.010, yt = axis + 0.016;
-    P.add(M.painted, at(zrect(zF, zR, y0, y0 + 0.008, 0.058, 0.0015, 0.002), 0, 0, 0));                        // chassis
-    for (const sx of [-1, 1]) P.add(M.painted, at(zrect(zF + 0.002, zR - 0.032, y0 + 0.006, yt, 0.008, 0.0015, 0.002), sx * 0.025, 0, 0));
-    P.add(M.painted, at(zrect(zF + 0.002, zR - 0.032, yt - 0.006, yt, 0.058, 0.0015, 0.002), 0, 0, 0));        // hood roof
-    P.add(M.painted, at(zrect(zR - 0.034, zR, y0, yt - 0.004, 0.050, 0.0018, 0.004), 0, 0, 0));                // battery hood
+    // EOTech / Valday: hood walls around an open rectangular window, battery pod on the left, buttons behind it.
+    const y0 = 0.010, yt = axis + 0.017, wx = 0.025;
+    P.add(M.painted, at(zrect(zF, zR, y0, y0 + 0.009, 0.058, 0.0015, 0.002), 0, 0, 0));                        // chassis
+    for (const sx of [-1, 1]) P.add(M.painted, at(zrect(zF + 0.002, zR - 0.004, y0 + 0.007, yt, 0.008, 0.0015, 0.002), sx * wx, 0, 0));
+    P.add(M.painted, at(zrect(zF + 0.002, zR - 0.004, yt - 0.006, yt, 0.058, 0.0015, 0.002), 0, 0, 0));        // hood roof
+    P.add(M.painted, at(zrect(zR - 0.022, zR + 0.002, yt - 0.010, yt + 0.005, 0.058, 0.0015, 0.003), 0, 0, 0)); // raised rear hood
+    P.add(M.painted, at(zrect(zR - 0.042, zR + 0.002, y0 + 0.006, axis + 0.010, 0.016, 0.0018, 0.004), -0.033, 0, 0));   // battery pod, clear of the window
     if (hi()) {
-      for (let i = 0; i < 2; i++) P.add(M.gunmetal, at(box(0.008, 0.008, 0.010), -0.026, axis - 0.004, zR - 0.038 + i * 0.014));
-      P.add(M.gunmetal, at(box(0.030, 0.005, 0.008), 0, yt + 0.0015, zR - 0.018));
-      P.add(M.bore, at(box(0.040, 0.0025, 0.004), 0, y0 + 0.0085, zF + 0.020));
+      for (let i = 0; i < 2; i++) P.add(M.gunmetal, at(box(0.008, 0.008, 0.010), -0.030, axis - 0.008, zR - 0.050 + i * 0.014));
+      P.add(M.gunmetal, at(knurlZ(0.007, 0.006, 10), -0.033, axis + 0.012, zR - 0.020, Math.PI / 2));
+      P.add(M.bore, at(box(0.040, 0.0025, 0.004), 0, y0 + 0.0095, zF + 0.020));
+      turret(P, M, 0.020, yt - 0.001, zR - 0.026, 'cap');
     }
     railClamp(P, M, 0.058);
     P.add(M.painted, at(zrect(-0.026, 0.026, 0.008, y0 + 0.002, 0.030, 0.001, 0.002), 0, 0, 0));
     P.into(g, 'optic');
-    const wg = mesh([box(0.034, 0.026, 0.0012)], M.glass, 'glass'); wg.position.set(0, axis, zF + 0.026); wg.rotation.x = 0.12; wg.renderOrder = 2; g.add(wg);
-    const rg = mesh([box(0.034, 0.026, 0.0012)], M.glass, 'glass'); rg.position.set(0, axis, zR - 0.036); rg.renderOrder = 2; g.add(rg);
-    const ret = reticleMesh(s.ret, 0.013, retMat); ret.position.set(0, axis, zF + 0.029); g.add(ret);
+    const wg = mesh([box(0.034, 0.026, 0.0012)], M.glass, 'glass'); wg.position.set(0, axis, zF + 0.024); wg.rotation.x = 0.12; wg.renderOrder = 2; g.add(wg);
+    const ret = reticleMesh(s.ret, 0.013, retMat); ret.position.set(0, axis, zF + 0.027); g.add(ret);
   } else if (s.body === 'acog') {
     // Cast, tapered body on a squared base with a fibre-optic channel along the top.
     const eyeR = s.eye, objR = s.obj;
@@ -323,7 +325,7 @@ function buildOptic(id, def, M, opts) {
     if (hi()) {
       P.add(M.gunmetal, at(knurlZ(0.009, 0.010, 12), dx - 0.020, axis - r - 0.014, zR - 0.040, 0, Math.PI / 2));
       P.add(M.gunmetal, at(box(0.010, 0.014, 0.012), dx + 0.020, axis + 0.004, zR - 0.030));
-      for (let i = 0; i < 5; i++) P.add(M.painted, at(ringX(objR + 0.0012, 0.0012, 0, Math.PI * 2, 14, 4), dx, axis, zF + 0.010 + i * 0.009));
+      for (let i = 0; i < 5; i++) P.add(M.painted, at(ringZ(objR + 0.0012, 0.0012, 0, Math.PI * 2, 14, 4), dx, axis, zF + 0.010 + i * 0.009));
     }
     sideBracket(P, M, dx, axis - r + 0.006, 0.100);
     P.into(g, 'optic');
@@ -361,7 +363,7 @@ function buildMuzzle(id, def, M) {
     P.add(M.steelDark, at(latheZ([[c - 0.004, 0], [c, 0.006], [c, 0.026], [r, 0.034], [r, L - 0.006], [r - 0.001, L + 0.002], [r - 0.004, L + 0.010], [r - 0.006, L + 0.012]]), 0, 0, 0.012));
     if (hi()) {
       P.add(M.gunmetal, at(knurlZ(c + 0.0015, 0.020, 22), 0, 0, 0.002));                                        // knurled mounting collar
-      for (let i = 0; i < (s.ribs || 0); i++) P.add(M.gunmetal, at(ringX(r + 0.0012, 0.0016, 0, Math.PI * 2, 16, 5), 0, 0, -0.050 - i * 0.038));
+      for (let i = 0; i < (s.ribs || 0); i++) P.add(M.gunmetal, at(ringZ(r + 0.0012, 0.0016, 0, Math.PI * 2, 16, 5), 0, 0, -0.050 - i * 0.038));
       if (s.flutes) for (let i = 0; i < s.flutes; i++) {
         const a = i / s.flutes * Math.PI * 2;
         P.add(M.bore, at(box(0.0038, 0.0024, L - 0.078), Math.cos(a) * r * 0.995, Math.sin(a) * r * 0.995, -(0.052 + (L - 0.078) / 2), 0, 0, a - Math.PI / 2));
@@ -447,7 +449,7 @@ function buildGrip(id, def, M) {
     P.add(M.polymerGrip, side([[0.030, -0.008], [0.034, -0.024], ['q', 0.036, -0.048, 0.024, -0.058], [-0.008, -0.062], ['q', -0.022, -0.060, -0.024, -0.046], [-0.026, -0.008]], 0.034, 0.0028));
     P.add(M.polymerGrip, side([[0.030, -0.056], [0.030, -0.066], [-0.020, -0.068], [-0.020, -0.056]], 0.040, 0.002));
     if (hi()) {
-      for (let i = 0; i < 3; i++) P.add(M.polymerGrip, at(ringX(0.006, 0.0022, 0, Math.PI, 10, 4), 0, -0.024 - i * 0.013, -0.026, 0, 0, -0.35));
+      for (let i = 0; i < 3; i++) P.add(M.polymerGrip, at(cylX(0.0042, 0.0042, 0.030, 8), 0, -0.024 - i * 0.013, -0.024 - i * 0.002));
       P.addAll(M.gunmetal, screw(0, -0.066, 0.004, 0.003, 'y'));
     }
   }
@@ -457,16 +459,16 @@ function buildGrip(id, def, M) {
 
 // ---------------------------------------------------------------- lights and lasers
 // A torch body: bezel, tube, reflector cone and a switchable lens, all at (0, yc) pointing forward.
-function torchBody(P, M, yc, R, len) {
-  P.add(M.painted, at(latheZ([[R - 0.003, 0], [R, 0.008], [R, len - 0.010], [R - 0.002, len - 0.004], [R - 0.008, len]]), 0, yc, len / 2));
-  P.add(M.painted, at(latheZ([[R, 0], [R + 0.0035, 0.006], [R + 0.0035, 0.016], [R + 0.001, 0.020]]), 0, yc, -len / 2 + 0.020));   // bezel
+function torchBody(P, M, xc, yc, R, len) {
+  P.add(M.painted, at(latheZ([[R - 0.003, 0], [R, 0.008], [R, len - 0.010], [R - 0.002, len - 0.004], [R - 0.008, len]]), xc, yc, len / 2));
+  P.add(M.painted, at(latheZ([[R, 0], [R + 0.0035, 0.006], [R + 0.0035, 0.016], [R + 0.001, 0.020]]), xc, yc, -len / 2 + 0.020));   // bezel
   if (hi()) {
-    P.add(M.gunmetal, at(knurlZ(R + 0.0012, 0.012, 18), 0, yc, len / 2 - 0.008));
-    P.add(M.rubber, at(cylZ(0.007, 0.007, 0.005, 10), 0, yc, len / 2 + 0.002));                                                     // tail switch
-    for (let i = 0; i < 4; i++) P.add(M.painted, at(ringX(R + 0.0008, 0.001, 0, Math.PI * 2, 14, 4), 0, yc, len / 2 - 0.030 - i * 0.010));
+    P.add(M.gunmetal, at(knurlZ(R + 0.0012, 0.012, 14), xc, yc, len / 2 - 0.008));
+    P.add(M.rubber, at(cylZ(0.007, 0.007, 0.005, 10), xc, yc, len / 2 + 0.002));                                                     // tail switch
+    for (let i = 0; i < 2; i++) P.add(M.painted, at(ringZ(R + 0.0008, 0.001, 0, Math.PI * 2, 12, 3), xc, yc, len / 2 - 0.030 - i * 0.012));
   }
-  P.add(M.steelDark, at(latheZ([[R - 0.003, 0], [R - 0.003, 0.010], [0.004, 0.012]]), 0, yc, -len / 2 + 0.014));                    // reflector
-  return [0, yc, -len / 2 + 0.002];
+  P.add(M.steelDark, at(latheZ([[R - 0.003, 0], [R - 0.003, 0.010], [0.004, 0.012]]), xc, yc, -len / 2 + 0.014));                    // reflector
+  return [xc, yc, -len / 2 + 0.002];
 }
 function buildLight(id, def, M, opts) {
   const g = new THREE.Group(); g.name = id;
@@ -505,18 +507,15 @@ function buildLight(id, def, M, opts) {
   }
   let lp;
   if (def.slot === 'side') {
-    // Zenit 2U: a torch in a side ring mount, offset off the left rail
+    // Zenit 2U: a torch in a ring mount offset off the left rail
     railClampSide(P, M, 0.040, 0.024, 0.008);
-    const R = 0.0165, bx = -0.010 - R;
-    P.add(M.painted, at(zrect(-0.012, 0.012, -0.010, 0.010, 0.014, 0.0012, 0.002), -0.010, 0, 0));
-    const rel = torchBody(P, M, 0, R, 0.076);
-    for (const gg of P.map.values()) void gg;                                                                   // (torchBody adds at x = 0; shift the group instead)
+    const R = 0.0165, bx = -0.012 - R;
+    P.add(M.painted, at(zrect(-0.012, 0.012, -0.012, 0.012, 0.016, 0.0012, 0.002), -0.010, 0, 0));              // stand-off arm
+    P.add(M.painted, at(ringZ(R + 0.004, 0.004, 0, Math.PI * 2, hi() ? 14 : 8, 4), bx, 0, -0.014));
+    lp = torchBody(P, M, bx, 0, R, 0.076);
     P.into(g, 'lightbody');
-    g.position.x = 0;
     const lens = emitter(mesh([cylZ(R - 0.004, R - 0.004, 0.0018, hi() ? 16 : 10)], G.lampOff, 'lens'), 'light', G.lampOff, G.lampOn);
-    lens.position.set(rel[0], rel[1], rel[2]); g.add(lens);
-    // slide the whole torch out to the side: only the clamp stays on the rail face
-    for (const c of g.children) if (c.name === 'lightbody' || c.name === 'lens') c.position.x += bx;
+    lens.position.set(lp[0], lp[1], lp[2]); g.add(lens);
     registerEmitters(opts.gun, g);
     return g;
   }
@@ -530,7 +529,7 @@ function buildLight(id, def, M, opts) {
     if (hi()) {
       for (const sx of [-1, 1]) P.add(M.polymerGrip, at(box(0.004, 0.014, 0.014), sx * 0.016, yc - 0.004, 0.032));
       P.add(M.gunmetal, at(box(0.020, 0.006, 0.008), 0, yc - 0.018, 0.010));
-      P.add(M.gunmetal, at(ringX(0.0172, 0.0012, 0, Math.PI * 2, 14, 4), 0, yc, -0.044));
+      P.add(M.gunmetal, at(ringZ(0.0172, 0.0012, 0, Math.PI * 2, 14, 4), 0, yc, -0.044));
     }
     P.add(M.steelDark, at(latheZ([[0.0135, 0], [0.0135, 0.009], [0.0035, 0.011]], hi() ? 14 : 8), 0, yc, -0.042));
     lp = [0, yc, -0.0452];
@@ -538,7 +537,7 @@ function buildLight(id, def, M, opts) {
     // Klesch-2P: a torch in an offset ring clamp under the handguard, tape switch trailing back
     railClampDown(P, M, 0.040, 0.026, 0.007);
     P.add(M.painted, at(zrect(-0.012, 0.012, -0.024, -0.008, 0.030, 0.0012, 0.002), 0, 0, 0));
-    lp = torchBody(P, M, -0.032, 0.0165, 0.080);
+    lp = torchBody(P, M, 0, -0.032, 0.0165, 0.080);
     if (hi()) P.add(M.rubber, at(box(0.010, 0.008, 0.024), 0.014, -0.028, 0.030));
   }
   P.into(g, 'lightbody');
@@ -584,9 +583,8 @@ function buildStock(id, def, M, opts) {
     // Magpul CTR: an angular polymer shell on the buffer tube, comb, sling loop, rubber butt pad
     P.add(M.polymer, side([[-0.030, 0.014], [-0.070, 0.014], [-0.078, 0.010], [-0.230, 0.006], [-0.245, -0.002], [-0.245, -0.048], [-0.232, -0.056], [-0.150, -0.040], [-0.070, -0.014], [-0.030, -0.006]], 0.040, 0.0028));
     P.add(M.polymer, at(zrect(0.060, 0.240, 0.012, 0.030, 0.044, 0.002, 0.004), 0, 0, 0));                       // comb over the tube
-    P.add(M.anodised, at(cylZ(0.0145, 0.0145, 0.150, hi() ? 14 : 8), 0, 0.006, 0.100));                          // buffer tube
+    P.add(M.polymer, at(latheZ([[0.020, 0], [0.022, 0.006], [0.022, 0.026], [0.019, 0.032]], hi() ? 12 : 8), 0, 0.006, 0.058));   // front collar on the buffer tube
     if (hi()) {
-      for (let i = 0; i < 5; i++) P.add(M.bore, at(box(0.006, 0.003, 0.006), 0, -0.008, 0.055 + i * 0.022));
       P.add(M.polymer, at(box(0.006, 0.020, 0.026), 0.020, -0.020, 0.070));
       P.add(M.bore, at(box(0.008, 0.014, 0.020), 0.020, -0.020, 0.070));                                         // sling slot
       P.add(M.polymer, at(box(0.042, 0.008, 0.016), 0, -0.006, 0.036));                                          // release lever
@@ -632,6 +630,7 @@ function buildRail(id, def, M, opts) {
     const yb = 0.030;                                                                                   // bore axis in the mount_stock frame (gun y 0.05)
     P.add(M.painted, at(latheZ([[0.0245, 0], [0.0245, L]], hi() ? 12 : 8), 0, yb, zc + L / 2));
     P.add(M.painted, at(zrect(zc + L / 2 - 0.014, zc + L / 2, yb - 0.028, yb + 0.028, 0.054, 0.0018, 0.004), 0, 0, 0));   // rear ferrule onto the trunnion
+    P.add(M.painted, at(ringZ(0.0235, 0.0022, 0, Math.PI * 2, hi() ? 14 : 8, 4), 0, yb, zc - L / 2 + 0.003));            // front cap ring
     P.add(M.painted, at(railZ(L - 0.020, 0.0085), 0, yb + 0.0245, zc));
     P.add(M.painted, at(railZ(L - 0.030, 0.0085), 0, yb - 0.0245, zc, Math.PI));
     for (const sx of [-1, 1]) P.add(M.painted, at(railZ(L - 0.040, 0.0075), sx * 0.0245, yb, zc, 0, 0, sx * -Math.PI / 2));
@@ -711,24 +710,24 @@ export function buildAttachment(id, opts = {}) {
 // ---------------------------------------------------------------- magazines
 // One family table; length, curve, floor plate and the visible top round come from cap and calibre.
 const MAG_FAM = {
-  pm: { w: 0.021, z: 0.028, mat: 'steelDark', pitch: 0.0088, base: 0.052, curve: 0.000, pistol: true },
-  aps: { w: 0.023, z: 0.030, mat: 'steelDark', pitch: 0.0042, base: 0.038, curve: 0.004, pistol: true },
-  tt: { w: 0.021, z: 0.036, mat: 'steelDark', pitch: 0.0090, base: 0.045, curve: 0.000, pistol: true },
-  glock: { w: 0.025, z: 0.032, mat: 'polymer', pitch: 0.0042, base: 0.040, curve: 0.000, pistol: true },
-  m9: { w: 0.024, z: 0.032, mat: 'steelDark', pitch: 0.0044, base: 0.038, curve: 0.000, pistol: true },
-  m1911: { w: 0.022, z: 0.034, mat: 'steelDark', pitch: 0.0090, base: 0.046, curve: 0.000, pistol: true },
-  kedr: { w: 0.024, z: 0.030, mat: 'steelDark', pitch: 0.0046, base: 0.030, curve: 0.012 },
-  mp5: { w: 0.025, z: 0.033, mat: 'steelDark', pitch: 0.0048, base: 0.030, curve: 0.040 },
-  vityaz: { w: 0.027, z: 0.033, mat: 'polymer', pitch: 0.0047, base: 0.030, curve: 0.024 },
-  ppsh: { w: 0.027, z: 0.038, mat: 'steelDark', pitch: 0.0046, base: 0.028, curve: 0.014, drumAt: 50 },
-  ak545: { w: 0.026, z: 0.056, mat: 'plum', pitch: 0.0053, base: 0.022, curve: 0.030 },
-  ak762: { w: 0.028, z: 0.058, mat: 'bakelitePlain', pitch: 0.0055, base: 0.022, curve: 0.044, drumAt: 60 },
-  sks: { w: 0.026, z: 0.058, mat: 'gunmetal', pitch: 0.0050, base: 0.024, curve: 0.020 },
-  ar: { w: 0.026, z: 0.056, mat: 'polymer', pitch: 0.0060, base: 0.024, curve: 0.020, drumAt: 50 },
-  vss: { w: 0.028, z: 0.056, mat: 'polymer', pitch: 0.0062, base: 0.024, curve: 0.032 },
-  svd: { w: 0.026, z: 0.062, mat: 'steelDark', pitch: 0.0080, base: 0.030, curve: 0.026 },
-  sv98: { w: 0.024, z: 0.076, mat: 'steelDark', pitch: 0.0070, base: 0.028, curve: 0.014 },
-  saiga: { w: 0.034, z: 0.072, mat: 'polymer', pitch: 0.0110, base: 0.026, curve: 0.030, drumAt: 16 },
+  pm: { w: 0.021, z: 0.028, mat: 'steelDark', pitch: 0.0068, base: 0.040, curve: 0.000, pistol: true },
+  aps: { w: 0.023, z: 0.030, mat: 'steelDark', pitch: 0.0042, base: 0.030, curve: 0.004, pistol: true },
+  tt: { w: 0.021, z: 0.036, mat: 'steelDark', pitch: 0.0072, base: 0.038, curve: 0.000, pistol: true },
+  glock: { w: 0.025, z: 0.032, mat: 'polymer', pitch: 0.0042, base: 0.030, curve: 0.000, pistol: true },
+  m9: { w: 0.024, z: 0.032, mat: 'steelDark', pitch: 0.0044, base: 0.030, curve: 0.000, pistol: true },
+  m1911: { w: 0.022, z: 0.034, mat: 'steelDark', pitch: 0.0074, base: 0.036, curve: 0.000, pistol: true },
+  kedr: { w: 0.024, z: 0.030, mat: 'steelDark', pitch: 0.0046, base: 0.026, curve: 0.012 },
+  mp5: { w: 0.025, z: 0.033, mat: 'steelDark', pitch: 0.0048, base: 0.026, curve: 0.040 },
+  vityaz: { w: 0.027, z: 0.033, mat: 'polymer', pitch: 0.0047, base: 0.026, curve: 0.024 },
+  ppsh: { w: 0.027, z: 0.038, mat: 'steelDark', pitch: 0.0046, base: 0.024, curve: 0.014, drumAt: 50 },
+  ak545: { w: 0.026, z: 0.056, mat: 'plum', pitch: 0.0044, base: 0.014, curve: 0.030 },
+  ak762: { w: 0.028, z: 0.058, mat: 'bakelitePlain', pitch: 0.0046, base: 0.014, curve: 0.044, drumAt: 60 },
+  sks: { w: 0.026, z: 0.058, mat: 'gunmetal', pitch: 0.0050, base: 0.018, curve: 0.020 },
+  ar: { w: 0.026, z: 0.056, mat: 'polymer', pitch: 0.0053, base: 0.016, curve: 0.020, drumAt: 50 },
+  vss: { w: 0.028, z: 0.056, mat: 'polymer', pitch: 0.0062, base: 0.020, curve: 0.032 },
+  svd: { w: 0.026, z: 0.062, mat: 'steelDark', pitch: 0.0080, base: 0.026, curve: 0.026 },
+  sv98: { w: 0.024, z: 0.076, mat: 'steelDark', pitch: 0.0070, base: 0.024, curve: 0.014 },
+  saiga: { w: 0.034, z: 0.072, mat: 'polymer', pitch: 0.0110, base: 0.022, curve: 0.030, drumAt: 16 },
   bizon: { helical: true },
   pkm: { beltbox: true },
   mosin: { clip: true },
@@ -742,7 +741,7 @@ function buildBoxMag(id, def, M) {
   const fam = MAG_FAM[def.fits[0]] || MAG_FALLBACK;
   const mat = M[fam.mat] || M.steelDark;
   const zd = fam.z, w = fam.w;
-  const h = clamp((fam.base || 0.024) + def.cap * (fam.pitch || 0.0055), 0.048, fam.pistol ? 0.125 : 0.30);
+  const h = clamp((fam.base || 0.020) + def.cap * (fam.pitch || 0.0050), 0.048, fam.pistol ? 0.175 : 0.28);
   const curve = (fam.curve || 0) * clamp(h / 0.16, 0.4, 1.4);
   // The body hangs from the feed lips at y = 0 and rakes toward the muzzle as it drops. u is forward, so the curve is +u.
   const f0 = zd * 0.46, r0 = -zd * 0.54, f1 = f0 + curve, r1 = r0 + curve * 0.94;
@@ -887,8 +886,8 @@ function artifactMesh(id) {
     P.add(shell, at(ringY(0.036, 0.005, hi() ? 20 : 10, 5), 0, 0.010, 0));
     coreY = 0.010;
   } else {
-    P.add(shell, at(sphere(0.030, hi() ? 16 : 8), 0, 0.030, 0));
-    if (hi()) for (let i = 0; i < 5; i++) P.add(shell, at(ringY(0.026 - i * 0.003, 0.0022, 14, 4), 0, 0.014 + i * 0.009, 0));
+    P.add(shell, at(sphere(0.030, hi() ? 14 : 8), 0, 0.030, 0));
+    if (hi()) for (let i = 0; i < 3; i++) P.add(shell, at(ringY(0.026 - i * 0.004, 0.0022, 12, 3), 0, 0.016 + i * 0.012, 0));
   }
   P.into(g, 'artifact');
   const cm = mesh([sphere(0.014, hi() ? 12 : 6)], inner, 'core'); cm.position.set(0, coreY, 0); g.add(cm);
@@ -983,8 +982,8 @@ function itemByKind(id, it, M) {
       const f1 = id === 'gr_f1', R = f1 ? 0.028 : 0.026;
       P.add(f1 ? M.olive : M.greyPaint, at(sphere(R, hi() ? 16 : 8), 0, R + 0.006, 0));
       if (f1 && hi()) {
-        for (let i = 0; i < 4; i++) P.add(M.olive, at(ringY(R * 0.99, 0.0022, 14, 4), 0, R + 0.006 - R * 0.6 + i * R * 0.4, 0));
-        for (let j = 0; j < 8; j++) P.add(M.olive, at(box(0.0022, R * 1.9, 0.0022), Math.cos(j / 8 * 6.283) * R * 0.99, R + 0.006, Math.sin(j / 8 * 6.283) * R * 0.99));
+        for (let i = 0; i < 3; i++) P.add(M.olive, at(ringY(R * 0.99, 0.0022, 12, 3), 0, R + 0.006 - R * 0.5 + i * R * 0.5, 0));
+        for (let j = 0; j < 6; j++) P.add(M.olive, at(box(0.0022, R * 1.9, 0.0022), Math.cos(j / 6 * 6.283) * R * 0.99, R + 0.006, Math.sin(j / 6 * 6.283) * R * 0.99));
       }
       P.add(M.gunmetal, at(cylY(0.011, 0.011, 0.016, hi() ? 12 : 6), 0, R * 2 + 0.014, 0));                        // fuse body
       if (hi()) { P.add(M.gunmetal, at(box(0.010, 0.036, 0.005), 0.011, R * 2 + 0.008, 0)); P.add(M.steel, at(ringY(0.009, 0.0014, 10, 4), -0.012, R * 2 + 0.018, 0)); }
@@ -994,7 +993,7 @@ function itemByKind(id, it, M) {
     P.add(M.steel, at(zrect(-L, 0.020, 0.006, 0.010, id === 'machete' ? 0.044 : 0.026, 0.0012, 0.002), 0, 0, 0));
     if (hi()) { P.add(M.bore, at(box(0.002, 0.0026, L * 0.9), 0, 0.008, -L * 0.55)); P.add(M.gunmetal, at(box(0.030, 0.008, 0.008), 0, 0.008, 0.008)); }
     P.add(id === 'machete' ? M.polymerGrip : M.bakelite, at(zrect(0.010, 0.110, 0.002, 0.016, 0.024, 0.002, 0.004), 0, 0, 0));
-    if (hi()) for (let i = 0; i < 3; i++) P.add(M.bakelite, at(ringX(0.009, 0.0018, 0, Math.PI * 2, 10, 4), 0, 0.009, 0.030 + i * 0.024));
+    if (hi()) for (let i = 0; i < 3; i++) P.add(M.bakelite, at(ringZ(0.009, 0.0018, 0, Math.PI * 2, 10, 4), 0, 0.009, 0.030 + i * 0.024));
   } else if (kind === 'part') {
     if (it.part === 'barrel') {
       P.add(M.gunmetal, at(latheZ([[0.010, 0], [0.013, 0.020], [0.0105, 0.030], [0.0095, 0.300], [0.0085, 0.320]], hi() ? 14 : 8), 0, 0.013, 0.160));
@@ -1058,12 +1057,12 @@ function itemByKind(id, it, M) {
     // mission objects, documents and anything else: a sealed steel case with a stencilled panel
     const tall = it.weight > 1.0;
     const h = tall ? 0.120 : 0.040, w = tall ? 0.090 : 0.130, d = tall ? 0.050 : 0.070;
-    P.add(M.greyPaint, at(zrect(-d, d, 0, h, w, 0.0022, 0.006), 0, 0, 0));
+    P.add(M.greyPaint, at(zrect(-d / 2, d / 2, 0, h, w, 0.0022, 0.006), 0, 0, 0));
     if (hi()) {
-      P.add(M.greyPaint, at(zrect(-d - 0.001, d + 0.001, h - 0.010, h + 0.001, w + 0.002, 0.002, 0.004), 0, 0, 0));
-      for (const sx of [-1, 1]) P.add(M.gunmetal, at(box(0.018, 0.010, 0.007), sx * 0.030, h - 0.012, -d - 0.001));
-      P.add(M.paper, at(zrect(-0.030, 0.030, h * 0.20, h * 0.72, w + 0.001, 0.0008), 0, 0, 0));
-      P.add(M.bore, at(box(0.040, 0.004, 0.0012), 0, h * 0.58, -w / 2 - 0.0006));
+      P.add(M.greyPaint, at(zrect(-d / 2 - 0.001, d / 2 + 0.001, h - 0.010, h + 0.001, w + 0.002, 0.002, 0.004), 0, 0, 0));
+      for (const sx of [-1, 1]) P.add(M.gunmetal, at(box(0.018, 0.010, 0.007), sx * w * 0.28, h - 0.012, -d / 2 - 0.001));
+      P.add(M.paper, at(zrect(-0.026, 0.026, h * 0.20, h * 0.72, w + 0.001, 0.0008), 0, 0, 0));
+      P.add(M.bore, at(box(0.040, 0.004, 0.0012), 0, h * 0.58, -d / 2 - 0.0016));
       P.add(M.canvasDark, at(box(0.026, 0.008, 0.012), 0, h + 0.005, 0));
     }
   }
