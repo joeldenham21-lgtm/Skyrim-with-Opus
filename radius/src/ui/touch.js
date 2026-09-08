@@ -23,22 +23,27 @@ const RUN_AT = 0.92;        // stick deflection past this is a sprint
 const STICK_R = 46;         // stick travel radius in CSS px, before --touch-scale
 const TAP_MS = 220;         // a press shorter than this, that barely moved, is a tap
 const TAP_PX = 10;
+const SLIDE_PX = 12;        // travel before a pad press becomes a look drag as well
+const IDLE_MS = 4000;       // controls fade after this long untouched — the game is mostly quiet
 
 // [action, icon, class]. Every pad uses press/release semantics, which covers both kinds of action:
 // pressed() fires on the transition for taps (reload, jump, slots) and down() persists for holds
 // (fire, aim, interact, watch).
+// `slide` marks a pad the thumb may drag off: the action STAYS HELD and the same finger becomes the
+// look pointer. That is what lets one thumb fire and look at once, so FIRE can sit where the thumb
+// already rests instead of being exiled to the other hand.
 const PADS = [
-  ['fire', 'fire', 'p-fire'],            // left thumb, beside the stick
-  ['fire', 'fire', 'p-trig-r'],          // right shoulder, right index
-  ['aim', 'aim', 'p-trig-l'],            // left shoulder, left index
-  ['reload', 'reload', 'p-reload'],
-  ['interact', 'use', 'p-use'],
-  ['quick1', 'meds', 'p-meds'],
-  ['crouch', 'crouch', 'p-crouch'],
+  ['fire', 'fire', 'p-fire', true],      // right thumb, slide off to keep firing while looking
+  ['fire', 'fire', 'p-trig-r', false],   // right shoulder, right index (claw grip)
+  ['aim', 'aim', 'p-trig-l', false],     // left shoulder, left index
+  ['reload', 'reload', 'p-reload', true],
+  ['interact', 'use', 'p-use', true],
+  ['quick1', 'meds', 'p-meds', true],
+  ['crouch', 'crouch', 'p-crouch', true],
 ];
 // Behind the tray button: everything you reach for deliberately, not in a firefight.
 const TRAY = [
-  ['jump', 'jump', null], ['slot1', null, '1'], ['slot2', null, '2'], ['slot3', null, '3'], ['slot4', null, '4'],
+  ['fireMode', 'fire', null], ['jump', 'jump', null], ['slot1', null, '1'], ['slot2', null, '2'], ['slot3', null, '3'], ['slot4', null, '4'],
   ['slot5', 'det', null], ['holster', 'stow', null], ['flashlight', 'torch', null], ['probe', 'probe', null],
   ['loadMag', 'mag', null], ['watch', 'watch', null], ['inventory', 'bag', null], ['map', 'map', null],
   ['pause', 'menu', null],
@@ -59,7 +64,7 @@ export function createTouch(ctx) {
   root.hidden = true;
   (document.getElementById('ui') || document.body).appendChild(root);
 
-  const pad = ([a, icon, cls]) => `<button class="t-pad ${cls}" data-a="${a}">${svg(icon)}</button>`;
+  const pad = ([a, icon, cls, slide]) => `<button class="t-pad ${cls}" data-a="${a}"${slide ? ' data-slide="1"' : ''}>${svg(icon)}</button>`;
   const trayItem = ([a, icon, text]) =>
     `<button class="t-tray-btn" data-a="${a}">${icon ? svg(icon) : `<span class="n">${text}</span>`}</button>`;
 
@@ -83,6 +88,8 @@ export function createTouch(ctx) {
   const pointers = new Map();   // pointerId -> { kind, ... }
   const held = new Set();       // actions currently held by a finger
   let running = false;          // sprint, driven by stick deflection rather than a button
+  let lastPoke = 0;             // last time any control was touched, for the idle fade
+  const poke = () => { lastPoke = performance.now(); if (root.classList.contains('idle')) root.classList.remove('idle'); };
 
   const scale = () => S().touchScale || 1;
 
@@ -133,20 +140,32 @@ export function createTouch(ctx) {
   // ---------------------------------------------------------------- buttons
   for (const btn of root.querySelectorAll('[data-a]')) {
     const action = btn.dataset.a;
+    const canSlide = btn.dataset.slide === '1';
     btn.addEventListener('pointerdown', (e) => {
       e.preventDefault(); e.stopPropagation();
       try { btn.setPointerCapture(e.pointerId); } catch {}
-      pointers.set(e.pointerId, { kind: 'btn', action, btn });
+      pointers.set(e.pointerId, { kind: 'btn', action, btn, ox: e.clientX, oy: e.clientY, lx: e.clientX, ly: e.clientY, slid: false });
       btn.classList.add('on');
+      poke();
       hold(action, true);
       if (btn.closest('.t-tray')) setTray(false);   // a tray choice closes the tray
+    });
+    if (canSlide) btn.addEventListener('pointermove', (e) => {
+      const p = pointers.get(e.pointerId);
+      if (!p || p.kind !== 'btn' || p.btn !== btn) return;
+      if (!p.slid) {
+        if (Math.hypot(e.clientX - p.ox, e.clientY - p.oy) < SLIDE_PX) return;
+        p.slid = true; p.lx = e.clientX; p.ly = e.clientY;   // the drag starts here, no jerk
+        btn.classList.add('slid');
+      }
+      lookMove(p, e);          // same finger, still holding the action, now turning the camera
     });
     const release = (e) => {
       const p = pointers.get(e.pointerId);
       if (!p || p.kind !== 'btn' || p.btn !== btn) return;
       pointers.delete(e.pointerId);
-      btn.classList.remove('on');
-      // another pad may hold the same action (fire has three); only release when none still do
+      btn.classList.remove('on'); btn.classList.remove('slid');
+      // another pad may hold the same action (fire has two); only release when none still do
       const stillHeld = [...pointers.values()].some((q) => q.kind === 'btn' && q.action === action);
       if (!stillHeld) hold(action, false);
     };
@@ -171,6 +190,7 @@ export function createTouch(ctx) {
     e.preventDefault();
     const zone = e.currentTarget.dataset.zone;
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    poke();
     if (zone === 'move') { stickDown(e); return; }
     if (!tray.hidden) setTray(false);                          // looking dismisses the tray
     pointers.set(e.pointerId, { kind: 'look', ox: e.clientX, oy: e.clientY, lx: e.clientX, ly: e.clientY, t: performance.now(), moved: false });
@@ -236,6 +256,9 @@ export function createTouch(ctx) {
           if (!target) hold('interact', false);   // never leave it held as it disappears
         }
       }
+      // Long stretches of this game are walking. Let the controls recede when they are not in use,
+      // and come straight back on any touch, so the screen is mostly the zone rather than the HUD.
+      if (performance.now() - lastPoke > IDLE_MS && !pointers.size) root.classList.add('idle');
       // reload dims when there is no weapon in hand to reload
       if (reloadPad) reloadPad.classList.toggle('spent', !(ctx.weapons && ctx.weapons.current));
       if (medsPad) {

@@ -77,6 +77,32 @@ export default async function (page, api) {
     released: await R(`return c.input.down('fire');`),
   }));
 
+  // ---- SLIDE-OFF: press fire, drag away, and keep firing while the camera turns (one thumb) ----
+  const fp = await rect('#touch .p-fire');
+  const yawA = await R(`return c.player.yaw;`);
+  await touch('touchStart', [{ x: fp.x, y: fp.y, id: 50 }]);
+  const held0 = await R(`return c.input.down('fire');`);
+  await touch('touchMove', [{ x: fp.x - 40, y: fp.y - 60, id: 50 }]);
+  await touch('touchMove', [{ x: fp.x - 120, y: fp.y - 90, id: 50 }]);
+  await api.frames(3);
+  const slid = await R(`return { fire: c.input.down('fire'), yaw: c.player.yaw };`);
+  await touch('touchEnd', []);
+  await api.frames(2);
+  console.log('SLIDE_OFF_FIRE', JSON.stringify({
+    heldOnPress: held0,
+    stillFiringAfterDragging: slid.fire,
+    cameraTurnedWhileFiring: Math.abs(slid.yaw - yawA) > 0.01,
+    yawDelta: +(slid.yaw - yawA).toFixed(3),
+    releasedAfterLift: await R(`return c.input.down('fire');`),
+  }));
+
+  // ---- tap-to-fire must be OFF by default: a thumb re-plant is not a shot ----
+  console.log('TAP_FIRE_DEFAULT', JSON.stringify(await R(`return { touchTapFire: c.state.data.settings.touchTapFire };`)));
+
+  // ---- fireMode must be reachable: it had no touch control at all ----
+  console.log('FIREMODE_REACHABLE', JSON.stringify(await R(`
+    return { inTray: !!document.querySelector('#touch .t-tray [data-a="fireMode"]') };`)));
+
   // ---- failure 2: controls that must combine — aim + fire, on opposite shoulders ----
   const tl = await rect('#touch .p-trig-l'), tr = await rect('#touch .p-trig-r');
   await touch('touchStart', [{ x: tl.x, y: tl.y, id: 20 }]);

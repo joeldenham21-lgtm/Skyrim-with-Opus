@@ -3,3 +3,5 @@ dist/bundle.js
 dist/bundle.js.map
 .smoke/
 .audit/
+.gt.mjs
+.loottest/

@@ -20,7 +20,11 @@ export function defaultData() {
       // touch: 'auto' turns the on-screen controls on for a coarse-pointer device. mobileTuned
       // records that the one-time phone quality defaults have been applied, so a player's own
       // choices are never overwritten on a later boot.
-      touchControls: 'auto', touchScale: 1.0, touchLook: 1.0, touchTapFire: true, mobileTuned: false,
+      touchControls: 'auto', touchScale: 1.0, touchLook: 1.0, mobileTuned: false,
+      // tap-anywhere-to-fire is OFF by default: every thumb re-plant in the look area becomes a
+      // discharge, and in a game where rounds are counted one at a time and gunfire draws the zone
+      // onto you, an accidental shot is a punishment rather than a convenience.
+      touchTapFire: false,
     },
     seed: 1987,
   };

@@ -170,10 +170,11 @@ html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
 
 /* left thumb: the trigger sits beside the stick, so the right thumb never leaves the look area */
 #touch .p-fire {
-  left: calc(10px + var(--safe-l)); bottom: calc(84px * var(--touch-scale) + var(--safe-b));
-  width: calc(58px * var(--touch-scale)); height: calc(58px * var(--touch-scale));
-  border-color: rgba(224, 164, 88, 0.45); color: var(--paper);
+  right: calc(16px + var(--safe-r)); bottom: calc(20px + var(--safe-b));
+  width: calc(72px * var(--touch-scale)); height: calc(72px * var(--touch-scale));
+  border-color: rgba(224, 164, 88, 0.5); color: var(--paper);
 }
+#touch .p-fire.slid { border-color: var(--amber); background: rgba(224, 164, 88, 0.14); }
 #touch .p-crouch { left: calc(16px + var(--safe-l)); bottom: calc(24px + var(--safe-b)); }
 
 /* shoulders: index fingers of a two-handed grip, so both thumbs can keep moving and looking */
@@ -187,15 +188,15 @@ html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
 #touch .p-trig-l svg, #touch .p-trig-r svg { width: calc(22px * var(--touch-scale)); height: calc(22px * var(--touch-scale)); }
 
 /* right edge: reached with the right thumb between look drags */
-#touch .p-reload { right: calc(14px + var(--safe-r)); bottom: calc(88px * var(--touch-scale) + var(--safe-b)); width: calc(48px * var(--touch-scale)); height: calc(48px * var(--touch-scale)); }
+#touch .p-reload { right: calc(22px + var(--safe-r)); bottom: calc(104px * var(--touch-scale) + var(--safe-b)); width: calc(50px * var(--touch-scale)); height: calc(50px * var(--touch-scale)); }
 #touch .p-use {
-  right: calc(72px * var(--touch-scale) + var(--safe-r)); bottom: calc(30px + var(--safe-b));
+  right: calc(100px * var(--touch-scale) + var(--safe-r)); bottom: calc(96px * var(--touch-scale) + var(--safe-b));
   width: calc(48px * var(--touch-scale)); height: calc(48px * var(--touch-scale));
   border-color: rgba(224, 164, 88, 0.4); color: var(--paper);
 }
 #touch .t-pad[hidden] { display: none !important; }
 #touch .t-pad.spent { opacity: 0.4; }
-#touch .p-meds { right: calc(14px + var(--safe-r)); bottom: calc(24px + var(--safe-b)); border-color: rgba(162, 59, 42, 0.42); }
+#touch .p-meds { right: calc(98px * var(--touch-scale) + var(--safe-r)); bottom: calc(26px + var(--safe-b)); border-color: rgba(162, 59, 42, 0.42); }
 #touch .p-more { right: calc(14px + var(--safe-r)); top: calc(46px * var(--touch-scale) + var(--safe-t)); width: calc(36px * var(--touch-scale)); height: calc(36px * var(--touch-scale)); }
 
 /* ---- tray: everything you reach for deliberately, not in a firefight ---- */
@@ -265,3 +266,14 @@ body.portrait #rotate { display: flex; }
 }
 #touch .p-meds[data-n=""]::after { display: none; }
 #touch .p-meds.spent { opacity: 0.42; }
+
+/* Hit area decoupled from ink: an invisible halo makes every pad materially easier to hit without
+   drawing a single extra pixel. Index fingers curled over the top edge land least precisely of all. */
+#touch .t-pad::before { content: ''; position: absolute; inset: -11px; border-radius: 50%; }
+#touch .p-trig-l::before, #touch .p-trig-r::before { inset: -6px -14px -14px; border-radius: 0 0 18px 18px; }
+
+/* Idle fade: this game is mostly long quiet walks. Let the controls recede rather than sit on top
+   of the image, and bring them straight back the moment a finger lands. */
+#touch { transition: opacity 0.5s ease; }
+#touch.idle { opacity: 0.22; }
+#touch.idle .t-pad, #touch.idle .t-tray { transition: opacity 0.12s ease; }
