@@ -8,9 +8,27 @@
 // the beam they scatter sideways out of it and come back in from the dark side, round to your back; the bites
 // come from behind. Bites stack: the second within a few seconds opens a bleed.
 //
-// Build: one skinned mesh per spawn (thorax, a three-segment abdomen, a tiny head with two dull red pinpoints,
-// six two-segment legs on two-bone IK), a dark oily material (fresnel rim with a thin-film shift, chitin
-// mottling) that shares one program across the pack. Gait: alternating tripods, exaggerated lift, jittered.
+// Build: one skinned mesh per spawn (thorax, a three-segment abdomen with a glowing membrane in each joint,
+// a tiny head with two amber pinpoints, six two-segment legs on two-bone IK), a dark oily material (fresnel
+// rim with a thin-film shift, chitin mottling) that shares one program across the pack. Gait: alternating
+// tripods, exaggerated lift, jittered.
+//
+// This is the model the rest of the bestiary is measured against, so it is worth writing down WHY it works:
+// every mass is a ring-stack ellipsoid rather than a box, so the same triangles buy a curve and a many-sided
+// outline; the masses are chained with shrinking radii and a small drop between them, so the silhouette
+// pinches and droops four times in 0.36 m; every leg has a coxa knot and a knee knot fatter than the
+// segments they join, so the joints read; and the material's fresnel term brightens the albedo, adds
+// emissive AND drops roughness at grazing angles, so the outline edge is brighter than the interior under
+// any light. That last one was silently doing nothing: the whole block was injected at
+// <lights_fragment_begin>, which in three's meshphysical shader runs AFTER <lights_physical_fragment> has
+// already copied diffuseColor and roughnessFactor into `material`. Only the emissive term was landing. The
+// albedo and roughness work now goes in at <color_fragment> and <roughnessmap_fragment> where it is read.
+//
+// Colour: DESIGN called it translucent black and the albedo was Color(0.018, 0.020, 0.026), which is black
+// with two red pinpoints for company. The body now sits at a readable blue-black, the abdomen warms toward
+// the tip, the legs are DARKER than the body so it appears to float, and three amber intersegmental
+// membranes pulse with its breathing. Nothing else in the bestiary has bands: at forty metres in fog that
+// is the whole identification.
 // When the characters module lands a real crawler (buildCrawler without the stub flag) that rig is used.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -42,14 +60,18 @@ const LEGS = [
   { c: 'cR3', t: 'tR3', side: 1, fwd: 1, hip: [0.085, -0.01, 0.06], rest: [0.31, 0, 0.26], off: 0.5 },
 ];
 
-// bind a geometry 1:1 to a bone and mark its glow (the eyes)
-function bind(g, bone, glow = 0) {
+// Bind a geometry 1:1 to a bone and mark what it is. aPart = (tone, band): tone -1 legs, 0 thorax and head,
+// 1..3 the abdomen segments (which warm toward the tip); band 0 or the intersegmental membrane index. aGlow
+// stays the eye channel. One attribute pair is what lets the whole creature keep to one draw call while
+// carrying five different materials.
+function bind(g, bone, glow = 0, tone = 0, band = 0) {
   const n = g.attributes.position.count;
-  const si = new Uint16Array(n * 4), sw = new Float32Array(n * 4), gl = new Float32Array(n);
-  for (let i = 0; i < n; i++) { si[i * 4] = bone; sw[i * 4] = 1; gl[i] = glow; }
+  const si = new Uint16Array(n * 4), sw = new Float32Array(n * 4), gl = new Float32Array(n), pt = new Float32Array(n * 2);
+  for (let i = 0; i < n; i++) { si[i * 4] = bone; sw[i * 4] = 1; gl[i] = glow; pt[i * 2] = tone; pt[i * 2 + 1] = band; }
   g.setAttribute('skinIndex', new THREE.BufferAttribute(si, 4));
   g.setAttribute('skinWeight', new THREE.BufferAttribute(sw, 4));
   g.setAttribute('aGlow', new THREE.BufferAttribute(gl, 1));
+  g.setAttribute('aPart', new THREE.BufferAttribute(pt, 2));
   return g;
 }
 function jitterVerts(g, jit) {
@@ -64,10 +86,21 @@ function jitterVerts(g, jit) {
 function blob(rx, ry, rz, x, y, z, bone, o = {}) {
   const g = new THREE.SphereGeometry(1, o.seg ?? 12, o.ring ?? 9);
   g.scale(rx, ry, rz);
+  // A dorsal keel: the top centre strip is lifted into a low crest. Costs no triangles and it is the whole
+  // from-above read — this thing is 0.40 m tall and mostly seen looking down at it, where a smooth ellipsoid
+  // is a pebble. With the crest the back has a spine, a highlight line and a direction.
+  if (o.keel) {
+    const pos = g.attributes.position, n = pos.count;
+    for (let i = 0; i < n; i++) {
+      const px = pos.getX(i), py = pos.getY(i);
+      const uy = py / ry, ux = Math.abs(px) / rx;
+      if (uy > 0.42 && ux < 0.5) pos.setY(i, py + o.keel * ((uy - 0.42) / 0.58) * (1 - ux / 0.5));
+    }
+  }
   jitterVerts(g, o.jitter ?? 0.006);
   _e.set(o.rx || 0, o.ry || 0, o.rz || 0); _m.makeRotationFromEuler(_e); _m.setPosition(x, y, z);
   g.applyMatrix4(_m); g.computeVertexNormals();
-  return bind(g, bi(bone), o.glow || 0);
+  return bind(g, bi(bone), o.glow || 0, o.tone || 0, o.band || 0);
 }
 // a tapered box (limb segments, mandibles)
 function box(w, h, d, x, y, z, bone, o = {}) {
@@ -77,28 +110,38 @@ function box(w, h, d, x, y, z, bone, o = {}) {
   jitterVerts(g, o.jitter ?? 0.004);
   _e.set(o.rx || 0, o.ry || 0, o.rz || 0); _m.makeRotationFromEuler(_e); _m.setPosition(x, y, z);
   g.applyMatrix4(_m); g.computeVertexNormals();
-  return bind(g, bi(bone), 0);
+  return bind(g, bi(bone), 0, o.tone || 0, 0);
 }
 let sharedGeo = null;
 function buildGeometry() {
   if (sharedGeo) return sharedGeo;
   const parts = [
-    blob(0.10, 0.075, 0.135, 0, BODY_Y, -0.04, 'body', { jitter: 0.008 }),                       // thorax
-    blob(0.115, 0.088, 0.14, 0, BODY_Y, 0.16, 'abdomen', { jitter: 0.009 }),                     // abdomen, three segments
-    blob(0.095, 0.074, 0.11, 0, BODY_Y - 0.006, 0.275, 'abdomen', { jitter: 0.008 }),
-    blob(0.066, 0.05, 0.078, 0, BODY_Y - 0.016, 0.36, 'abdomen', { jitter: 0.007 }),
+    blob(0.10, 0.075, 0.135, 0, BODY_Y, -0.04, 'body', { jitter: 0.008, keel: 0.024 }),           // thorax
+    blob(0.115, 0.088, 0.14, 0, BODY_Y, 0.16, 'abdomen', { jitter: 0.009, keel: 0.027, tone: 1 }),  // abdomen, three segments
+    blob(0.095, 0.074, 0.11, 0, BODY_Y - 0.006, 0.275, 'abdomen', { jitter: 0.008, keel: 0.021, tone: 2 }),
+    blob(0.066, 0.05, 0.078, 0, BODY_Y - 0.016, 0.36, 'abdomen', { jitter: 0.007, keel: 0.014, tone: 3 }),
     blob(0.048, 0.04, 0.056, 0, BODY_Y - 0.015, -0.19, 'head', { jitter: 0.005 }),               // head
     blob(0.011, 0.011, 0.011, -0.023, BODY_Y - 0.002, -0.226, 'head', { seg: 8, ring: 6, jitter: 0, glow: 1 }),
     blob(0.011, 0.011, 0.011, 0.023, BODY_Y - 0.002, -0.226, 'head', { seg: 8, ring: 6, jitter: 0, glow: 1 }),
     box(0.012, 0.012, 0.058, -0.018, BODY_Y - 0.035, -0.238, 'head', { ry: 0.4, rx: 0.3, jitter: 0.002 }),   // mandibles
     box(0.012, 0.012, 0.058, 0.018, BODY_Y - 0.035, -0.238, 'head', { ry: -0.4, rx: 0.3, jitter: 0.002 }),
+    // Intersegmental membranes. Real arthropods have soft arthrodial membrane in every joint of the abdomen;
+    // in this one it is the only place the light inside gets out. Each is a thin disc a centimetre wider than
+    // the pinch it sits in, so all that shows is a glowing rim, and the three of them pulse with the breath.
+    // Three amber bands on a low dark shape is the forty-metre identification and nothing else has it.
+    blob(0.099, 0.077, 0.013, 0, BODY_Y + 0.002, 0.078, 'abdomen', { seg: 10, ring: 4, jitter: 0.002, band: 1 }),
+    blob(0.105, 0.082, 0.011, 0, BODY_Y - 0.002, 0.223, 'abdomen', { seg: 10, ring: 4, jitter: 0.002, band: 2 }),
+    blob(0.092, 0.070, 0.009, 0, BODY_Y - 0.011, 0.325, 'abdomen', { seg: 10, ring: 4, jitter: 0.002, band: 3 }),
+    // two cerci off the tip, so the abdomen ends in a fork instead of a full stop
+    box(0.010, 0.010, 0.062, -0.019, BODY_Y - 0.006, 0.416, 'abdomen', { rx: -0.55, ry: 0.30, bottom: 0.3, jitter: 0.002, tone: 3 }),
+    box(0.010, 0.010, 0.062, 0.019, BODY_Y - 0.006, 0.416, 'abdomen', { rx: -0.55, ry: -0.30, bottom: 0.3, jitter: 0.002, tone: 3 }),
   ];
   for (const L of LEGS) {
     const hx = L.hip[0], hy = BODY_Y + L.hip[1], hz = L.hip[2];
-    parts.push(blob(0.024, 0.02, 0.024, hx, hy, hz, L.c, { seg: 8, ring: 6, jitter: 0.003 }));                          // coxa knot
-    parts.push(box(0.03, L1, 0.03, hx, hy - L1 / 2, hz, L.c, { bottom: 0.78, jitter: 0.004 }));                          // femur
-    parts.push(blob(0.02, 0.016, 0.02, hx, hy - L1, hz, L.t, { seg: 8, ring: 6, jitter: 0.003 }));                     // knee
-    parts.push(box(0.021, L2, 0.017, hx, hy - L1 - L2 / 2, hz, L.t, { bottom: 0.42, jitter: 0.003 }));                  // tibia to a point
+    parts.push(blob(0.024, 0.02, 0.024, hx, hy, hz, L.c, { seg: 8, ring: 6, jitter: 0.003, tone: -1 }));                // coxa knot
+    parts.push(box(0.03, L1, 0.03, hx, hy - L1 / 2, hz, L.c, { bottom: 0.78, jitter: 0.004, tone: -1 }));               // femur
+    parts.push(blob(0.02, 0.016, 0.02, hx, hy - L1, hz, L.t, { seg: 8, ring: 6, jitter: 0.003, tone: -1 }));            // knee
+    parts.push(box(0.021, L2, 0.017, hx, hy - L1 - L2 / 2, hz, L.t, { bottom: 0.42, jitter: 0.003, tone: -1 }));        // tibia to a point
   }
   sharedGeo = mergeGeometries(parts, false);
   for (const g of parts) g.dispose();
@@ -106,37 +149,76 @@ function buildGeometry() {
   return sharedGeo;
 }
 
-// ---- material: dark translucent chitin. fresnel rim with an oily thin-film shift, mottling, dull red eyes ----
+// ---- material: dark translucent chitin. Fresnel rim with an oily thin-film shift, mottling, amber eyes ----
+// The fresnel term is the whole reason this creature reads at near-black albedo: at grazing angles it
+// brightens the albedo, adds emissive AND drops roughness, so the silhouette edge always carries more value
+// than the interior whatever the light is doing. It used to be injected entirely at <lights_fragment_begin>,
+// which runs after <lights_physical_fragment> has already taken its copies of diffuseColor and
+// roughnessFactor — so two thirds of it was dead code. The albedo work is now at <color_fragment> and the
+// roughness at <roughnessmap_fragment>, where they are actually read.
 function chitinCompile(shader) {
   const u = this.userData.u;
   for (const k in fogUniforms) shader.uniforms[k] = fogUniforms[k];
   for (const k in u) shader.uniforms[k] = u[k];
   shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', '#include <common>\nattribute float aGlow; varying float vGlow; varying vec3 vObjPos;')
-    .replace('#include <skinning_vertex>', '#include <skinning_vertex>\n vGlow = aGlow; vObjPos = transformed;');
+    .replace('#include <common>', '#include <common>\nattribute float aGlow; attribute vec2 aPart; varying float vGlow; varying vec2 vPart; varying vec3 vObjPos;')
+    .replace('#include <skinning_vertex>', '#include <skinning_vertex>\n vGlow = aGlow; vPart = aPart; vObjPos = transformed;');
   shader.fragmentShader = shader.fragmentShader
-    .replace('#include <common>', `#include <common>\n${GLSL_NOISE}\nuniform float uTime, uSeed, uFlinch; varying float vGlow; varying vec3 vObjPos;`)
-    .replace('#include <lights_fragment_begin>', /* glsl */`
+    .replace('#include <common>', `#include <common>\n${GLSL_NOISE}\nuniform float uTime, uSeed, uFlinch, uBreath, uTone;
+      uniform vec3 uBody, uAbd, uLeg, uBand;
+      varying float vGlow; varying vec2 vPart; varying vec3 vObjPos;`)
+    // fresnel and the thin-film palette, computed once and used by everything below
+    .replace('#include <clipping_planes_fragment>', /* glsl */`#include <clipping_planes_fragment>
+      float fr = pow(1.0 - clamp(dot(normalize(vNormal), normalize(vViewPosition)), 0.0, 1.0), 2.6);
+      float mot = fbm3d(vObjPos * 26.0 + uSeed);
+      vec3 oil = 0.5 + 0.5 * cos(6.2831 * (fr * 1.4 + mot * 0.6 + vec3(0.0, 0.33, 0.67)) + uSeed);
+      float band = vPart.y;`)
+    .replace('#include <color_fragment>', /* glsl */`#include <color_fragment>
       {
-        vec3 vv = normalize(vViewPosition);
-        float fr = pow(1.0 - clamp(dot(normal, vv), 0.0, 1.0), 2.6);
-        float mot = fbm3d(vObjPos * 26.0 + uSeed);
-        vec3 oil = 0.5 + 0.5 * cos(6.2831 * (fr * 1.4 + mot * 0.6 + vec3(0.0, 0.33, 0.67)) + uSeed);
-        diffuseColor.rgb *= 0.75 + 0.5 * mot;
+        // the palette lives in the vertex attribute, so one draw call carries four materials: a blue-black
+        // thorax, an abdomen that warms toward the tip, legs DARKER than the body so the mass appears to
+        // float clear of the ground, and the soft membrane in each abdominal joint
+        vec3 base = vPart.x < -0.5 ? uLeg : mix(uBody, uAbd, clamp(vPart.x / 3.0, 0.0, 1.0));
+        base = mix(base, base * vec3(1.10, 1.0, 0.92), uTone);
+        if (band > 0.5) base = uBand * 0.35;
+        diffuseColor.rgb = base * (0.75 + 0.5 * mot);
         diffuseColor.rgb += (vec3(0.06, 0.08, 0.075) + oil * 0.05) * fr;
+      }`)
+    .replace('#include <roughnessmap_fragment>', /* glsl */`#include <roughnessmap_fragment>
+      roughnessFactor = clamp(roughnessFactor - 0.28 * fr - 0.12 * mot + (band > 0.5 ? 0.45 : 0.0), 0.12, 1.0);`)
+    .replace('#include <emissivemap_fragment>', /* glsl */`#include <emissivemap_fragment>
+      {
         totalEmissiveRadiance += (vec3(0.03, 0.045, 0.04) + oil * 0.03) * fr * (0.8 + 1.5 * uFlinch);
-        roughnessFactor = clamp(roughnessFactor - 0.28 * fr - 0.12 * mot, 0.12, 1.0);
+        // the three bands breathe out of step with each other, and with every other spawn in the pack
+        float bp = uBreath + band * 1.9 + uSeed;
+        // held so the peak just kisses the bloom threshold (0.88) and the trough is still clearly lit: at
+        // forty metres in fog this is the only thing you can see of the creature, and it is the whole ID
+        totalEmissiveRadiance += uBand * (band > 0.5 ? 1.0 : 0.0) * (2.3 + 1.8 * sin(bp)) * (1.0 + uFlinch * 1.4);
         float slot = floor(uTime * 3.0 + uSeed);
         float flick = 0.78 + 0.22 * step(0.35, hash11(slot)) * (0.5 + 0.5 * sin(uTime * 11.0 + uSeed));
-        totalEmissiveRadiance += vec3(1.25, 0.08, 0.035) * vGlow * flick;
-      }
-      #include <lights_fragment_begin>`);
+        totalEmissiveRadiance += vec3(1.40, 0.50, 0.12) * vGlow * flick;
+      }`);
 }
-function makeChitin() {
-  const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.018, 0.02, 0.026), roughness: 0.42, metalness: 0.12 });
-  mat.userData.u = { uTime: { value: 0 }, uSeed: { value: Math.random() * 60 }, uFlinch: { value: 0 } };
+function makeChitin(tone = 0) {
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.42, metalness: 0.12 });
+  mat.userData.u = {
+    uTime: { value: 0 }, uSeed: { value: Math.random() * 60 }, uFlinch: { value: 0 }, uBreath: { value: 0 },
+    uTone: { value: tone },
+    uBody: { value: new THREE.Color(0x14161c) },   // blue-black, readable, still the darkest body in the zone
+    uAbd: { value: new THREE.Color(0x1c1712) },    // the tip warms toward the membranes
+    uLeg: { value: new THREE.Color(0x0e1014) },    // darker than the body: the legs vanish, the body floats
+    uBand: { value: new THREE.Color(0x7a3a10) },
+  };
   mat.onBeforeCompile = chitinCompile;
+  mat.customProgramCacheKey = () => 'radius-chitin';
   return mat;
+}
+
+// Dev hook for the smoke harness, matching enemies/slider.js: the mesh and its material in isolation.
+if (typeof globalThis !== 'undefined') {
+  globalThis.__beasts = Object.assign(globalThis.__beasts || {}, {
+    spawnGeometry: buildGeometry, spawnMaterial: makeChitin, spawnBones: BONES, spawnLegs: LEGS,
+  });
 }
 
 // ---- the nest: a hole with a lip of turned earth and a few shed carapaces. One low mesh, two materials. ----
@@ -275,15 +357,27 @@ class Spawn extends Enemy {
       mk('head', B.body, 0, -0.012, -0.15);
       for (const L of LEGS) mk(L.c, B.body, L.hip[0], L.hip[1], L.hip[2]);
       for (const L of LEGS) mk(L.t, B[L.c], 0, -L1, 0);
-      this.material = makeChitin(); this.mu = this.material.userData.u;
+      // A pack of five clones reads as one object repeated. Each spawn gets its own size, its own warm/cold
+      // tilt and its own band phase, so five of them in the grass are five animals — which is the whole
+      // point of a creature that only ever appears in threes to sixes.
+      const size = this.size = rng.range(0.84, 1.18);
+      this.material = makeChitin(rng.range(-0.35, 1.0)); this.mu = this.material.userData.u;
+      // and its own band colour, a little either side of the ember, so a pack is a scatter of amber
+      // pinpricks at slightly different hues and rates rather than one animation played five times
+      this.mu.uBand.value.offsetHSL(rng.range(-0.02, 0.03), rng.range(-0.10, 0.08), rng.range(-0.04, 0.05));
       const mesh = this.mesh = new THREE.SkinnedMesh(buildGeometry(), this.material);
       mesh.castShadow = true; mesh.receiveShadow = false;
+      // the scale has to be on before bind(), or the bind matrix is captured at 1 and the skinning applies
+      // it twice
+      mesh.scale.setScalar(size);
       mesh.add(B.body); mesh.bind(new THREE.Skeleton(bones));
-      mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.2, 0), 0.9);
+      mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.2, 0), 0.9 * size);
+      this.radius *= size; this.height *= size;
       this.root.add(mesh);
     }
     // ---- animation ----
     this.phase = rng.range(0, TAU); this.gait = 0; this.moveSpeed = 0; this.flinch = 0; this.bite = 0; this.twitch = 0; this.twitchT = rng.range(1, 4);
+    this.stance = rng.range(0.84, 1.16);      // how wide it stands: the last of the four per-animal dials
     this.legJit = new Float32Array(6); for (let i = 0; i < 6; i++) this.legJit[i] = rng.range(-0.3, 0.3);
     this.footPos = LEGS.map((L) => new THREE.Vector3(L.rest[0], 0, L.rest[2]));
     this.headYaw = 0; this.breath = rng.range(0, TAU); this.roll = 0;
@@ -350,7 +444,11 @@ class Spawn extends Enemy {
     for (let i = 0; i < 6; i++) { const L = LEGS[i]; _foot.set(L.side * lerp(0.3, 0.07, fe), lerp(0, 0.11, fe), L.fwd * lerp(0.25, 0.05, fe) + 0.02); this.footPos[i].lerp(_foot, Math.min(1, dt * 14)); }
     const hop = Math.sin(Math.min(1, t / 0.45) * Math.PI) * 0.12;
     this.pose(dt, 0.35 * fe, Math.PI * fe, BODY_Y - 0.11 * fe + hop, 0);
-    this.mu.uTime.value = this.time; this.mu.uFlinch.value = clamp01(1 - t);
+    // the bands go out as it curls up: the breath stops, so the light in the joints stops with it
+    this.breath += dt * 2.4 * (1 - f);
+    this.mu.uTime.value = this.time; this.mu.uBreath.value = this.breath;
+    this.mu.uBand.value.multiplyScalar(Math.max(0, 1 - dt * 2.2));
+    this.mu.uFlinch.value = clamp01(1 - t);
     if (t >= 0.8 && !this.ashDone) { this.ashDone = true; this.mesh.visible = false; this.crumble(); }
   }
   crumble() {
@@ -362,7 +460,7 @@ class Spawn extends Enemy {
     }
     vfx.dustPuff(_v.set(px, py + 0.1, pz), THREE.Object3D.DEFAULT_UP, 5, [0.1, 0.1, 0.11], 0.3);
   }
-  onDispose() { if (this.rig) this.rig.dispose?.(); else this.mesh.skeleton.dispose(); }
+  onDispose() { if (this.rig) this.rig.dispose?.(); else { this.mesh.skeleton.dispose(); this.material.dispose(); } }
   // flashbang: gear sets e.stunned (seconds or a flag); either convention works
   stunTick(dt) {
     const s = this.stunned;
@@ -538,7 +636,10 @@ class Spawn extends Enemy {
     this.twitch = damp(this.twitch, 0, 14, dt);
     this.bite = damp(this.bite, 0, 7, dt);
     this.rear = damp(this.rear, this.biteWind > 0 ? 1 : 0, 22, dt);
-    this.breath += dt * 2.4;
+    // the bands pulse with the breath, and it breathes faster once it has seen you: a pack going from idle
+    // to hunting is a dozen amber bands quickening together, which is a group read nothing else in the
+    // bestiary has and it costs one line
+    this.breath += dt * (2.4 + 4.5 * clamp01(this.aware) + 3.0 * this.gait);
     const ph = this.phase;
     const bob = 0.012 * Math.sin(2 * ph) * g;
     const y = BODY_Y + bob + Math.sin(this.breath) * 0.004 + this.twitch * 0.015 - this.bite * 0.02 + this.rear * 0.05;
@@ -547,14 +648,15 @@ class Spawn extends Enemy {
     for (let i = 0; i < 6; i++) {
       const L = LEGS[i], lp = ph + L.off * TAU + this.legJit[i] * g, s = Math.sin(lp), c = Math.cos(lp);
       const swing = Math.max(0, s);
-      const fz = L.rest[2] + S * c * g + this.bite * 0.05;
+      const fz = L.rest[2] * this.stance + S * c * g + this.bite * 0.05;
       const fy = Math.pow(swing, 0.6) * lift * g + this.twitch * 0.02 * (i % 2) + (L.fwd < 0 ? this.rear * 0.12 : 0);
-      const fx = L.rest[0] + L.side * 0.02 * Math.sin(lp * 0.5 + i) * g;
+      const fx = L.rest[0] * this.stance + L.side * 0.02 * Math.sin(lp * 0.5 + i) * g;
       _foot.set(fx, fy, fz);
       this.footPos[i].lerp(_foot, Math.min(1, dt * 40));
     }
     this.pose(dt, pitch, roll, y, Math.sin(ph) * 0.06 * g);
     this.mu.uTime.value = t;
+    this.mu.uBreath.value = this.breath;
     this.mu.uFlinch.value = damp(this.mu.uFlinch.value, 0, 5, dt);
   }
   pose(dt, pitch, roll, y, yawWobble) {

@@ -9,6 +9,7 @@
 import { MIMIC_CLASSES, CLASS_MIX, POI_TIER, WEAPONS, MAGAZINES, ARMOR, AMMO, ITEMS, def, defaultAmmo, ammoOf } from '../data/index.js';
 import { GEAR_CURVE as CURVE, DROPS as DROP_TABLE, gearProgress } from '../data/loadouts.js';   // the curve is not part of the catalogue door
 import { makeWeapon, makeMag, makeGear, attach } from '../player/inventory.js';
+import { scavengedDrops } from './kit.js';   // acyclic: kit.js imports only core + data
 
 const rnd = () => Math.random();
 const range = (a, b) => a + rnd() * (b - a);
@@ -143,7 +144,9 @@ export function rollLoadout(className = 'regular', tide = zone.tide, opts = {}) 
   const items = [];
   for (const id of c.drops || []) { if (def(id) && rnd() < 0.4 + p * 0.25) items.push(id); }
   if (!items.length && c.drops && c.drops.length) { const id = pick(c.drops); if (def(id)) items.push(id); }
-  return { cls: className, def: c, progress: p, weapon, mags, vest, helmet, kit, grenades, grenadeId: ITEMS[grenadeId] ? grenadeId : 'gr_rgd5', items, loose, ammoId, tide, security };
+  // `scavenged` is the loot invariant's whole implementation: anything a mimic picks up off a body goes in
+  // here, and dropsFor emits it at probability 1.0 before DROPS gets a chance to roll any of it away.
+  return { cls: className, def: c, progress: p, weapon, mags, vest, helmet, kit, grenades, grenadeId: ITEMS[grenadeId] ? grenadeId : 'gr_rgd5', items, loose, ammoId, tide, security, scavenged: [] };
 }
 
 // Loot pile entries from what is left when the mimic folds: the weapon it was firing with whatever is still in
@@ -152,6 +155,12 @@ export function rollLoadout(className = 'regular', tide = zone.tide, opts = {}) 
 export function dropsFor(loadout) {
   const out = [];
   if (!loadout) return out;
+  // THE LOOT INVARIANT. Everything this mimic took off a body comes back out of it at probability 1.0, and
+  // scavengedDrops CLAIMS those instances out of loadout.weapon/.vest/.mags/.kit so the rolls below can
+  // neither emit them twice nor destroy them. DROPS ruins 22-65% of most categories by design; a scavenged
+  // entry has already survived that once, and putting it through a second time is a silent, permanent loss
+  // of loot the player would otherwise have got. This line has to stay first.
+  scavengedDrops(loadout, out);
   const w = loadout.weapon;
   const rank = classRank(loadout.cls) / 4;
   if (w) {

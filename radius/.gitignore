@@ -8,3 +8,5 @@ dist/bundle.js.map
 .loottest/
 .tmp-audit/
 tools/tmp/
+.tmpbeast/
+.tmpcount/

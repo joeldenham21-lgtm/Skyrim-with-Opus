@@ -39,6 +39,17 @@ import { buildVest, buildHelmet } from './gearmesh.js';
 import { buildGun } from '../weapons/gunmesh.js';
 import { playAny } from './squad.js';
 import { glowTexture } from '../render/textures.js';
+// ---- the five capability modules ----
+// traversal: vault/clamber/drop/dive/melee, the locomotion model, the route solver and the shared ray pool.
+// senses:    the ONLY module licensed to read the Explorer; everything it learns arrives through believe().
+// kit:       every item a mimic carries, and battlefield scavenging under the loot invariant.
+// ambush:    a mimic that has decided to be a piece of the landscape. Absolute silence, a prepared first shot.
+// command:   the squad's mind. squad.js owns the Mind; this file only needs its SKILL rows and the mark.
+import * as traversal from './traversal.js';
+import * as senses from './senses.js';
+import * as kit from './kit.js';
+import * as ambush from './ambush.js';
+import { SKILL_ROWS as COMMAND_SKILL, WORDS as RADIO_WORDS, buildLeaderMark } from './command.js';
 
 // ---- module temporaries (no per-frame allocation) ----
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _v4 = new THREE.Vector3();
@@ -612,6 +623,19 @@ export const SKILL = {
   giveUp:   [15, 48],      // s of hunting an empty position before it lets go
   push:     [0.10, 0.85],  // willingness to close on a hurt or pinned player
 };
+// ---- THE MERGE (contract C2) ----
+// Every capability module owns its own rows of this one table and nothing else anywhere declares a difficulty
+// number. The merge happens HERE, after the literal and before SKILL_KEYS is derived, so mixSkill writes every
+// row onto m.skill and a module reads its own off m.skill.<row> exactly like react or spread. Each module's
+// SKILL_ROWS is a plain literal at the top of its file with no import dependency, so this is safe under the
+// squad.js <-> mimic.js cycle. No two modules declare the same key:
+//   traversal  climb sprintW dodge melee
+//   senses     focus periph flash noteBody
+//   kit        itemUse smokeW scav
+//   command    angle read cut feint seatDisc answer menuN commitT abortChk noiseGap
+//   ambush     patience springR ambushAim
+Object.assign(SKILL, traversal.SKILL_ROWS, senses.SKILL_ROWS, kit.SKILL_ROWS, COMMAND_SKILL, ambush.SKILL_ROWS);
+
 export function skillProgress(tide, security, rank, pressure) {
   return clamp(Math.max(0, (tide | 0) - 1) * SKILL.tide + Math.max(0, (security | 0) - 1) * SKILL.security
     + Math.max(0, rank) * SKILL.classRank + clamp01(pressure) * SKILL.pressure, 0, SKILL.max);
@@ -629,13 +653,11 @@ function mixSkill(out, p) {
 // the end of this file); everything ELSE that wants a raycast — cover scoring, peek validation, break-contact
 // routes — draws from one per-frame pool, so six mimics cannot stampede the collision grid on a phone.
 // =====================================================================================================
-const TACTICAL_PER_FRAME = 8;
-let losFrame = -1, losLeft = 0;
-function losBudget(ctx, want) {
-  if (ctx.frame !== losFrame) { losFrame = ctx.frame; losLeft = TACTICAL_PER_FRAME; }
-  if (losLeft < want) return false;
-  losLeft -= want; return true;
-}
+// It lives in traversal.js now (contract C4) so that squad.js's cover scoring, command.js's occluder solve,
+// kit.js's scavenging and ambush.js's hide validation all draw from the SAME pool this file does. The pool is
+// 10 a frame; nothing anywhere may spend a tactical ray without asking.
+const TACTICAL_PER_FRAME = traversal.TACTICAL_PER_FRAME;
+const losBudget = traversal.losBudget;
 // recent friendly deaths, for morale. A ring of eight, written by the one that dies, read by the ones nearby.
 const DEATHS = [];
 function noteDeath(x, z, t) { DEATHS.push({ x, z, t }); if (DEATHS.length > 8) DEATHS.shift(); }
@@ -644,17 +666,11 @@ function deathsNear(x, z, t, r = 24, within = 14) {
   for (let i = 0; i < DEATHS.length; i++) { const d = DEATHS[i]; if (t - d.t > within || Math.hypot(d.x - x, d.z - z) > r) continue; n++; }
   return n;
 }
-// how long the player has held one spot — the grenade trigger. Squads keep their own; this is for the loners,
-// and it is computed once a frame however many mimics ask.
-const HOLD = { x: 0, z: 0, t: 0, since: 0, last: -1, frame: -1 };
-function playerHold(ctx) {
-  if (HOLD.frame === ctx.frame) return HOLD.t;
-  HOLD.frame = ctx.frame;
-  const p = ctx.player.position, now = ctx.elapsed;
-  if (HOLD.last < 0 || Math.hypot(p.x - HOLD.x, p.z - HOLD.z) > 2.5) { HOLD.x = p.x; HOLD.z = p.z; HOLD.since = now; }
-  HOLD.last = now; HOLD.t = now - HOLD.since;
-  return HOLD.t;
-}
+// THE FIRST FAIRNESS LEAK, CLOSED. This used to be a module-level clock that tracked the player's TRUE feet
+// every frame whether or not anybody could see him, and it was the grenade trigger: stand still behind a wall
+// nobody had eyes on and a frag arrived anyway. A squad now uses mind.picture.stillT (command.js) and a loner
+// uses holdSeen() below — both of which only accumulate while somebody can actually SEE the thing they are
+// timing. The way to draw a frag is to let them watch you stay put.
 // ---- the fields ----
 // A mimic has walked past these things every day of its life. It does not path into one, it does not take a
 // firing position inside one, and steering pushes it out of the edge of one — which means an anomaly is a wall
@@ -723,6 +739,18 @@ class Mimic extends Enemy {
     this.rank = classRank(this.cls);
     this.skill = mixSkill({}, skillProgress(tide, ctx.state.data.securityLevel || 1, this.rank, ctx.director?.pressure || 0));
     this.skillT = rng.range(0, 2);
+    // ---- the capability modules, one pooled record each, allocated once ----
+    this.voice = rng();                       // a stable per-mimic vocal seed: the same man saying the word
+    traversal.createBody(this);               // wind, gait, committed verbs, the route
+    senses.createSenses(this);                // the three cones, hearing, the flash, corpses
+    kit.createKit(this);                      // what it carries and what it will do with it
+    ambush.createHide(this, { planted: !!opts.hide });
+    // the loner's grenade clock: how long the thing it BELIEVES is the player has stayed put, and only while
+    // it can actually see it. A squad uses mind.picture.stillT instead.
+    this.stillT = 0; this.stillX = 0; this.stillZ = 0; this.stillSet = false;
+    this.kitT = rng.range(0.5, 2.5); this._toldBody = null;
+    this.mark = null;                         // the leader's whip antenna, when he is wearing one
+    this._pose = { headYaw: 0, headPitch: 0, aim: 0, aimYaw: 0, aimPitch: 0, speed: 0, crouch: 0 };
     // visuals
     this.buildVisuals();
     // AI state
@@ -757,6 +785,47 @@ class Mimic extends Enemy {
     this.waitT = rng.range(5, 16); this.lookT = rng.range(1, 3);
     this.root.position.copy(this.position); this.root.rotation.y = this.yaw; this.root.updateMatrixWorld(true);
     this.animate(0.016, 0, {});
+  }
+  // kit.rearm has already moved the instance into the loadout (so the entity still fires exactly what it
+  // drops) and rebuilt the calibre bookkeeping. This is the half only this file can do, and it is the half
+  // the player sees: the mesh, the muzzle, the report, the spread and the burst discipline all become the new
+  // gun's. A mimic who picked up his dead mate's AK-12 is VISIBLY holding an AK-12 next time you see him, and
+  // it is in the pile when you kill him. It is the cheapest possible statement that the world is simulated.
+  rebuildWeapon(w) {
+    this.wdef = WEAPONS[w.id]; this.fx = weaponEffects(w);
+    this.profile = fireProfile(this.wdef, this.cdef);
+    this.suppressed = this.fx.noise < 0.6;
+    this.shotNames = [`shot_${w.id}`, `shot_${this.wdef.build || w.id}`, SHOT_FALLBACK[this.wdef.cls] || 'shot_akm'];
+    if (this.suppressed) this.shotNames.unshift(`shot_${w.id}_sup`, 'shot_suppressed');
+    this.baseSpread = (this.wdef.moa * 2.2 + 2.5) * (this.cdef.accuracy || 1) * this.fx.moa;
+    this.hasLight = this.fx.light > 0;
+    this.magCap = w.mag ? (MAGAZINES[w.mag.id]?.cap || 30) : (this.wdef.internal || 6);
+    this.burstLeft = 0; this.suppressLeft = 0; this.reloadPlan = null; this.dry = false;
+    let gun = null;
+    try { gun = buildGun(w.id, { lod: 'lo', inst: w }); } catch (e) { gun = null; }
+    if (gun) {
+      gun.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
+      const old = this.gun;
+      this.gun = gun; this.rig.attach?.(gun);
+      if (old && old !== gun) { old.parent?.remove(old); old.traverse((o) => { if (o.geometry && !o.geometry.userData?.shared) o.geometry.dispose(); }); }
+      this.muzzleObj = gun.getObjectByName('muzzle') || gun;
+      if (this.glint) { this.glint.parent?.remove(this.glint); (this.muzzleObj || this.root).add(this.glint); this.glint.position.set(0, 0.05, 0.15); }
+    }
+    traversal.setLoad(this);
+    return true;
+  }
+  // THE LEADER, VISIBLE. Sixty-four triangles: a 1.05 m tapered whip antenna off the radio on his back and two
+  // rank bars on the shoulder. Only a squad leader of veteran rank or better, and only once the zone has
+  // escalated at all — so he is an occasional presence rather than a fixture, and killing the man giving the
+  // orders is a decision the player can make at sixty metres by silhouette.
+  refreshMark() {
+    const sq = this.squad, esc = (this.ctx.director && this.ctx.director.escalation) | 0;
+    const want = !!(sq && sq.leader === this && this.rank >= 3 && esc >= 1 && this.alive);
+    if (want === !!this.mark) return;
+    if (want) {
+      const bone = (this.rigBones && this.rigBones.chest) || this.root;
+      try { this.mark = buildLeaderMark(THREE, null); bone.add(this.mark); } catch (e) { this.mark = null; }
+    } else if (this.mark) { if (this.mark.parent) this.mark.parent.remove(this.mark); this.mark = null; }
   }
   buildVisuals() {
     const lo = this.loadout;
@@ -817,51 +886,41 @@ class Mimic extends Enemy {
     } else this.lastSeenPlayer.copy(pos);
     this.lastSeenT = t; this.beliefR = Math.max(0, radius);
   }
-  // Hearing. Footsteps carry 14 m; gunfire carries as far as the round was loud (the Director scales its reach
-  // by the shot's noise, so a suppressed weapon is a third of the problem). What it learns is where the NOISE
-  // was, with an error that shrinks along the skill curve — not where you are standing now.
-  playerAudibility() {
-    const d = this.distanceToPlayer(), t = this.time, s = this.skill;
-    const steps = d < 14 ? this.player.noise * (1 - d / 14) : 0;
-    const dir = this.ctx.director;
-    const shots = dir && dir.nearestShot ? dir.nearestShot(this.position, 55, _bel) : 0;
-    if (shots > 0.05) {
-      this.believe(_bel, s.earErr * (1.15 - shots * 0.55), t, 0.55);
-      if (this.aware < 0.45) this.aware = 0.45;
-    } else if (steps > 0.14) {
-      this.believe(this.player.position, s.earErr * 0.5 * (1.1 - steps * 0.6), t, 0.35);
-    }
-    return clamp01(steps * 1.2 + shots * 1.6);
-  }
-  // Vision. Smoke blocks it. At night your torch is not just extra range for it — a beam swung across a mimic
-  // is a contact, and it knows it has been lit.
+  // ---- PERCEPTION: senses.js owns the whole detection surface ----
+  // The bodies of these three used to live here. They now live in senses.js, which is the ONE module licensed
+  // to touch ctx.player, and everything it learns still arrives through believe() above and nowhere else:
+  // three sight cones (a 22-degree focus cone is a sighting; the peripheral cone files a 3.5 m guess and turns
+  // him round; inside 6 m he feels you), concealment from stance, ground, flora and your own torch,
+  // surface-weighted hearing, a muzzle flash at night that is a separate channel from the report, and a dead
+  // mate on the ground as evidence. The names survive as wrappers because seeker.js and slider.js call the
+  // BASE class's versions and must not change shape.
+  playerAudibility() { return senses.hearing(this, this.sense || senses.createSenses(this)).hear; }
   playerVisibility(fovDeg, maxDay) {
-    const p = this.player; if (p.dead || p.inBase) return 0;
-    const w = this.ctx.world;
-    if (w.smokeBlocks && w.smoke && w.smoke.length && w.smokeBlocks(this.eyePos(_v), p.eye)) return 0;
-    let vis = super.playerVisibility(fovDeg, maxDay);
-    const night = this.ctx.time.night;
-    if (vis > 0 && night > 0.3 && this.ctx.state.data.flashlight.on) {
-      const dx = this.position.x - p.eye.x, dz = this.position.z - p.eye.z;
-      const dl = Math.hypot(dx, dz) || 1;
-      const facing = (dx / dl) * p.forward.x + (dz / dl) * p.forward.z;
-      if (facing > 0.80 && dl < 75) { vis = clamp01(vis + (facing - 0.80) * 3.4 * night); this.litT = this.time; }
-    }
-    return vis;
+    const s = this.sense || senses.createSenses(this);
+    s.maxDay = maxDay == null ? 80 : maxDay;
+    s.periphDeg = fovDeg != null ? Math.min(78, fovDeg * 0.5) : 78;
+    return senses.sight(this, s).vis;
   }
-  // Awareness integrator. Same contract as the base class, except hearing no longer hands over your position:
-  // playerAudibility has already filed its guess through believe().
-  perceive(dt, opts = {}) {
-    const vis = this.playerVisibility(opts.fov, opts.maxDay);
-    const hear = this.playerAudibility(opts.hearing);
-    const gain = Math.max(vis * (opts.visGain ?? 1.4), hear * (opts.hearGain ?? 1.0));
-    if (gain > 0.02) this.aware = clamp01(this.aware + gain * dt);
-    else this.aware = Math.max(0, this.aware - dt * (opts.decay ?? 0.08));
-    if (vis > 0.05) { this.believe(this.player.position, 0, this.time, 1); this.lastVisT = this.time; }
-    if (this.aware >= 1 && !this.engaged) { this.engaged = true; this.ctx.director?.notify('spotted', { enemy: this }); this.onSpotted?.(); }
-    if (this.aware <= 0.05 && this.engaged) { this.engaged = false; this.ctx.director?.notify('lost', { enemy: this }); }
-    return { vis, hear };
+  perceive(dt, opts = {}) { return senses.senseTick(this, dt, opts); }
+
+  // How long the thing it believes is the player has stayed in one place — the loner's grenade clock, and the
+  // honest replacement for the old module-level HOLD. It only runs up while this mimic has an actual line on
+  // what it is timing, and it unwinds at the same rate the moment it does not, so no credit can be banked
+  // behind a wall. A squad member reads mind.picture.stillT instead, which says the same thing for four men.
+  holdSeen(dt) {
+    const t = this.time;
+    const b = this.lastSeenPlayer;
+    if (!b || t - this.lastVisT > 1.2 || this.beliefR > 1.5) { this.stillT = Math.max(0, this.stillT - dt); return this.stillT; }
+    if (!this.stillSet || Math.hypot(b.x - this.stillX, b.z - this.stillZ) > 2.5) { this.stillX = b.x; this.stillZ = b.z; this.stillSet = true; this.stillT = 0; }
+    else this.stillT += dt;
+    return this.stillT;
   }
+  // A round cracked past. weapons/ballistics.js has always called e.suppress(level, shooter) for any entity
+  // within 3.5 m of a player round's flight path and nothing has ever implemented it; this is the dive
+  // trigger, for free, with no change to ballistics. traversal dives away from this mimic's OWN belief about
+  // where the shot came from, never from the shooter's real position.
+  suppress(level, shooter) { return traversal.nearMiss(this, level, shooter); }
+
   onSpotted() {
     const s = this.skill;
     this.sound('mimic_spot', { gain: 0.9, max: 80 });
@@ -918,6 +977,7 @@ class Mimic extends Enemy {
     if (this.stoppedHit) { this.sound('mimic_hit', { gain: 0.35, rate: 0.7 }); this.rig.flinch = 0.4; }
     else { this.sound('mimic_hit', { gain: 0.8 }); if (this.rig.rig) this.rig.rig.flinch = 1; }
     this.staggerT = this.stoppedHit ? 0.12 : 0.3; this.hitsSince++;
+    traversal.abortVerb(this);   // a commitment cannot survive a stagger: he is dumped where he stands
     // Being hit does not tell it where you are. If it cannot see you it works back along the round and takes
     // THAT with an error — shoot from a hedge at eighty metres and it hunts the hedge, not your boots.
     const seen = this.time - this.lastVisT < 0.6;
@@ -941,6 +1001,8 @@ class Mimic extends Enemy {
   }
   onDeath() {
     noteDeath(this.position.x, this.position.z, this.time);
+    traversal.abortVerb(this);
+    ambush.abandon(this, 'dead');
     this.sound('mimic_death', { gain: 1.0 });
     this.target = null; this.wantLight = false;
     if (this.lightEntry) releaseLight(this.ctx, this.lightEntry);
@@ -981,7 +1043,15 @@ class Mimic extends Enemy {
     if (t >= 1.75 && !this.piled) {
       this.piled = true;
       const drops = dropsFor(this.loadout);
-      if (drops.length && this.ctx.loot?.spawnPile) { try { this.ctx.loot.spawnPile(_v.set(this.position.x, this.groundY, this.position.z).clone(), drops); } catch (e) { console.warn('loot.spawnPile failed', e); } }
+      if (drops.length && this.ctx.loot?.spawnPile) {
+        try {
+          const pile = this.ctx.loot.spawnPile(_v.set(this.position.x, this.groundY, this.position.z).clone(), drops);
+          // THE ONLY SOURCE kit.js scavenges from. Mimic corpses, nothing else: no container, no Explorer
+          // death cache, and nothing the player has already touched. Registering it here rather than letting
+          // kit.js go looking is what makes the safe set provable.
+          kit.registerCorpsePile(pile, this.position.x, this.position.z);
+        } catch (e) { console.warn('loot.spawnPile failed', e); }
+      }
       this.drops = drops;
     }
   }
@@ -1015,18 +1085,42 @@ class Mimic extends Enemy {
     return p;
   }
   setTarget(v) { if (v) { this.tgt.copy(v); this.target = this.tgt; } else this.target = null; return this.target; }
-  wantFlank() { return this.profile.close >= 0 && rng.chance(this.skill.flank); }
+  // A coin flip inside a decision reads as a twitch, not a plan: a mimic that flanks 40% of the time is a
+  // mimic that changes its mind about flanking every two seconds. It is a threshold on the curve now, and for
+  // a squad member the decision is not his at all — command.js's FLANK play owns it.
+  wantFlank() { return this.profile.close >= 0 && this.skill.flank >= 0.5; }
 
   // ---- not walking into walls ----
   // moveToward (enemies/common.js) is pure steering: pointed straight at a wall it presses into it forever,
   // and a hunt that ends with a mimic nose-first against a barn is not a hunt. Every state's movement goes
   // through this override, so when nothing is actually moving it commits to a detour a few metres to one side
   // and follows THAT until it is round the obstruction.
+  // One step of steering with a body attached to it. moveToward's own facing is dampAngle, which has NO rate
+  // limit — it moves a fixed FRACTION of the remaining error every frame, so a 180-degree turn is half gone in
+  // one frame and the entity is simply already pointing the other way. That is the actual mechanism behind
+  // "not scary robots strafing". faceStep is a hard cap in radians per second, and moveSpeedFor gates the
+  // speed by the heading error on top of it: turn, THEN move. A man holding his aim on you sidesteps at 55%
+  // and backpedals at 42%, so shuffling in front of you is slow, committed and legible.
+  step(goal, speed, dt, opts) {
+    const sp = traversal.moveSpeedFor(this, speed, goal.x, goal.z, opts.face);
+    const rem = super.moveToward(goal, sp, dt, Object.assign({}, opts, { face: false }));
+    if (opts.face !== false) traversal.faceStep(this, goal.x, goal.z, dt);
+    return rem;
+  }
   moveToward(target, speed, dt, opts = {}) {
     const dist = Math.hypot(target.x - this.position.x, target.z - this.position.z);
     if (dist > 2.5) { this._mvWanted = true; this._mvTarget.copy(target); }
-    if (this.detourT > 0 && dist > 3) { super.moveToward(this.detour, speed, dt, opts); return dist; }
-    const rem = super.moveToward(target, speed, dt, opts);
+    if (this.detourT > 0 && dist > 3) { this.step(this.detour, speed, dt, opts); return dist; }
+    // THE TREE. routeTick asks whether the DISTANCE TO THE GOAL is falling, not whether the body is moving —
+    // a mimic wedged on a trunk is moving at full speed the whole time, oscillating, and the old stall test
+    // could never see it. When the line is genuinely blocked it commits to a tangent-in, constant-radius,
+    // tangent-out arc round the blocker and walks THAT. It returns null almost always, so this is a no-op
+    // on every ordinary step.
+    let goal = target;
+    if (dist > 2.5) { const g = traversal.routeTick(this, target.x, target.z, dt); if (g) goal = g; }
+    const step = this.step(goal, speed, dt, opts);
+    // a caller comparing `rem` to its stop distance must be told about the REAL target, not the waypoint
+    const rem = goal === target ? step : Math.hypot(target.x - this.position.x, target.z - this.position.z);
     // hard guarantee, whatever the steering did: it does not end a step inside a field. If avoidance has
     // pushed it into the edge of one, it is pushed straight back out along the radius.
     const a = anomalyNear(this.ctx, this.position.x, this.position.z, 1.2);
@@ -1050,6 +1144,9 @@ class Mimic extends Enemy {
     this.stuckT = moved < 0.4 * dt ? this.stuckT + dt : 0;      // under 0.4 m/s counts as going nowhere
     if (this.stuckT < 1.2) return;
     this.stuckT = 0;
+    // Over it, if this body has a verb for it. A vault or a clamber is 0.40-0.95 s in which he cannot fire —
+    // a free shot, every time, which is the price of being able to go where you go.
+    if (traversal.tryMantle(this, target.x, target.z)) return;
     const dx = target.x - this.position.x, dz = target.z - this.position.z;
     const dl = Math.hypot(dx, dz) || 1;
     for (let k = 0; k < 2; k++) {
@@ -1217,10 +1314,25 @@ class Mimic extends Enemy {
     }
     // Nothing here moved without a noise. If the call actually reached somebody, the handset was keyed, and
     // you can hear it: information in this game never travels silently between two of them.
-    if (n > 0 && !quiet && !this.stalker && t - this.radioSaidT > 2.5) {
-      this.radioSaidT = t;
-      this.sound('mimic_radio', { gain: 0.72, max: Math.max(70, R + 25), rate: 1.08 });
-    }
+    if (n > 0 && !quiet && !this.stalker) this.say('contact', 0.9);
+  }
+  // ---- ONE MOUTH ----
+  // Every transmission this file makes is a WORD now. It used to be an ad-hoc `rate:` on mimic_radio at five
+  // different call sites, and a rate is not a word: voices.js re-randomises syllable count, durations, gaps
+  // and pitch on every play, so the within-call variance swamped the between-call variance and the vocabulary
+  // was unlearnable. That is most of "they don't say anything". A squad member's word goes out through the
+  // mind, which owns the noise budget, the command carrier and the leader's monopoly on command words; a
+  // loner keys his own handset on the field carrier with his own voice seed.
+  say(word, mult = 1) {
+    const sq = this.squad;
+    if (sq && sq.mind) return sq.mind.say(word, this, mult);
+    const w = RADIO_WORDS[word];
+    if (!w || !this.alive || this.stalker || ambush.isHidden(this)) return false;
+    const t = this.time;
+    if (t - this.radioSaidT < Math.max(1.2, (w.hold || 0) * 0.5)) return false;
+    this.radioSaidT = t;
+    this.sound('mimic_radio', { word, carrier: 'field', voice: this.voice, gain: w.gain * mult, max: w.max, rate: w.rate });
+    return true;
   }
   muzzleWorld(out, dirOut) {
     const o = this.muzzleObj;
@@ -1366,7 +1478,11 @@ class Mimic extends Enemy {
     if (sq && !sq.canThrow(this)) return false;
     if (!sq && this.grenadeCool > 0) return false;
     if (!this.lastSeenPlayer || this.time - this.lastSeenT > 9) return false;
-    if ((sq ? sq.playerHoldT : playerHold(ctx)) < s.holdT) return false;
+    // the still-clock: a squad's picture (only running while somebody can SEE him), or a loner's own.
+    // read.hold scales the patience it needs — a camper is fragged sooner, a man who rotates later.
+    const mind = sq ? this.squad && this.squad.mind : null;
+    const held = mind ? mind.picture.stillT : this.stillT;
+    if (held < s.holdT * (mind ? mind.holdTMul() : 1)) return false;
     if (!rng.chance(s.grenade)) return false;
     const p = this.player;
     this.eyePos(_v);
@@ -1380,7 +1496,7 @@ class Mimic extends Enemy {
     const at = this.time - this.lastVisT < 1 ? this.player.position : (this.lastSeenPlayer || this.player.position);
     this.grenadeTarget.copy(at).add(_v.set(rng.range(-1.5, 1.5), 0, rng.range(-1.5, 1.5)));
     playAny(this.ctx, ['grenade_pin', 'click'], { pos: this.position, hrtf: true, gain: 0.8, max: 40, rate: 0.8 });
-    this.sound('mimic_radio', { gain: 0.7, max: 70, rate: 1.15 });
+    this.say('grenade');
     if (!this.squad) this.grenadeCool = 40;
     this.setState('grenade');
   }
@@ -1397,11 +1513,17 @@ class Mimic extends Enemy {
   }
   trySkip(dt) {
     if (this.skipCool > 0 || !this.target || this.state === 'idle' || this.state === 'watch' || this.state === 'reload' || this.state === 'grenade') return;
+    // A mimic that flanks competently AND teleports will be read as a flanking cheat with certainty — that is
+    // exactly what Alien: Isolation was accused of. Now that the squad really does manoeuvre, the skip is
+    // forbidden to anybody in a fight, and its minimum range has gone from 9 m to 12 m.
+    if (traversal.isCommitted(this) || ambush.isCommitted(this) || kit.busy(this)) return;
+    if (this.squad && this.squad.inCombat) return;
     const d = this.distanceToPlayer(); if (d < 12 || d > (this.stalker ? 110 : 70) || this.unobservedT < 2) return;
     if (this.state === 'patrol' && d > 45) return;
     if (Math.random() > 1 - Math.pow(this.orders && this.orders.role === 'flank' ? 0.55 : 0.75, dt)) return;
     const dx = this.target.x - this.position.x, dz = this.target.z - this.position.z; const rem = Math.hypot(dx, dz);
     const step = Math.min(rng.range(4, 8), rem - 1); if (step < 2.5) return;
+    if (rem < 12) return;
     const nx = this.position.x + (dx / rem) * step, nz = this.position.z + (dz / rem) * step;
     if (Math.hypot(nx - this.player.position.x, nz - this.player.position.z) < 9) return;
     const pt = this.walkablePoint(nx, nz, _v); if (!pt) return;
@@ -1473,7 +1595,7 @@ class Mimic extends Enemy {
     this.calledHelp = false; this.burstLeft = 0; this.aiming = false;
     this.cover = null; this.coverGood = false; this.posture = 'open'; this.exposed = 1;
     this.breakPoint();
-    this.sound('mimic_radio', { gain: 0.9, max: 100, rate: 1.3 });
+    this.say('falling');
     this.setState('fallback');
   }
 
@@ -1509,7 +1631,7 @@ class Mimic extends Enemy {
     this.suppressPos.y += 1.1;
     this.suppressLeft = Math.max(2, Math.round(rng.int(this.profile.burst[0], this.profile.burst[1]) * this.skill.burst));
     this.suppressT = 0; this.burstN = 0; this.rollBias();
-    this.sound('mimic_radio', { gain: 0.6, max: 80, rate: 1.1 });
+    this.say('covering', 0.9);
   }
 
   // ---- the hunt ----
@@ -1571,7 +1693,20 @@ class Mimic extends Enemy {
   // ---- AI ----
   tick(dt) {
     const ctx = this.ctx, p = this.player, t = this.time;
-    this.followGround(dt);
+    // ---- who owns this frame ----
+    // A committed body (on a wall, on the deck, mid-swing) owns it absolutely and CANNOT FIRE. A hidden mimic
+    // owns it too: it is silent, still, and its rifle does not track you through a wall. Both come before
+    // anything else, because both are commitments the man cannot recall.
+    const d0 = this.distanceToPlayer();
+    if (this.stunned > 0) traversal.abortVerb(this);
+    if (traversal.bodyTick(this, dt)) { this.animate(dt, d0, this.bodyPose()); return; }
+    if (ambush.hideTick(this, dt)) { this.animate(dt, d0, ambush.poseFor(this, this._pose)); return; }
+    // gravity. fallTick owns the WHOLE vertical including the grounded damp, so it costs exactly the one
+    // groundHeight call followGround was already paying for — and a mimic that walks off a roof falls off it
+    // at 22 m/s and takes the Explorer's own fall damage instead of floating down unharmed.
+    if (!traversal.fallTick(this, dt)) this.followGround(dt);
+    traversal.reflexTick(this, dt);          // a live grenade at his feet: dive. Four float compares.
+    kit.kitFrame(ctx, dt);                   // smoke clouds, flares, thrown projectiles, the flash, once a frame
     // Fields move and appear. Whatever it was doing, it does not stand in one — this runs every tick, so a
     // firing position that a gravity well has opened up underneath is abandoned rather than died in.
     {
@@ -1599,29 +1734,70 @@ class Mimic extends Enemy {
       this.skillT = 2;
       const sd = ctx.state.data;
       mixSkill(this.skill, skillProgress(sd.tideLevel || 1, sd.securityLevel || 1, this.rank, ctx.director?.pressure || 0));
+      this.refreshMark();
     }
     this.updateMorale(dt);
     // Perception, on a cadence rather than every frame: 0.12 s in a fight, 0.2 s suspicious, 0.35 s idle.
     // Two rays a call is the budget, so an idle mimic beside you costs about six rays a second, not a hundred.
     let vis = 0;
+    const mind = this.squad ? this.squad.mind : null;
     if (this.stalker && this.state === 'stalk') { this.aware = Math.max(this.aware, 0.55); this.believe(p.position, 0, t, 1); }
     else {
-      this.percT += dt;
-      const every = this.engaged ? 0.12 : this.aware > 0.35 ? 0.2 : 0.35;
-      if (this.percT >= every) { const r = this.perceive(this.percT, { fov: 150, maxDay: 80, visGain: 1.5, hearGain: 1.2, decay: 0.08 }); vis = r.vis; this.percT = 0; }
-      else vis = t - this.lastVisT < 0.25 ? 0.5 : 0;
+      // senseTick enforces the same 0.12 / 0.2 / 0.35 s cadence internally and charges the belief decay every
+      // frame, so it is driven every frame and does rays only on the ticks it owes them.
+      const r = this.perceive(dt, { fov: 150, maxDay: 80, visGain: 1.5, hearGain: 1.2, decay: 0.08 });
+      vis = r.vis;
+      // ---- the two things the mind cannot learn for itself ----
+      // A man with a line can see which way you are pointing. This is the ONLY writer of picture.facing, and
+      // without it the squad's belief cone stays at 180 degrees forever and it correctly but permanently
+      // refuses to flank or angle. It is licensed sensing: he has eyes on you at this instant.
+      if (mind && this.sense.lastT === t && (this.sense.mode === 1 || this.sense.mode === 3) && vis > 0.02) {
+        mind.observe('face', Math.atan2(p.forward.z, p.forward.x));
+      }
+      // A body one of them has just found. senses.js files it with the Director and with this man's own
+      // belief; the squad hears it as a word, and then says nothing for two seconds.
+      if (mind && this.sense.lastBody && this.sense.lastBody !== this._toldBody) {
+        this._toldBody = this.sense.lastBody;
+        mind.observe('body', { x: this.sense.lastBody.x, z: this.sense.lastBody.z, from: this });
+      }
     }
+    this.holdSeen(dt);
     if (vis > 0.02 || this.burstLeft > 0) this.biasAge += dt;
     // Certainty decays. Squads write their shared point straight into lastSeenPlayer (squad.js), and a round in
     // the vest hands over a direction, not a grid reference: anything it has not actually SEEN in the last
     // second is a guess, and suppression and blind grenades treat it as one.
-    if (t - this.lastVisT > 1.2 && this.beliefR < 2.5) this.beliefR = 2.5;
+    // (the 2.5 m floor and the widening both live in senses.beliefDecay now, and the rate it widens at is
+    // what a squad's read of you buys: 1.15 m/s for a squad that has learned nothing, 0.45 for one that has)
     if (this.state === 'suspicious' && this.stateT < 2.5 && vis < 0.6 && this.hitsSince === 0 && this.aware > 0.95) this.aware = 0.95;
     this.skipCool = Math.max(0, this.skipCool - dt); this.staggerT = Math.max(0, this.staggerT - dt); this.grenadeCool = Math.max(0, this.grenadeCool - dt);
     this.obsT += dt; if (this.obsT > (this.engaged ? 0.22 : 0.15)) { this.obsT = 0; this.observed = this.observedByPlayer(); }
     this.unobservedT = this.observed ? 0 : this.unobservedT + dt;
     // the contact call: not instant, and it reaches as far as this mimic is good (SKILL.share / shareR)
-    if (this.shareT > 0 && t >= this.shareT) { this.shareT = -1e9; this.alertPack(1, true); this.radioSaidT = t; this.sound('mimic_radio', { gain: 0.8, max: 90, rate: 1.12 }); }
+    if (this.shareT > 0 && t >= this.shareT) { this.shareT = -1e9; this.alertPack(1, true); this.say('contact'); }
+
+    // ---- the pouch ----
+    // Using something is a commitment with a real window in it: a man dressing a wound is out of the fight for
+    // the length of the item, and what he used is spliced out of his loadout so his body drops no medkit.
+    // The DECISION is on a slow clock (kit.js enforces one item action per mimic per 8 s on top of it) and the
+    // conditions are all self-state and belief: hurt with no line for two seconds, blown and about to cross,
+    // standing in a gas pad with a mask in the pouch.
+    this.kitT -= dt;
+    if (this.kitT <= 0) { this.kitT = 1.5; const w = kit.wantItem(this); if (w) kit.useWanted(this, w); }
+    if (kit.kitTick(this, dt)) { this.animate(dt, d, { aim: 0.2, crouch: Math.max(this.crouch, 0.5), speed: 0 }); return; }
+    // Going through a body is the same kind of commitment, and only ever in a lull: never in contact, never
+    // from a pile the Explorer has already opened, and never anything that is not a mimic's corpse.
+    if (!(this.squad && this.squad.inCombat) && (this.state === 'patrol' || this.state === 'watch' || this.state === 'search' || this.state === 'idle')) {
+      // a body at his feet outranks the next patrol node: he stops walking so kit.js can send him the last
+      // few metres. Guarded so he does not then re-abandon the pile he has just been sent to.
+      const pile = kit.nearestPile(this.position.x, this.position.z, kit.SCAV_R);
+      if (pile && this.target && Math.hypot(this.target.x - pile.x, this.target.z - pile.z) > 2) this.target = null;
+      if (kit.scavengeTick(this, dt)) { this.animate(dt, d, { aim: 0.15, crouch: 0.9, speed: this.moveSpeed }); return; }
+    }
+
+    // A quiet order silences the body: no sprint, no footstep gain, no breath loop. A man on an overwatch or
+    // listening in the middle of a search is not audible, and that is most of why the search is frightening.
+    traversal.setQuiet(this, ambush.isCommitted(this) || this.overwatchT > 0
+      || (this.state === 'search' && this.listenT > 0) || !!(this.orders && this.orders.role === 'ambush'));
 
     const prevX = this.position.x, prevZ = this.position.z;
     let headYaw = 0, headPitch = 0, aim = 0, aimPitch = 0, aimYaw = 0, speed = 0, track = false, crouch = 0;
@@ -1631,7 +1807,7 @@ class Mimic extends Enemy {
     const fixed = this.state === 'reload' || this.state === 'grenade' || this.state === 'fallback';
     if (holdRole && !fixed && this.state !== 'engage') this.setState('engage');
     else if (this.engaged && t - this.lastVisT < 6 && !fixed && this.state !== 'engage' && this.state !== 'stalk') this.setState('engage');
-    else if (!this.engaged && this.aware >= 0.4 && !fixed && (this.state === 'patrol' || this.state === 'watch' || this.state === 'idle')) { this.setState('suspicious'); this.turnT = 1.2; this.target = null; if (!this.squad) this.sound('mimic_radio', { gain: 0.5, max: 70 }); this.radioT = rng.range(4, 9); }
+    else if (!this.engaged && this.aware >= 0.4 && !fixed && (this.state === 'patrol' || this.state === 'watch' || this.state === 'idle')) { this.setState('suspicious'); this.turnT = 1.2; this.target = null; this.say('heard', 0.9); this.radioT = rng.range(4, 9); }
 
     switch (this.state) {
       case 'idle': {
@@ -1656,7 +1832,7 @@ class Mimic extends Enemy {
         // It heard something. It goes to look — but at the NOISE, wide of it by however wrong it is, and it
         // stops short of the spot rather than walking onto it.
         const ls = this.lastSeenPlayer || p.position;
-        if (this.turnT > 0) { this.turnT -= dt; this.faceToward(ls.x, ls.z, dt, 4); headYaw = this.faceAngleTo(ls.x, ls.z) * 0.6; }
+        if (this.turnT > 0) { this.turnT -= dt; traversal.faceStep(this, ls.x, ls.z, dt, 0.8); headYaw = this.faceAngleTo(ls.x, ls.z) * 0.6; }
         else {
           const stop = clamp(2.5 + this.beliefR * 0.35, 2.5, 8);
           if (!this.target) { this.setTarget(ls); this.waitT = 0; }
@@ -1704,7 +1880,7 @@ class Mimic extends Enemy {
           else if (!this.cover && d < 12) { _dir.set(this.position.x - p.position.x, 0, this.position.z - p.position.z).normalize(); this.moveToward(_v.set(this.position.x + _dir.x * 6, this.position.y, this.position.z + _dir.z * 6), SPEED.suspicious, dt, { stop: 0.5, face: false }); }
         }
         const la = this.lastSeenPlayer || p.position;
-        this.faceToward(la.x, la.z, dt, 4);
+        traversal.faceStep(this, la.x, la.z, dt, 0.8);
         this.reloadTick(dt);
         break;
       }
@@ -1746,7 +1922,12 @@ class Mimic extends Enemy {
         if (this.profile.kind === 'sniper') this.holdRange(d, dt);
         // the band this weapon wants to fight in: a shotgunner and an SMG close, a marksman keeps its distance,
         // and anything with the nerve for it (SKILL.push) closes on a player it can see is hurt
-        const wantsClose = this.profile.close > 0 || (p.hp < 45 && p.hp > 0 && rng.chance(s.push * dt * 0.5));
+        // THE SECOND FAIRNESS LEAK, CLOSED. This used to read p.hp — a number nobody in the zone can see. It
+        // reads picture.hurt now, which is accumulated ONLY from rounds this squad's own men put into him and
+        // from a cry one of them heard, and decays over about twenty-five seconds. They push a man THEY have
+        // hurt, not a man who is quietly on 40 points from a fall three minutes ago.
+        const hurtSeen = (this.squad && this.squad.mind) ? this.squad.mind.picture.hurt : 0;
+        const wantsClose = this.profile.close > 0 || (hurtSeen > 0.55 && rng.chance(s.push * dt * 0.5));
         if (wantsClose && d > this.profile.hold[1] && !ambush && (!this.squad || role !== 'watch')
             && (!this.cover || Math.hypot(this.cover.x - p.position.x, this.cover.z - p.position.z) > this.profile.hold[1] * 1.3)) {
           _dir.set(this.position.x - p.position.x, 0, this.position.z - p.position.z).normalize();
@@ -1759,13 +1940,33 @@ class Mimic extends Enemy {
         // a mimic that is deliberately down behind its cover still counts as holding a good position, so the
         // squad (squad.js orderBase) does not re-shuffle it every three seconds for not shooting
         if (vis > 0.02 || (this.coverGood && atCover)) this.losT = t;
-        const stand = atCover ? this.posturePoint() : null;
+        // A man who has been SENT somewhere and told to hold his fire is crossing ground, not fighting from it.
+        // He turns and runs, which is what the sprint and the turn gate are for; everybody else holds his aim
+        // on the belief and pays the strafe gate to shuffle. Without this distinction the flanker walks his
+        // whole arc sideways at 42% speed with his rifle pointed at you — which is exactly what "not scary
+        // robots strafing left and right" looks like — and the peek cycle steals him the moment he touches a
+        // rock on the way round, so he never gets anywhere at all.
+        const o0 = this.orders;
+        const onTheMove = !!(o0 && o0.hasTarget && !o0.hold && !o0.fire
+          && (o0.role === 'flank' || o0.mv === 1 || o0.job === 'sweep' || o0.job === 'breakoff'));
+        const stand = (atCover && !onTheMove) ? this.posturePoint() : null;
         const moveTo = stand || this.target;
         const stop = stand ? 0.16 : 0.6;
+        const crossing = !stand && onTheMove;
         // Nobody with a rifle wants to be standing on you. A shotgunner will come to arm's length; everybody
         // else gives ground rather than closing inside four metres, which is what stops a firefight ending
         // with four men pressed against the player's chest.
         const minStand = this.profile.kind === 'shotgun' ? 2.4 : 4.2;
+        // THE TAKEDOWN. The one thing that overrides the backpedal, and the thing that gets you when you go
+        // dry: a man with an empty gun and nothing left to throw, or a shotgunner who has decided, walks the
+        // last stride with the weapon down and swings. Over a second of windup in which he cannot fire, and
+        // BACKING AWAY DEFEATS IT — which is what makes it a decision rather than a hitscan. It is aimed at
+        // the BELIEF; the strike itself does the physics, a second and a half after the commitment.
+        if (d < 2.6 && this.staggerT <= 0 && !ambush && this.skill.melee >= 0.40
+            && ((this.roundsLeft() === 0 && !bestSpare(this.loadout) && this.grenades <= 0) || this.profile.close === 1)) {
+          const bel = t - this.lastVisT < 1.2 ? this.lastSeenPlayer : null;
+          if (bel && traversal.tryMelee(this, bel.x, bel.z)) break;
+        }
         if (d < minStand && this.staggerT <= 0 && !ambush && role !== 'ambush') {
           _dir.set(this.position.x - p.position.x, 0, this.position.z - p.position.z);
           if (_dir.lengthSq() < 0.01) _dir.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
@@ -1774,7 +1975,12 @@ class Mimic extends Enemy {
           if (pt) this.moveToward(pt, SPEED.engage, dt, { stop: 0.4, face: false });
           crouch = 0;
         } else if (moveTo && this.staggerT <= 0 && !ambush) {
-          const rem = this.moveToward(moveTo, stand ? SPEED.posture : (role === 'watch' ? SPEED.suspicious : SPEED.engage), dt, { stop, face: false });
+          // Wind is the Explorer's own model and nobody gets a bigger tank than he has: a recruit burns it at
+          // twice his rate and effectively cannot commit to a chase, an elite burns it at exactly his rate and
+          // hangs on. A man crossing on a bound or walking a flank counts that as worth the legs.
+          traversal.wantSprint(this, Math.hypot(moveTo.x - this.position.x, moveTo.z - this.position.z),
+            (role === 'flank' || (this.orders && this.orders.mv === 1)) ? 1 : 0);
+          const rem = this.moveToward(moveTo, stand ? SPEED.posture : (role === 'watch' ? SPEED.suspicious : SPEED.engage), dt, { stop, face: crossing });
           if (!stand && rem <= stop) { this.target = null; if (this.orders) this.orders.hasTarget = false; }
         }
         if (this.coverGood && atCover) { crouch = (1 - this.exposed) * (this.coverCrouch ? 0.95 : 0.5); aim = 0.35 + 0.65 * this.exposed; }
@@ -1793,7 +1999,9 @@ class Mimic extends Enemy {
         // not an ambush, it is a turret with a story.
         else this.lookPt.set(this.position.x - Math.sin(this.yaw) * 20, this.position.y + 1.5, this.position.z - Math.cos(this.yaw) * 20);
         this.lookValid = true;
-        this.faceToward(this.lookPt.x, this.lookPt.z, dt, seeing ? 9 : 4.5);
+        // a man crossing ground has already been pointed where he is going by the step above; his HEAD still
+        // turns to the belief (the animator gets headYaw), but his feet do not argue with his legs
+        if (!crossing) traversal.faceStep(this, this.lookPt.x, this.lookPt.z, dt, seeing ? 1 : 0.7);
         // ---- is it allowed to act? base and arrived flankers are; watchers and moving flankers only when pressed ----
         let mayAct = true;
         if (role === 'flank') mayAct = this.orders.fire || d < 12 || this.hitsSince > 0;
@@ -1878,11 +2086,14 @@ class Mimic extends Enemy {
         aim = 0.3; this.rallyT -= dt;
         if (!this.calledHelp && this.stateT > 0.4) {
           this.calledHelp = true;
-          this.alertPack(1.5, true); this.radioSaidT = t;
-          this.sound('mimic_radio', { gain: 0.9, max: 110, rate: 1.38 });   // "falling back" — the same word the squads use
+          this.alertPack(1.5, true);
+          this.say('falling');
         }
         if (!this.target) this.breakPoint();
-        if (this.target && this.staggerT <= 0) { const rem = this.moveToward(this.target, SPEED.break, dt, { stop: 1.0 }); if (rem <= 1.0) this.target = null; }
+        if (this.target && this.staggerT <= 0) {
+          traversal.wantSprint(this, Math.hypot(this.target.x - this.position.x, this.target.z - this.position.z), 1);
+          const rem = this.moveToward(this.target, SPEED.break, dt, { stop: 1.0 }); if (rem <= 1.0) this.target = null;
+        }
         headYaw = clamp(this.faceAngleTo(p.position.x, p.position.z), -1.2, 1.2) * 0.7;
         // reload as it goes; it comes back loaded
         if (this.roundsLeft() < this.magCap * 0.5 && !this.reloadPlan && !this.dry && this.stateT > 1) { this.reloadReturn = 'fallback'; if (this.beginReload()) break; }
@@ -1936,7 +2147,7 @@ class Mimic extends Enemy {
           // holding a firing position on the contact, saying nothing
           this.overwatchT -= dt; crouch = 0.55;
           const ls = this.lastSeenPlayer || this.position;
-          this.faceToward(ls.x, ls.z, dt, 1.8);
+          traversal.faceStep(this, ls.x, ls.z, dt, 0.35);
           this.lookT -= dt; if (this.lookT <= 0) { this.lookT = rng.range(1.6, 3.4); this.lookYaw = rng.range(-0.8, 0.8); }
           headYaw = this.lookYaw; aimYaw = headYaw * 0.4;
           if (this.overwatchT <= 0) { this.searchN = 0; this.waitT = 0; }
@@ -1944,7 +2155,7 @@ class Mimic extends Enemy {
           // stopped, listening: it turns its whole body through the arc rather than sweeping its head
           this.listenT -= dt;
           this.lookT -= dt; if (this.lookT <= 0) { this.lookT = rng.range(0.7, 1.6); this.lookYaw = rng.range(-1.2, 1.2); this.lookAbs = this.yaw + rng.range(-1.8, 1.8); }
-          this.faceToward(this.position.x - Math.sin(this.lookAbs), this.position.z - Math.cos(this.lookAbs), dt, 2.0);
+          traversal.faceStep(this, this.position.x - Math.sin(this.lookAbs), this.position.z - Math.cos(this.lookAbs), dt, 0.5);
           headYaw = this.lookYaw; aimYaw = headYaw * 0.5;
         } else if (this.searchI < this.searchN) {
           const node = this.searchNodes[this.searchI];
@@ -1984,24 +2195,41 @@ class Mimic extends Enemy {
     const mv = Math.hypot(this.position.x - prevX, this.position.z - prevZ);
     speed = dt > 0 ? mv / dt : 0;
     this.moveSpeed = damp(this.moveSpeed, speed, 8, dt);
-    this.crouch = damp(this.crouch, crouch, 6, dt);
+    this.crouch = damp(this.crouch, Math.max(crouch, this.body ? this.body.crouchWant : 0), 6, dt);
     this.height = lerp(STAND_H, CROUCH_H, clamp01(this.crouch));
     // weapon light: night, a light in the loadout, hunting or fighting
-    this.wantLight = this.hasLight && ctx.time.night > 0.45 && (this.state === 'engage' || this.state === 'search' || this.state === 'reload' || this.state === 'grenade' || this.state === 'fallback' || (this.state === 'suspicious' && this.aware > 0.6)) && d < 80;
+    this.wantLight = this.hasLight && kit.mayLight(this) && !ambush.isHidden(this) && ctx.time.night > 0.45 && (this.state === 'engage' || this.state === 'search' || this.state === 'reload' || this.state === 'grenade' || this.state === 'fallback' || (this.state === 'suspicious' && this.aware > 0.6)) && d < 80;
     scheduleLights(ctx);
 
     // ---- sound ----
     // it goes quiet while it is listening or sitting on an overwatch: no radio, and the static bed drops
     const quiet = this.overwatchT > 0 || (this.state === 'search' && this.listenT > 0);
-    if (!this.squad && !this.stalker) { this.radioT -= dt; if (this.radioT <= 0) { this.radioT = quiet ? rng.range(6, 12) : this.engaged ? rng.range(2, 5) : rng.range(4, 12); if (d < 80 && !quiet) this.sound('mimic_radio', { gain: this.engaged ? 0.7 : 0.45, max: 80 }); } }
-    if (!this.staticLoop) { this.loopRetry -= dt; if (this.loopRetry <= 0) { this.loopRetry = 1; if (ctx.audio.ready) this.staticLoop = this.loopSound('mimic_static', { gain: 0, max: 60, ref: 3 }); } }
+    if (!this.squad && !this.stalker) { this.radioT -= dt; if (this.radioT <= 0) { this.radioT = quiet ? rng.range(6, 12) : this.engaged ? rng.range(2, 5) : rng.range(4, 12); if (d < 80 && !quiet) this.say(this.engaged ? 'update' : 'heard', this.engaged ? 0.85 : 0.6); } }
+    if (!this.staticLoop && !this.__silent && !ambush.isHidden(this)) { this.loopRetry -= dt; if (this.loopRetry <= 0) { this.loopRetry = 1; if (ctx.audio.ready) this.staticLoop = this.loopSound('mimic_static', { gain: 0, max: 60, ref: 3 }); } }
     if (this.staticLoop) {
       this.staticLoop.setGain(clamp01(this.aware) * clamp01(1 - d / 40) * (quiet || (this.orders && this.orders.role === 'ambush') ? 0.3 : 0.8), 0.2);
       this.staticT -= dt; if (this.staticT <= 0) { this.staticT = 0.3; this.staticLoop.set('level', clamp01(this.aware)); }
     }
     this.animate(dt, d, { headYaw, headPitch, aim, aimPitch, aimYaw, speed: this.moveSpeed, crouch: this.crouch });
   }
+  // What the rig is handed while traversal owns the body: the verb and how far through it is, so a clamber
+  // reads as a clamber rather than as a man sliding up a wall in the walk pose.
+  bodyPose() {
+    const b = this.body, o = this._pose;
+    o.headYaw = 0; o.headPitch = 0; o.aim = 0; o.aimYaw = 0; o.aimPitch = 0;
+    o.speed = b ? b.speed : 0; o.crouch = this.crouch;
+    return o;
+  }
   animate(dt, d, c = {}) {
+    this.animateBody(dt, d, c);
+    // THE DISCOVERY TELL, applied after the rig has written its own values: a hidden mimic's face blot
+    // brightens for a third of a second every few seconds, silently, visible only if you happen to be looking
+    // at it. Without this line a hidden mimic is unfindable, which would make it unfair rather than
+    // frightening. It is a no-op for anything that is not currently down.
+    ambush.applyVisual(this);
+    if (this.mark && this.mark.userData.tick) this.mark.userData.tick(dt, this.moveSpeed || 0, this.body ? this.body.turn : 0);
+  }
+  animateBody(dt, d, c = {}) {
     const rig = this.rig, ctx = this.ctx, t = this.time;
     // pose glitch schedule: every 2-5 s the pose snaps wrong for ~60 ms
     if (this.glitchLeft > 0) { this.glitchLeft -= dt; if (this.glitchLeft <= 0 && rig.rig) rig.rig.glitchOn = false; }
@@ -2010,7 +2238,10 @@ class Mimic extends Enemy {
     rig.setState?.({ speed: c.speed || 0, aiming: c.aim || 0, aimAt: (c.aim || 0) > 0.3 ? p.eye : null, crouch: c.crouch || 0, hit: 0, dead: false, glitch: this.glitchLeft > 0 ? 1 : 0, headYaw: c.headYaw || 0, headPitch: c.headPitch || 0, aimYaw: c.aimYaw || 0, aimPitch: c.aimPitch || 0, headRate: this.state === 'engage' ? 9 : 4 });
     rig.update?.(dt);
     const R = rig.rig;
-    if (R && R.stepFlag && d < 60) { this.sound('mimic_step', { gain: 0.35 + 0.25 * clamp01((c.speed || 0) / 3), max: 40, rate: 0.9 + Math.random() * 0.2 }); }
+    if (R && R.stepFlag && d < 60) {
+      const g = traversal.stepGain(this, 0.35);
+      if (g > 0.01) this.sound('mimic_step', { gain: g, max: 40, rate: traversal.stepRate(this) * (0.9 + Math.random() * 0.2) });
+    }
     // face: sits on the head, turns to the camera
     this.syncRoot();
     if (this.headBone) { this.headBone.updateWorldMatrix(true, false); _v.setFromMatrixPosition(this.headBone.matrixWorld); _v.y += 0.12; }
@@ -2066,8 +2297,27 @@ class Mimic extends Enemy {
 // =====================================================================================================
 export function registerMimic(ctx) {
   rng = ctx.rng.fork(31);
-  const clearMemory = () => { DEATHS.length = 0; HOLD.last = -1; HOLD.t = 0; losFrame = -1; };
+  // ---- ONE RAY POOL (contract C4) ----
+  // traversal.js owns it and spends none of it. Everything else that wants a line test — this file's cover
+  // scoring, squad.js's bestCover, command.js's occluder solve, kit.js's scavenging, ambush.js's hide
+  // validation, senses.js's corpse check — draws from the same ten a frame, so no number of mimics can
+  // stampede the collision grid on a handset.
+  senses.setRayBudget(traversal.losBudget);
+  kit.setRayBudget(traversal.losBudget);
+  ambush.setRayBudget(traversal.losBudget);
+  // ambush.js asks senses.js how well hidden a candidate spot is, and speaks through the same one mouth
+  ambush.setConcealment(senses.concealment);
+  ambush.setSayHook((m, word, gain) => m.say(word, gain == null ? 1 : gain));
+  // and a scavenged weapon becomes a real weapon in a real hand
+  kit.setRearmHook((m, w) => m.rebuildWeapon(w));
+  const clearMemory = () => {
+    DEATHS.length = 0;
+    traversal.resetBudget(); traversal.resetStats();
+    senses.resetSenses(); kit.resetKit(); ambush.resetAmbush();
+  };
   ctx.events.on('gameStart', clearMemory);
   ctx.events.on('tide', clearMemory);
   ctx.enemies.registerType('mimic', Mimic);
+  // a handle for tools/scenarios: the capability modules, reachable from the page without a second bundle
+  ctx.enemies.ai = { traversal, senses, kit, ambush, SKILL };
 }

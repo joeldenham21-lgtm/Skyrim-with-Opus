@@ -15,6 +15,7 @@
 // position of the shot rather than the position of the shooter, so an entity investigates the noise, not you.
 import * as THREE from 'three';
 import { clamp, clamp01, damp, lerp } from '../core/math.js';
+import { zoneRead, resetZoneRead } from './command.js';
 
 export const STATES = ['CALM', 'UNEASE', 'HUNT', 'COMBAT', 'AFTERMATH'];
 
@@ -48,7 +49,8 @@ const MEM_MAX = 96;        // cells kept, oldest-coldest dropped
 const MEM_DECAY = 1 / 900; // per second: a quarter of an hour of nothing and a place is cold again
 
 export function createDirector(ctx) {
-  const shots = [];     // { pos, t, noise } recent gunshots (for hearing)
+  const shots = [];     // { pos, t, noise, seq } recent gunshots (for hearing)
+  let shotSeq = 0;      // monotonic: a squad reads each round exactly once, and gates it on its own hearing
   let state = 'CALM', stateT = 0, tension = 0, calmGuard = 0, lastCombat = -1e9, lastShot = -1e9, unease = 0, uneaseTimer = 120 + Math.random() * 120;
   let threatNear = 0, engaged = 0, heat = 0, alarm = 0, pressure = 0;
   // one fuzzy zone-level contact, shared by everything that can hear a radio
@@ -107,7 +109,7 @@ export function createDirector(ctx) {
     // what it has on a place: how many times you have been in contact there, and the bearing you walk in on
     poiRecord(id) { return poiMem.get(id) || null; },
     memory() { return { cells: mem.size, pois: [...poiMem.entries()].map(([k, v]) => ({ poi: k, contacts: v.contacts, ang: +v.ang.toFixed(2) })), noise: +totalNoise.toFixed(1), blood: totalBlood, escalation }; },
-    forgetAll() { mem.clear(); poiMem.clear(); visit = null; totalNoise = 0; totalBlood = 0; escalation = 0; },
+    forgetAll() { mem.clear(); poiMem.clear(); visit = null; totalNoise = 0; totalBlood = 0; escalation = 0; resetZoneRead(); },
     // strength of recent gunfire heard at a position (0..1), decays over SHOT_MEM seconds.
     // A shot's reach is its `range` scaled by how loud the round was: suppressed fire barely travels.
     recentShotAt(pos, range = 120) {
@@ -131,6 +133,17 @@ export function createDirector(ctx) {
       }
       if (bi >= 0 && out) out.copy(shots[bi].pos);
       return best;
+    },
+    // ---- the shot train ----
+    // Published once, globally, so a squad can walk the new entries since it last looked rather than each of
+    // its men re-walking the ring. Audibility is gated AT CONSUMPTION, on the reader's own position against
+    // the round's loudness, so a suppressed weapon still teaches them nothing.
+    shotCount() { return shotSeq; },
+    shotAt(seq) {
+      const i = shots.length - (shotSeq - seq);      // the ring is in order, so the index is arithmetic
+      if (i < 0 || i >= shots.length || shots[i].seq !== seq) return null;
+      const sh = shots[i];
+      return { x: sh.pos.x, z: sh.pos.z, noise: sh.noise, t: sh.t };
     },
     // ---- zone-level contact memory ----
     // weight 0..1 is how sure the reporter is; radius is how wide the guess is, in metres.
@@ -171,8 +184,10 @@ export function createDirector(ctx) {
       switch (kind) {
         case 'shot': {
           const noise = clamp(data.noise == null ? 1 : data.noise, 0.25, 1.5);
-          shots.push({ pos: data.pos.clone(), t, noise });
-          if (shots.length > 32) shots.shift();
+          // The ring is 64 now, not 32: a long automatic burst used to overflow it between two squad ticks,
+          // and a squad that cannot count the rounds you fired cannot learn how many you fire at a time.
+          shots.push({ pos: data.pos.clone(), t, noise, seq: shotSeq++ });
+          if (shots.length > 64) shots.shift();
           lastShot = t; heat = clamp01(heat + PRESSURE.heatShot * noise); alarm = clamp01(alarm + PRESSURE.alarm.shot * noise);
           api.noteActivity(data.pos, 'noise', noise);
           if (state !== 'COMBAT' && engaged > 0) api.setState('COMBAT');
@@ -204,7 +219,10 @@ export function createDirector(ctx) {
       ctx.events.emit('directorNotify', kind, data);
     },
     // Force a period of calm (after sleeping, entering base)
-    rest() { api.setState('CALM'); tension = 0; unease = 0; calmGuard = 120; alarm = 0; heat *= 0.35; api.forgetContact(); },
+    // Going home and sleeping is the counter-play to the file the zone keeps on how you fight: the persistent
+    // half of the squads' read of you loses 40% of its confidence every time you rest, a quarter on a Tide,
+    // and all of it on a new game.
+    rest() { api.setState('CALM'); tension = 0; unease = 0; calmGuard = 120; alarm = 0; heat *= 0.35; api.forgetContact(); zoneRead.decay(0.40); },
     update(dt) {
       stateT += dt; calmGuard = Math.max(0, calmGuard - dt);
       const t = ctx.elapsed;
@@ -291,5 +309,6 @@ export function createDirector(ctx) {
   };
   // A new game is a new zone: it has never heard of you. A Tide is not — that is the whole point of the memory.
   ctx.events.on('gameStart', () => api.forgetAll());
+  ctx.events.on('tide', () => zoneRead.decay(0.25));
   return api;
 }

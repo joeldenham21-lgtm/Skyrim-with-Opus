@@ -51,6 +51,6 @@ export default async function (page, api) {
   // death -> pile
   const pile = await api.run(`(() => { const ctx = window.__radius.ctx; const e = window.__helm; e.damage(5000, { kind: 'blast' }); for (let i = 0; i < 24; i++) { ctx.elapsed += 0.1; ctx.enemies.update(0.1); ctx.vfx.update(0.1, ctx.elapsed); } return { piles: window.__piles, stub: !!window.__pileStub, drops: e.drops ? e.drops.length : 0 }; })()`);
   console.log('pile', JSON.stringify(pile));
-  console.log('grenades', JSON.stringify(await api.run('({ thrown: window.__thrown, inFlight: window.__radius.ctx.squads.grenades.length, hold: +window.__radius.ctx.squads.playerHoldT.toFixed(1) })')));
+  console.log('grenades', JSON.stringify(await api.run('({ thrown: window.__thrown, inFlight: window.__radius.ctx.squads.grenades.length, hold: +(window.__radius.ctx.squads.list[0] ? window.__radius.ctx.squads.list[0].mind.picture.stillT : 0).toFixed(1) })')));
   console.log('stats', JSON.stringify(await api.run('window.__radius.stats()')));
 }

@@ -45,6 +45,27 @@
 // Between `angle` and the man stepping off is roughly a second and a half at the low end. That is the player's
 // window and it is the whole reason the words exist.
 //
+// ---------------------------------------------------------------------------------------------------------
+// HOW IT IS WIRED (the integrator's whole job with this file)
+//
+//   squad.js, once:      const cmd  = createCommand(ctx, { losBudget, reach, pickHide });   // deps optional
+//                        this.mind  = cmd.makeMind(this, solvers);                          // §5.1 facade
+//   squad.js Squad.update(dt), first line:      this.mind.update(dt);        // cheap: clocks, orders, arming
+//   squad.js assignJobs(alive):                 this.mind.tick(dt, members); // the plan tick, 3-5 Hz
+//   squad.js say(kind, from, mult):             return this.mind.say(kind, from, mult);
+//   squad.js know/lastKnown/knownR/contactKind/spread(): proxy onto mind (the same names exist on it)
+//   squad.js inFrustum(...) inside orderFlank/orderShaken/beginRegroup:  mind.frustum(x, z, half)
+//   squad.js this.flankSide = rng() < 0.5 ? ... :                        mind.sideBias()
+//   squad.js onKilled(m):   leader ? mind.onLeaderDown(m) : mind.interrupt('manDown', m.position.x, ..., m)
+//   squad.js standDown(hard):                   this.mind.standDown(hard);
+//   mimic.js wantsClose:    p.hp < 45           ->  (this.squad?.mind.picture.hurt ?? 0) > 0.55
+//   mimic.js canThrowGrenade: playerHold(ctx)   ->  this.squad.mind.picture.stillT
+//   mimic.js SKILL.holdT consumer:              *= this.squad.mind.holdTMul()
+//   senses.js, the ONLY writer of the belief cone:  squad.mind.observe('face', bearingRadians)
+//              on a corpse found:                   squad.mind.observe('body', { x, z, from })
+//              on each player shot heard:           squad.mind.observe('shot', { x, z, noise })
+//   ballistics/mimic damage:                        squad.mind.observe('hit', amount)
+//
 // IMPORTS. Only three, core/math and core/rng — this file must stay importable by squad.js without a cycle,
 // and bundlable on its own for tools/scenarios/ai2-command-*.mjs. It never imports mimic.js or squad.js.
 // The world, the ray budget and the squad's own solvers all arrive as arguments.
@@ -53,8 +74,8 @@ import { clamp, clamp01, lerp, angleDelta, DEG, TAU } from '../core/math.js';
 import { mulberry32 } from '../core/rng.js';
 
 // ---- module scratch. Nothing in this file allocates in a per-frame or per-tick path. ----
-const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _v4 = new THREE.Vector3();
-const _eye = new THREE.Vector3(), _dir = new THREE.Vector3(), _hit = new THREE.Vector3();
+const _v = new THREE.Vector3(), _v3 = new THREE.Vector3(), _v4 = new THREE.Vector3();
+const _eye = new THREE.Vector3(), _dir = new THREE.Vector3();
 
 // =====================================================================================================
 // §skill — this module's rows of the one difficulty table. mimic.js merges them into SKILL before it derives
@@ -1150,21 +1171,41 @@ export function createCommand(ctx, deps = {}) {
         // read says he comes out of. No rays: three walkable probes and he is walking.
         if (seat.wpN === 0 || seat.wpI >= seat.wpN) {
           const cx = picture.occX, cz = picture.occZ;
-          // CONSTANT radius to the occluder. He walks AROUND it; he does not walk AT it. Shrinking the radius
-          // here is exactly the failure the play exists to fix — a man closing on the last known position.
-          const r = Math.max(4, dist2d(m.position.x, m.position.z, cx, cz));
+          // CONSTANT radius to the occluder. He walks AROUND it; he does not walk AT it — shrinking the radius
+          // is exactly the failure this play exists to delete, a man closing on the last known position.
+          // The STEP, though, is an arc length, not an angle: nine metres of walking per leg, so a man at four
+          // metres swings hard and a man at thirty takes a short bite and re-solves. Same behaviour, and the
+          // line comes back at both ranges instead of only the near one.
+          const r0 = Math.max(4, dist2d(m.position.x, m.position.z, cx, cz));
           const a0 = Math.atan2(m.position.z - cz, m.position.x - cx);
+          const step = clamp(9 / r0, 12 * DEG, ANGLE_STEP);
           seat.wpN = 0;
-          for (let k = 1; k <= 3; k++) {
-            const a = a0 + side * ANGLE_STEP * k;
-            const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
-            if (solvers.walkable && !solvers.walkable(x, z, _v3)) continue;
-            if (solvers.anomalyAt && solvers.anomalyAt(x, z)) continue;
-            seat.wp[seat.wpN * 3] = x; seat.wp[seat.wpN * 3 + 1] = _v3.y || picture.pos.y; seat.wp[seat.wpN * 3 + 2] = z;
-            seat.wpN++;
+          // three radii, nearest to his own first: open ground at thirty metres may simply not be walkable
+          for (let pass = 0; pass < 3 && seat.wpN === 0; pass++) {
+            // the fallback radii pull IN, so they are floored well outside knife range: a blocked ring must
+            // never turn the play into the walk-onto-the-last-known-position it exists to replace
+            const r = pass === 0 ? r0 : pass === 1 ? Math.max(9, r0 * 0.8) : Math.max(9, r0 * 0.65);
+            for (let k = 1; k <= 3; k++) {
+              const a = a0 + side * step * k;
+              const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
+              if (solvers.walkable && !solvers.walkable(x, z, _v3)) continue;
+              if (solvers.anomalyAt && solvers.anomalyAt(x, z)) continue;
+              seat.wp[seat.wpN * 3] = x; seat.wp[seat.wpN * 3 + 1] = _v3.y || picture.pos.y; seat.wp[seat.wpN * 3 + 2] = z;
+              seat.wpN++;
+            }
+            seat.note = seat.wpN ? (pass ? 'orbit-in' : 'orbit') : 'orbit-blocked';
+          }
+          // nothing on the ring at all: take one honest step sideways instead of standing there. It is the
+          // same intention at a tenth of the ambition, and it still takes the angle off the trunk.
+          if (seat.wpN === 0) {
+            const px = -Math.sin(a0) * side, pz = Math.cos(a0) * side;
+            const x = m.position.x + px * 8, z = m.position.z + pz * 8;
+            if (!solvers.walkable || solvers.walkable(x, z, _v3)) {
+              seat.wp[0] = _v3.x || x; seat.wp[1] = _v3.y || m.position.y; seat.wp[2] = _v3.z || z;
+              seat.wpN = 1; seat.note = 'sidestep';
+            }
           }
           seat.wpI = 0;
-          seat.note = 'orbit';
         }
         if (seat.wpN === 0) { call('orderHold', m, o, false); return; }
         const i3 = seat.wpI * 3;
@@ -1366,7 +1407,10 @@ export function createCommand(ctx, deps = {}) {
       // stillT only accumulates while somebody can see it, or the picture is under three seconds old.
       // Stand still behind a wall nobody can see and no grenade is ever ordered — which is correct, and more
       // frightening, because the way to draw a frag becomes letting them SEE you stay put.
+      // ...and it UNWINDS at the same rate the moment it goes stale, so a long blind stretch can never leave
+      // credit on the clock. The only way to draw a frag is to let them watch you stay put.
       if (picture.has && (picture.seers > 0 || t - picture.t < 3)) picture.stillT += dt;
+      else picture.stillT = Math.max(0, picture.stillT - dt);
       if (t - picture.velT > 2) picture.vel.set(0, 0, 0);
       picture.hurt = Math.max(0, picture.hurt - dt * 0.02);
       if (playT > 0) playT -= dt;

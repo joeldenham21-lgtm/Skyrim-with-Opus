@@ -51,6 +51,10 @@ import * as THREE from 'three';
 import { clamp, clamp01, lerp, angleDelta, DEG } from '../core/math.js';
 import { classRank } from './loadout.js';
 import { def } from '../data/index.js';
+import { createCommand, CALLS as WORD_CALLS } from './command.js';
+import { losBudget, reach } from './traversal.js';
+import * as kit from './kit.js';
+import * as ambush from './ambush.js';
 
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _dir = new THREE.Vector3(), _eye = new THREE.Vector3(), _n = new THREE.Vector3(), _cam = new THREE.Vector3(0, 0, -1);
 const _lane = new THREE.Vector3(), _from = new THREE.Vector3();
@@ -69,18 +73,10 @@ const cand = [], candS = [];   // scratch: top-N cover candidates, reused
 // knowledge between two mimics without one of these playing first — that is the fairness rule, stated as code.
 // =====================================================================================================
 // `gap` is the shortest time between two of the same word: a squad chatters, it does not stammer.
-export const CALLS = {
-  contact:  { rate: 1.12, gain: 0.95, max: 110, gap: 1.5 },   // I have him
-  update:   { rate: 0.98, gain: 0.75, max: 95, gap: 2.5 },    // he has moved
-  heard:    { rate: 0.86, gain: 0.62, max: 85, gap: 3.0 },    // something over there
-  moving:   { rate: 1.22, gain: 0.85, max: 100, gap: 4.0 },   // I am crossing — cover me
-  set:      { rate: 1.04, gain: 0.70, max: 90, gap: 4.0 },    // I am in position
-  flanking: { rate: 1.34, gain: 0.92, max: 105, gap: 8.0 },   // going round
-  grenade:  { rate: 1.48, gain: 1.00, max: 130, gap: 0 },     // frag out
-  down:     { rate: 1.28, gain: 1.00, max: 125, gap: 0 },     // man down
-  falling:  { rate: 1.38, gain: 1.00, max: 125, gap: 0 },     // breaking contact
-  hold:     { rate: 0.94, gain: 0.55, max: 80, gap: 4.0 },    // nobody move
-};
+// The table itself moved to command.js, which owns the whole vocabulary (nineteen words, each with a fixed
+// syllable count, duration envelope, pitch contour and squelch, so they are learnable) — this is the same
+// object shape under the old name so nothing that imported CALLS from here breaks.
+export const CALLS = WORD_CALLS;
 
 // play the first registered name from a list (v2 sounds land in parallel; older names stay as fallbacks)
 export function playAny(ctx, names, opts) {
@@ -93,7 +89,12 @@ export function createSquads(ctx) {
   const list = [], grenades = [], sightings = [];
   const rng = ctx.rng.fork(59);
   let nextId = 1;
-  const hold = { anchor: new THREE.Vector3(), t: 0, init: false };
+  // THE MIND (command.js). One picture, one read of how the Explorer fights, one named play at a time held
+  // under a commitment window, one set of seats and ONE MOUTH. It is handed the shared ray pool (so its
+  // occluder solve competes with everything else for the same ten a frame), traversal.reach (so a roof seat
+  // is simply never offered to a man who cannot clamber) and ambush.pickHide (so BAIT's man really goes to
+  // ground). Every solver below is kept verbatim and handed to it as a facade.
+  const cmd = createCommand(ctx, { losBudget, reach, pickHide: ambush.pickHide });
   let grenadeGeo = null, grenadeMat = null;
   let zoneSk = 0, zoneSkT = 0, jobBudget = 0;
 
@@ -202,6 +203,11 @@ export function createSquads(ctx) {
       const c = cand[i];
       if (anomalyAt(c.x, c.z)) continue;       // a firing position inside a field is not a firing position
       if (needLos === null) return c;
+      // contract C4: this used to test line of sight outside the budget entirely, which is how a squad of six
+      // could spend thirty rays in a frame that the rest of the AI had already been refused. When the pool is
+      // dry it takes the best-scored candidate WITHOUT checking the line, which is what a man who has not
+      // looked properly does, rather than standing still because the frame ran out of arithmetic.
+      if (!losBudget(ctx, 1)) return cand[0] || c;
       if (ctx.world.lineOfSight(_v.set(c.x, c.y + losFrom, c.z), eye) === needLos) return c;
     }
     return null;
@@ -211,7 +217,29 @@ export function createSquads(ctx) {
     constructor(members, poi) {
       this.id = nextId++; this.poi = poi || null; this.members = [];
       this.state = 'idle';            // idle | alert | combat | regroup | ambush | breakoff
-      this.lastKnown = new THREE.Vector3(); this.lastKnownT = -1e9; this.hasKnown = false;
+      // ---- the head ----
+      // Every solver in this file is kept exactly as it was and handed over as a facade; the Mind decides
+      // WHICH of them runs, on WHOM, and WHEN, and says so on the radio first. lastKnown / lastKnownT /
+      // knownR / contactKind / hasKnown / spread() are now thin proxies onto its picture (see below), so
+      // everything in mimic.js that reads them keeps working and there is exactly one belief in the squad.
+      this.mind = cmd.makeMind(this, {
+        bestCover, walkable, anomalyAt, anomalyOnLine,
+        highGround: (m, o) => this.highGround(m, o),
+        orderHold: (m, o, fwd) => this.orderHold(m, o, fwd),
+        orderAdvance: (m, o) => this.orderAdvance(m, o),
+        orderFlank: (m, o) => this.orderFlank(m, o),
+        orderOverwatch: (m, o) => this.orderOverwatch(m, o),
+        orderShaken: (m, o) => this.orderShaken(m, o),
+        orderSweep: (n) => this.orderSweep(n),
+        spreadOnto: (pt, job, rad) => this.spreadOnto(pt, job, rad),
+        coverBound: (m, o) => this.coverBound(m, o),
+        beginRegroup: () => this.beginRegroup(),
+        beginBreakoff: () => this.beginBreakoff(),
+        plant: () => this.plant(),
+        members: () => this.members,
+        leader: () => this.leader,
+      });
+      this.shotCursor = -1;           // the Director's shot ring, so read.mag counts each round exactly once
       this.aim = new THREE.Vector3(); this.aimEye = new THREE.Vector3(); this.eyesOn = false; this.faceA = 0;
       this.combatT = 0; this.roleT = rng.range(0, 1.5); this.grenadeT = 0; this.radioT = rng.range(6, 14); this.reinforceCalled = false;
       this.retreat = new THREE.Vector3(); this.ambushT = 0; this.centroid = new THREE.Vector3();
@@ -226,12 +254,10 @@ export function createSquads(ctx) {
       this.route = null; this.routeI = 0; this.routeDir = 1; this.routeHold = 0; this.legT = 0; this.patrolT = rng.range(0, 0.6); this.file = [];
       this.breakT = 0; this.coolT = 0; this.sightT = 0; this.posCursor = 0;
       // ---- v4: the squad as a unit ----
-      this.knownR = 0;                 // metres the shared picture may be wrong by; grows with its age
-      this.contactKind = 'none';       // none | seen (somebody has eyes on) | told (a call) | heard (gunfire)
       this.org = 1;                    // organisation: 1 with a leader giving orders, a quarter of that without
       this.fixing = 0;                 // men of the base element with a live line onto the called position
       this.fixT = -1e9;                // when the base last actually put rounds down
-      this.flankSide = rng() < 0.5 ? 1 : -1; this.flankT = -1e9; this.flankSet = false; this.flankers = 0;
+      this.flankSide = 1; this.flankT = -1e9; this.flankSet = false; this.flankers = 0;
       this.bounds = 0; this.boundsRefused = 0; this.fragOrders = 0;   // read by tools/scenarios/ai-*.mjs
       this.lastSay = null; this.saidT = -1e9;
       this.sectorT = 0; this.planted = false; this.saidAt = {}; this.assaultT = -1e9; this.assault = false;
@@ -273,23 +299,25 @@ export function createSquads(ctx) {
     // One place where a squad makes a noise on purpose. Everything the squad decides that the player could
     // reasonably be given a chance to react to goes through here FIRST, a beat before it happens.
     say(kind, from, mult = 1) {
-      const c = CALLS[kind] || CALLS.update;
-      const t = ctx.elapsed;
-      if (c.gap && t - (this.saidAt[kind] || -1e9) < c.gap) return false;
-      const m = from && from.alive ? from : this.members.find((x) => x.alive && !x.stalker);
-      if (!m || m.stalker) return false;
-      this.saidAt[kind] = t; this.lastSay = kind; this.saidT = t;
-      m.sound('mimic_radio', { gain: c.gain * mult, max: c.max, rate: c.rate * (0.98 + rng() * 0.04) });
-      this.radioT = Math.max(this.radioT, 1.4);
-      return true;
+      const said = this.mind.say(kind, from, mult);
+      if (said) { this.saidAt[kind] = ctx.elapsed; this.lastSay = kind; this.saidT = ctx.elapsed; this.radioT = Math.max(this.radioT, 1.4); }
+      return said;
     }
 
-    // ---- shared knowledge ----
+    // ---- shared knowledge: one belief, owned by the mind ----
     // `r` is how wide the guess is. A sighting is 0; a call relayed across the squad widens as it travels and
-    // keeps widening as it ages, which is what turns an assault into a sweep.
-    know(pos, t, r = 0) { if (t <= this.lastKnownT) return; this.lastKnown.copy(pos); this.lastKnownT = t; this.hasKnown = true; this.knownR = r; }
-    // how wrong the shared picture is right now (metres). Read by assignJobs to spread the sectors out.
-    spread() { return this.eyesOn ? 0 : Math.min(26, this.knownR + Math.max(0, ctx.elapsed - this.lastKnownT) * 0.8); }
+    // keeps widening as it ages — and the RATE it widens at is what a read of the player buys: 1.15 m/s for a
+    // squad that has learned nothing about you (deliberately worse than the old flat 0.8), 0.45 for one that
+    // has. That single scalar is the difference between "confused by a tree" and "waiting on the far side".
+    know(pos, t, r = 0) { return this.mind.know(pos, t, r); }
+    get lastKnown() { return this.mind.picture.pos; }
+    get lastKnownT() { return this.mind.picture.t; }
+    get hasKnown() { return this.mind.picture.has; }
+    get knownR() { return this.mind.picture.r; }
+    set knownR(v) { this.mind.picture.r = v; }
+    get contactKind() { return this.mind.picture.kind; }
+    set contactKind(v) { this.mind.picture.kind = v; }
+    spread() { return this.mind.spread(); }
     // A sighting is called in, not broadcast. The caller keys the radio (a delay), the squad's shared picture
     // updates, and each other man hears it after a delay of his own — farther away is later, and at low
     // standing some of them miss the first call entirely and get it on the repeat.
@@ -359,6 +387,7 @@ export function createSquads(ctx) {
       this.morale = Math.max(0, this.morale - 0.2);
       // a man goes down and somebody says so — you hear it, and you hear what it costs them
       this.say('down', this.members.find((x) => x.alive && x !== m) || null);
+      if (m !== this.leaderRef) this.mind.interrupt('manDown', m.position.x, m.position.z, m);
       if (m === this.leaderRef) {
         // The man giving the orders is gone. Nobody flanks, nobody bounds, everyone gets behind something,
         // and the squad stays disorganised until somebody else has the picture: `org` is what the rest of
@@ -369,7 +398,12 @@ export function createSquads(ctx) {
         this.morale = Math.max(0, this.morale - 0.2);
         this.bounding = false; this.flankSet = false; this.flankT = -1e9;
         for (const x of this.members) if (x.alive && x !== m) { x.cooldown = Math.max(x.cooldown || 0, rng.range(0.4, 1.1)); }   // a beat of hesitation
-        this.say('hold', this.members.find((x) => x.alive && x !== m) || null, 1.1);
+        // The active play is aborted MID-EXECUTION: the man who was walking round stops and goes to ground,
+        // visibly, within a frame. The mind drops to C0 — no plays at all — until `shaken` runs out, and then
+        // after two to four seconds of silence the next-ranked man keys the handset with the COMMAND carrier
+        // for the first time and says `hold`. The commanding voice comes from a different place in the world,
+        // which is the most legible possible statement of what killing him bought.
+        this.mind.onLeaderDown(m);
       }
       this.roleT = 0; this.file.length = 0;
     }
@@ -379,12 +413,21 @@ export function createSquads(ctx) {
     // not get bored: it was told to wait here, so it waits here.
     plant() {
       this.planted = true; this.state = 'ambush'; this.route = null; this.radioT = 1e9;
-      this.lastKnownT = ctx.elapsed; this.hasKnown = false; this.morale = 1;
+      this.mind.standDown(false); this.morale = 1;
+      // Where the man is expected to come FROM. The zone files the bearing you walked in on last time
+      // (director.poiRecord), and ambush.js builds the whole lane, the two validation rays and the choke
+      // sweep off it. Failing that, the centre of the POI.
+      const rec = this.poi && ctx.director && ctx.director.poiRecord ? ctx.director.poiRecord(this.poi.id) : null;
+      let ax = this.poi ? this.poi.x : this.centroid.x, az = this.poi ? this.poi.z : this.centroid.z;
+      if (rec && rec.ang != null && this.poi) { ax = this.poi.x + Math.cos(rec.ang) * (this.poi.r + 20); az = this.poi.z + Math.sin(rec.ang) * (this.poi.r + 20); }
       for (const m of this.members) {
         if (!m.alive) continue;
         const o = m.orders; if (!o) continue;
         o.job = 'ambush'; o.role = 'ambush'; o.hold = true; o.fire = false; o.hasTarget = false; o.hasSector = false;
         m.aware = Math.min(m.aware, 0.15); m.engaged = false;
+        // A PLANTED ambush never gets bored: it was told to wait here, so it waits here. It makes literally
+        // no sound while it does — the static bed is stopped outright, not attenuated, and the handset is dead.
+        if (!ambush.isCommitted(m)) ambush.beginHide(m, ctx, ax, az, { planted: true });
         if (m.setState && m.state !== 'engage') m.setState('engage');
       }
     }
@@ -395,7 +438,11 @@ export function createSquads(ctx) {
     standDown(hard = false) {
       this.state = 'idle'; this.combatT = 0; this.reinforceCalled = false; this.regrouped = false;
       this.bounding = false; this.shaken = 0; this.pending.length = 0;
-      this.flankSet = false; this.flankT = -1e9; this.fixing = 0; this.contactKind = 'none'; this.knownR = 0;
+      this.flankSet = false; this.flankT = -1e9; this.fixing = 0;
+      // the mind drops its play; a HARD stand-down also files what this contact taught the zone about you and
+      // wipes the squad's own read, so the next contact starts from what the ZONE knows and nothing more
+      this.mind.standDown(hard);
+      for (const m of this.members) if (m.alive) ambush.abandon(m, 'standDown');
       for (const m of this.members) {
         const o = m.orders;
         if (o) { o.role = 'idle'; o.job = 'idle'; o.hasTarget = false; o.fire = false; o.hold = false; o.at = false; o.side = 0; o.element = 0; o.mv = 0; o.hasSector = false; o.covering = null; o.frag = 0; o.saidMove = 0; }
@@ -408,18 +455,28 @@ export function createSquads(ctx) {
 
     update(dt) {
       const t = ctx.elapsed, p = ctx.player;
+      // The mind's cheap half: order delivery, the commitment clock, the still-clock, and the same-frame
+      // promotion cascade when a seat's man dies. No rays, no allocation, no search.
+      this.mind.update(dt);
+      this.hearShots(t);
       // roster, centroid, and the standing-orders watchdog in one pass
       let alive = 0, awareMax = 0, stale = false, minD = Infinity;
       this.centroid.set(0, 0, 0); this.moving = 0; this.eyesOn = false;
-      let seer = null;
+      let seer = null, seers = 0;
       for (const m of this.members) {
         if (!m.alive) continue;
         alive++; this.centroid.add(m.position); if (m.moveSpeed > 0.5) this.moving++;
         if (m.aware > awareMax) awareMax = m.aware;
         if (m.orders && m.orders.role !== 'idle') stale = true;
         const d = m.position.distanceTo(p.position); if (d < minD) minD = d;
+        if (m.aware >= 0.85 && t - (m.lastVisT ?? -1e9) < 1.2) seers++;
         if (!seer && m.aware >= 0.9 && t - (m.lastVisT ?? -1e9) < 1.2 && m.lastSeenPlayer) { this.eyesOn = true; seer = m; }
       }
+      // HOW MANY MEN CURRENTLY HAVE EYES ON IT. The mind counts this in its ledger, but the ledger is only
+      // rebuilt on a plan tick — and a squad far from the player, or one that has run out of plan budget,
+      // stops planning. A frozen seer count freezes the still-clock ON, and the still-clock is the grenade
+      // trigger. It is a per-frame fact and the roster pass above already has it, so it is written here.
+      this.mind.picture.seers = seers;
       if (alive === 0) { if (this.pending.length) this.pending.length = 0; return; }
       this.centroid.divideScalar(alive);
       this.shaken = Math.max(0, this.shaken - dt);
@@ -462,6 +519,12 @@ export function createSquads(ctx) {
       if (this.inCombat || this.state === 'alert') {
         for (const m of this.members) {
           if (!m.alive || m.aware < 0.8 || !m.lastSeenPlayer) continue;
+          // ...and only from a man who has actually LAID EYES on something in the last two seconds. deliver()
+          // stamps every man's lastSeenT when a call lands on him, so relaying on lastSeenT alone was a closed
+          // loop: the call refreshed the belief, the fresh belief triggered the next call, and the squad's
+          // picture stayed permanently "current" off no observation at all. That is what kept the still-clock
+          // running — and therefore the grenade trigger armed — against a player nobody had seen for a minute.
+          if (t - (m.lastVisT ?? -1e9) > 2) continue;
           if (m.lastSeenT > this.lastKnownT + 2.5) { if (this.report(m.lastSeenPlayer, 'update', m)) break; }
         }
       }
@@ -498,7 +561,11 @@ export function createSquads(ctx) {
       // where you went, the squad puts them on line, one lane each, and walks the ground. The lanes are as
       // wide as the picture is vague (spread()), which is why a squad that only ever HEARD you covers a lot
       // of ground badly and a squad that watched you go covers a little ground well.
-      if (this.state === 'combat' && !this.eyesOn && t - this.lastKnownT > 7 && this.hasKnown && this.org > 0.4 && this.morale > 0.5) {
+      // ...but not while the mind has a man walking round the thing the Explorer is standing behind. ANGLE is
+      // the answer to exactly this situation, it is allowed up to twelve seconds to finish, and turning the
+      // squad into a search line halfway through is how the tree wins.
+      const angling = !!(this.mind.play && this.mind.play.id === 'ANGLE');
+      if (this.state === 'combat' && !this.eyesOn && !angling && t - this.lastKnownT > 9 && this.hasKnown && this.org > 0.4 && this.morale > 0.5) {
         this.state = 'sweep'; this.roleT = 0; this.bounding = false; this.radioT = Math.max(this.radioT, 6);
       } else if (this.state === 'sweep' && (this.eyesOn || t - this.lastKnownT < 3)) this.enterCombat();
       // nerve: a squad cut in half falls back and sets an ambush; a squad that has lost its nerve leaves
@@ -506,13 +573,32 @@ export function createSquads(ctx) {
         if (this.morale <= BREAK_MORALE && this.initial >= 2) this.beginBreakoff();
         else if (!this.regrouped && this.initial >= 3 && alive * 2 <= this.initial) this.beginRegroup();
       }
-      // the ambush springs as one when you walk into it, not man by man
-      if (this.state === 'ambush') {
-        if (minD < SPRING_R && !p.dead && !p.inBase) {
-          this.state = 'combat'; this.roleT = 0; this.radioT = 0.15; this.know(p.position, t, 0); this.planted = false;
-          this.contactKind = 'seen'; this.say('contact', null, 1.1);
-          for (const m of this.members) if (m.alive && m.orders) { m.orders.role = 'base'; m.orders.job = 'point'; m.orders.fire = true; }
-        } else if (!this.planted && t - this.lastKnownT > AMBUSH_MAX) this.standDown(true);   // an improvised ambush that nobody walks into ends
+      // THE THIRD FAIRNESS LEAK, CLOSED.
+      // This used to spring the whole squad on the player's TRUE distance — `minD < SPRING_R` — whether or not
+      // a single one of them could see him, hear him or had been told about him. Now each man's own hide
+      // decides (ambush.js: range AND exposure AND his back turned, or three metres, or a round in the vest,
+      // or a call from a mate that traces back to somebody's eyes), and when the FIRST of them springs the
+      // rest come out with him. They still come out together; they come out on one man's eyes.
+      {
+        let sprung = null, stillDown = 0;
+        for (const m of this.members) {
+          if (!m.alive || !m.hide || m.hide.state === 'off') continue;
+          const st = m.hide.state;
+          if (st === 'tell' || st === 'rise' || st === 'out') { if (!sprung) sprung = m; }
+          else if (st === 'set' || st === 'hold') stillDown++;
+        }
+        if (sprung) {
+          this.planted = false;
+          if (sprung.lastSeenPlayer) this.know(sprung.lastSeenPlayer, t, sprung.beliefR || 0);
+          if (stillDown) for (const m of this.members) {
+            if (!m.alive || m === sprung || !ambush.isHidden(m)) continue;
+            ambush.forceSpring(m, 'squad');
+            // and what the sprung man has goes over the net as a call, with his own error still on it
+            if (sprung.lastSeenPlayer) ambush.onCall(m, sprung.lastSeenPlayer.x, sprung.lastSeenPlayer.z);
+            if (m.orders) { m.orders.role = 'base'; m.orders.job = 'point'; m.orders.fire = true; m.orders.hold = true; }
+          }
+          if (this.state === 'ambush') this.enterCombat();
+        } else if (this.state === 'ambush' && !this.planted && t - this.lastKnownT > AMBUSH_MAX) this.standDown(true);
       }
       if (this.state === 'breakoff') this.breakoffTick(dt, alive);
 
@@ -534,7 +620,7 @@ export function createSquads(ctx) {
       // the other thing: the leader picks whoever is best placed and posts one in. The order is a call on the
       // radio and the throw is a second behind it, so the frag is always something you were told about first.
       if (this.state === 'combat' && this.grenadeT <= 0 && this.org > 0.5 && this.leader && this.shaken <= 0 && !p.dead && !p.inBase) {
-        const held = api.playerHoldT;
+        const held = this.mind.picture.stillT * lerp(1, 1.8, zoneSk);
         const stuck = this.fixing === 0 && t - this.lastKnownT < 9 && this.hasKnown;
         if (held > lerp(9, 4, this.skill) && (stuck || (this.combatT > 12 && this.morale < 0.8))) {
           let best = null, bs = -1;
@@ -598,12 +684,31 @@ export function createSquads(ctx) {
       if (this.radioT <= 0) {
         this.radioT = this.state === 'ambush' ? 1e9 : this.inCombat ? (this.moving > 0 ? rng.range(2.5, 5) : rng.range(5, 9)) : (this.moving > 0 ? rng.range(7, 14) : rng.range(14, 26));
         let talker = null, n = 0;
-        for (const m of this.members) { if (!m.alive || m.stalker || m.position.distanceTo(p.position) > 95) continue; if (rng() < 1 / ++n) talker = m; }
-        if (talker) talker.sound('mimic_radio', { gain: this.inCombat ? 0.7 : 0.45, max: 85, rate: 0.92 + rng() * 0.16 });
+        for (const m of this.members) { if (!m.alive || m.stalker || ambush.isHidden(m) || m.position.distanceTo(p.position) > 95) continue; if (rng() < 1 / ++n) talker = m; }
+        // the last un-worded transmission in the project. A rate is not a word: voices.js re-randomises the
+        // syllable count and the pitch on every play, so an ad-hoc `rate:` is noise that drowns out the
+        // nineteen words the player is supposed to be learning. Squad chatter is a status word or nothing.
+        if (talker) this.say(this.inCombat ? 'update' : 'heard', talker, this.inCombat ? 0.7 : 0.55);
       }
       // the Explorer's own sheet: a chevron where a group was seen
       this.sightT -= dt;
       if (this.sightT <= 0) { this.sightT = 2; if (minD < 140) { for (const m of this.members) { if (m.alive && m.observed) { markSighting(this.centroid, alive, t); break; } } } }
+    }
+
+    // Each round the Explorer fires, counted EXACTLY ONCE per squad and only when it was actually audible from
+    // where the squad is standing. This is what feeds read.mag — how many rounds he lets go at a time — and
+    // the gate is at consumption, so a suppressed weapon still teaches them nothing at all.
+    hearShots(t) {
+      const dir = ctx.director; if (!dir || !dir.shotCount) return;
+      const n = dir.shotCount();
+      if (this.shotCursor < 0) { this.shotCursor = n; return; }
+      if (n === this.shotCursor) return;
+      const first = Math.max(this.shotCursor, n - 24);
+      for (let i = first; i < n; i++) {
+        const sh = dir.shotAt(i); if (!sh) continue;
+        this.mind.observe('shot', { x: sh.x, z: sh.z, noise: sh.noise });
+      }
+      this.shotCursor = n;
     }
 
     // ---- falling back ----
@@ -613,7 +718,7 @@ export function createSquads(ctx) {
       const A = this.aim, sk = this.skill;
       const c = bestCover(this.centroid, 75, (c, dm) => {
         const dp = Math.hypot(c.x - A.x, c.z - A.z); if (dp < 22) return null;
-        if (inFrustum(c.x, c.y + 0.9, c.z, 60)) return null;
+        if (this.mind.frustum(c.x, c.z, 60)) return null;    // the BELIEF cone, not the camera
         let s = dp * 0.5 - dm * 0.15;
         if (this.poi) s += (1 - clamp01(Math.hypot(c.x - this.poi.x, c.z - this.poi.z) / (this.poi.r + 30))) * 30 * sk;
         // A field between them and you is a wall you have to walk round and they do not. They know where the
@@ -716,7 +821,11 @@ export function createSquads(ctx) {
         for (const m of this.members) if (m.alive && m.position.distanceTo(this.retreat) < 5) arrived++;
         if (arrived >= alive || this.ambushT > 25) {
           this.state = 'ambush';
-          for (const m of this.members) if (m.alive && m.orders) { const o = m.orders; o.job = 'ambush'; o.role = 'ambush'; o.hold = true; o.fire = false; o.hasTarget = false; }
+          for (const m of this.members) if (m.alive && m.orders) {
+            const o = m.orders; o.job = 'ambush'; o.role = 'ambush'; o.hold = true; o.fire = false; o.hasTarget = false;
+            // they go silent for real: the static bed stops, the handset goes dead, nobody moves again
+            ambush.beginHide(m, ctx, A.x, A.z);
+          }
         }
         this.ambushT += this.roleT;
         return;
@@ -735,101 +844,53 @@ export function createSquads(ctx) {
       for (const m of members) m._dA = Math.hypot(m.position.x - A.x, m.position.z - A.z);
       members.sort((a, b) => a._dA - b._dA);
 
-      // leaderless and rattled: no plan, everyone behind the nearest thing, fire only if pressed
-      if (this.shaken > 0) {
-        for (const m of members) if (m.orders) this.orderShaken(m, m.orders);
-        return;
-      }
-
-      // jobs by class first: the marksman and the gunner are the base of fire, the breacher goes forward
-      const n = members.length, jobs = new Map();
-      for (const m of members) {
-        if (m.role === 'sniper' || m.role === 'gunner') jobs.set(m, 'support');
-        else if (m.role === 'breacher') jobs.set(m, 'point');
-      }
-      const free = members.filter((x) => !jobs.has(x));
-      let hasPoint = false; for (const j of jobs.values()) if (j === 'point') hasPoint = true;
-      if (!hasPoint && free.length) { jobs.set(free.shift(), 'point'); hasPoint = true; }   // nearest man takes point
-      if (n >= 4 && free.length) jobs.set(free.pop(), 'overwatch');              // farthest hangs back and watches
-      // ---- the flanking ELEMENT ----
-      // Two men going round on opposite bearings are two men walking into two different fights. One side is
-      // chosen for the element and kept for the whole contact; both walk the same arc, and neither of them
-      // steps off until the base is actually shooting (see `fixed` below). A squad without a leader does not
-      // send anybody anywhere.
-      const t = ctx.elapsed;
       // The three seconds after their own grenade goes off. They do not stand and watch the smoke: the base
       // element comes forward at half its usual range while you are still deaf, which is what makes the call
-      // before the throw worth listening for.
+      // before the throw worth listening for. orderHold reads this.
+      const t = ctx.elapsed;
       this.assault = t > this.assaultT && t < this.assaultT + 4.5 && this.org > 0.5;
-      const wantFlank = n <= 2 || this.org < 0.45 ? 0 : Math.min(free.length - 1, sk > 0.55 && this.org > 0.75 ? 2 : sk > 0.15 ? 1 : 0);
-      if (wantFlank > 0 && t - this.flankT > 30) { this.flankSide = rng() < 0.5 ? 1 : -1; this.flankT = t; this.flankSet = false; }
-      for (let i = 0; i < wantFlank; i++) jobs.set(free.pop(), 'flanker');
-      this.flankers = wantFlank;
-      for (const m of free) jobs.set(m, 'support');
-      if (n === 1) jobs.set(members[0], 'point');
-
-      // bounding: with two or more men holding or pushing and ground to cross, one element moves while the
-      // other watches. Below tide/clearance it is a straight advance instead.
-      const movers = [];
-      for (const [m, j] of jobs) if (j === 'point' || j === 'support') movers.push(m);
-      const gap = this.centroid.distanceTo(A);
-      const wantBound = movers.length >= 2 && sk >= 0.18 && (gap > 20 || this.assault) && this.morale > 0.45 && this.org > 0.5;
-      this.groups = 2;   // two elements: one crosses, one covers. Three elements is nobody covering anybody.
-      if (wantBound && !this.bounding) { this.bounding = true; this.boundT = this.assault ? 1.6 : lerp(6.5, 3.5, sk); this.movingElement = 0; }
-      else if (!wantBound) this.bounding = false;
-      // the men nearest the contact hold; the ones behind them come up. Split by distance, not by list order.
-      if (this.bounding) { this.movingElement %= this.groups; for (let i = 0; i < movers.length; i++) movers[i].orders.element = i % this.groups; }
-
-      // A man holds his arc for as long as the bound he is covering lasts, not until the next re-plan: jobs are
-      // reassigned every couple of seconds and a bound takes twice that, so clearing them here on every plan
-      // was taking the sector off the coverer halfway through his mate's run.
+      // A man holds his arc for as long as the bound he is covering lasts, not until the next re-plan.
       for (const m of members) if (m.orders && t - (m.orders.sectorAt || -1e9) > 6) { m.orders.hasSector = false; m.orders.covering = null; }
-      // the base has to be shooting before anybody walks. `fixT` is the last time a man of the base element
-      // had a live line on the called position.
-      const fixed = this.fixing > 0 || t - this.fixT < 3.5;
 
-      // Picking a firing position is a handful of line-of-sight rays; doing it for five men at once is a
-      // visible hitch on a handset. Two men are repositioned a tick, round robin — plus anyone whose job
-      // has just changed and anyone whose turn it is to move. The rest keep the orders they have, which is
-      // what a real squad does anyway. A man whose bound has just ended goes firm on the cover he was
-      // walking to and opens fire; that costs nothing at all.
-      let budget = 2, seat = 0;
-      const cursor = this.posCursor | 0;
-      for (const [m, job] of jobs) {
-        const o = m.orders; if (!o) continue;
-        const prev = o.job; o.job = job;
-        const line = job === 'point' || job === 'support';
-        const mv = this.bounding && line ? (o.element === this.movingElement ? 1 : 2) : 0;
-        const was = o.mv | 0; o.mv = mv;
-        if (mv === 2 && was === 1) { o.role = 'base'; o.fire = true; o.hold = true; if (o.saidMove === 1) { o.saidMove = 0; this.say('set', m, 0.8); } continue; }
-        const changed = prev !== job || (mv === 1 && was !== 1);
-        const turn = seat++ === cursor % members.length;
-        if (!changed && !turn && o.hasTarget) continue;
-        if (!changed && budget-- <= 0) continue;
-        if (job === 'flanker') {
-          if (prev !== 'flanker') { o.arrivedT = 0; o.saidMove = 0; }
-          o.side = this.flankSide;
-          if (!fixed && !o.at) { o.role = 'base'; o.fire = true; o.hold = true; o.hasTarget = false; continue; }   // nothing pinning him: stay put and shoot
-          this.orderFlank(m, o);
-          if (o.hasTarget && !o.at && o.saidMove !== 2) { o.saidMove = 2; this.say('flanking', m); }
-        } else if (job === 'overwatch') this.orderOverwatch(m, o);
-        else if (mv === 1) {
-          this.orderAdvance(m, o);
-          // A bound nobody can cover is not a bound, it is a man running across a road on his own. A green
-          // squad does it anyway; anything above that stays where it is and keeps shooting until it can be
-          // covered — which is why a good squad advances in rushes and a bad one dies in the open.
-          if (this.coverBound(m, o) || sk < 0.25) {
-            if (o.hasTarget && o.saidMove !== 1) { o.saidMove = 1; this.say('moving', m, 0.85); }
-          } else {
-            // he stays where he is and keeps shooting, which is the point: the squad's fire does not stop
-            // just because the ground ahead is not covered.
-            this.boundsRefused++;
-            o.mv = 2; o.saidMove = 0;
-            this.orderHold(m, o, false);
-          }
-        } else this.orderHold(m, o, job === 'point');
+      // ---- THE MIND CHOOSES ----
+      // One named play — HOLD, ANGLE, HUNT, PROBE, FLANK, PIN, PUSH, CUT, BAIT, WITHDRAW — scored once on
+      // eight arithmetic terms and then HELD for its commitment window. Availability is hard-gated by the
+      // command tier (a squad with no leader gets single-seat plays only; the ten seconds after you kill him
+      // it gets none at all) and by director.escalation, which decides what the ZONE is willing to do; the
+      // preference between the available ones is soft-gated by the leader's own skill, so a day-one squad has
+      // three ideas and picks the dull one and an elite squad lets geometry decide. It lays the seats, fills
+      // them by fitness — with a churn penalty that is what stops the shuffling — announces a manoeuvre
+      // 0.6 s before its man steps off, and re-solves at most two positions a tick through this same round
+      // robin. Every solver it calls is one of the fifteen below, unchanged.
+      const play = this.mind.tick(this.roleT, members);
+      this.flankers = this.mind.moverSeats();
+      this.bounding = false;
+      if (!play) return;
+
+      // ---- and a bound nobody can cover is still refused ----
+      // The mind hands a man somewhere to be. This is the check that says whether the ground between here and
+      // there is watched by somebody standing still with a line onto it — and hands THAT man the lane as a
+      // SECTOR, which he faces and puts rounds into while his mate runs (mimic.js wantCover). Below a green
+      // squad's standing they cross anyway and die doing it, which is why a good squad advances in rushes and
+      // a bad one dies in the open.
+      // Anything over ten metres in contact is a bound whatever the seat is called: a man walking that far in
+      // the open needs somebody's rounds on the ground ahead of him. Under six metres is a shuffle between
+      // rocks and does not.
+      for (const m of members) {
+        const o = m.orders; if (!o || !o.hasTarget) continue;
+        const cross = Math.hypot(o.target.x - m.position.x, o.target.z - m.position.z);
+        if (cross < (o.hold ? 10 : 6)) { if (o.mv === 1) o.mv = 0; continue; }
+        o.mv = 1;
+        if (this.coverBound(m, o)) {
+          if (o.saidMove !== 1) { o.saidMove = 1; this.say('moving', m, 0.85); }
+        } else if (sk >= 0.25 && members.length >= 2) {
+          // Nobody can watch that ground. He does not cross it: he stays where he is and keeps shooting, and
+          // the squad re-solves him next tick. That is why a good squad advances in rushes and a bad one dies
+          // in the open — below a green squad's standing (sk < 0.25) he goes anyway.
+          this.boundsRefused++;
+          o.mv = 2; o.saidMove = 0; o.hasTarget = false;
+        }
       }
-      this.posCursor = (cursor + 1) % Math.max(1, members.length);
     }
 
     // Is the ground this man is about to cross covered by somebody? Finds a stationary member with a line onto
@@ -979,14 +1040,14 @@ export function createSquads(ctx) {
         const ca = Math.atan2(c.z - A.z, c.x - A.x);
         const gain = Math.abs(dA) - Math.abs(angleDelta(ca, ta));
         if (gain < 6 * DEG && Math.abs(dp - ringD) >= Math.abs(m._dA - ringD) - 1) return null;
-        if (inFrustum(c.x, c.y + 0.9, c.z, 50)) return null;    // the whole chain stays out of the player's view
+        if (this.mind.frustum(c.x, c.z, 50)) return null;    // the whole chain stays out of where they BELIEVE he can see
         if (anomalyOnLine(m.position.x, m.position.z, c.x, c.z)) return null;
         return gain * 5 - Math.abs(dp - ringD) * 0.1 - dm * 0.05;
       }, null);
       if (c) { o.target.copy(c); o.hasTarget = true; return; }
       const step = Math.sign(dA || 1) * Math.min(35 * DEG, Math.abs(dA));
       const na = ma + step, r = clamp(m._dA, 12, 22);
-      if (walkable(A.x + Math.cos(na) * r, A.z + Math.sin(na) * r, o.target) && !inFrustum(o.target.x, o.target.y + 0.9, o.target.z, 50)) { o.hasTarget = true; return; }
+      if (walkable(A.x + Math.cos(na) * r, A.z + Math.sin(na) * r, o.target) && !this.mind.frustum(o.target.x, o.target.z, 50)) { o.hasTarget = true; return; }
       // In view everywhere — open ground, and you are looking straight down it. Rather than stand still for
       // the rest of the fight he takes the LONG way: the same bearing at a range where being seen costs him
       // very little, and closes back in once he is round the side. It is slow, and you can hear him go.
@@ -1133,9 +1194,6 @@ export function createSquads(ctx) {
   const api = {
     list, grenades, visibleFromPlayer, inFrustum, walkable, bestCover, playAny: (names, opts) => playAny(ctx, names, opts),
     get skill() { return zoneSk; },
-    // a squad that has watched you sit still for six seconds decides you are worth a grenade; a good one
-    // makes that decision sooner (the mimic reads this against a fixed six)
-    get playerHoldT() { return hold.t * lerp(1, 1.8, zoneSk); },
     // the Explorer's map annotations: where groups were seen, newest last
     sightings() { return sightings; },
     form(members, poi) {
@@ -1166,16 +1224,15 @@ export function createSquads(ctx) {
       for (const s of list) for (const m of s.members) m.squad = null;
       list.length = 0;
       for (const g of grenades) { ctx.scene.remove(g.mesh); if (g.hiss) g.hiss.stop(0.05); }
-      grenades.length = 0; sightings.length = 0; hold.init = false; hold.t = 0; grid = null; gridLen = -1;
+      grenades.length = 0; sightings.length = 0; grid = null; gridLen = -1;
     },
     update(dt) {
       if (dt <= 0) return;
       refreshCam();
       jobBudget = 2;
       zoneSkT -= dt; if (zoneSkT <= 0) { zoneSkT = 3; zoneSk = zoneSkill(); }
-      // how long has the player held one spot? (grenade trigger)
-      const p = ctx.player.position;
-      if (!hold.init || hold.anchor.distanceTo(p) > 2.5) { hold.anchor.copy(p); hold.t = 0; hold.init = true; } else hold.t += dt;
+      // smoke clouds, flares, thrown projectiles and the flash the Explorer is still blinking through
+      kit.kitFrame(ctx, dt);
       for (let i = list.length - 1; i >= 0; i--) {
         const s = list[i];
         if (s.alive === 0 && s.members.every((m) => !m.alive)) { for (const m of s.members) m.squad = null; list.splice(i, 1); continue; }

@@ -26,6 +26,7 @@
 // Nothing here is saved; a load simply re-rolls the zone.
 import * as THREE from 'three';
 import { createSquads } from './squad.js';
+import * as ambush from './ambush.js';
 import { pickClass } from './loadout.js';
 import { POI_TIER } from '../data/index.js';
 
@@ -284,6 +285,23 @@ export function createPopulation(ctx) {
         if (planSquad(poi, tide, T, size, used, null, { at, ambush: true, classes })) ambushes++;
       }
     }
+    // ---- ONE HIDER ----
+    // Not a squad and not an ambush: one man who has decided to be a piece of the landscape. He walks to a
+    // place that is verified invisible from thirty metres up the lane you come in on and verified lethal at
+    // six, gets down, stops making any sound at all — the static bed is stopped outright, the handset is dead
+    // — and waits. Whether he is allowed at all is director.escalation's decision (none at 0, one per POI
+    // ever, three in the whole zone at 3); it is checked again at spawn time, because escalation moves.
+    if (known >= 1 && nSquads > 0) {
+      const a = (rec ? rec.ang : rng() * Math.PI * 2) + rng.range(-0.6, 0.6);
+      for (let k = 0; k < 8; k++) {
+        const aa = a + rng.range(-0.7, 0.7), rr = poi.r * rng.range(0.35, 0.9);
+        const x = poi.x + Math.cos(aa) * rr, z = poi.z + Math.sin(aa) * rr;
+        if (!standable(x, z)) continue;
+        plan.push({ type: 'mimic', pos: new THREE.Vector3(x, groundY(x, z), z), poi, pri: 1,
+          extra: { cls: rollClass(poi, tide, T, known >= 2), hider: true, toward: { x: poi.x + Math.cos(rec ? rec.ang : aa) * (poi.r + 25), z: poi.z + Math.sin(rec ? rec.ang : aa) * (poi.r + 25) } } });
+        break;
+      }
+    }
     // ---- the other side of the place ----
     // Things that are not people, bedded down where you would go if you broke contact and ran: away from the
     // approach the zone knows you use. Losing a firefight should not be a safe direction.
@@ -347,6 +365,13 @@ export function createPopulation(ctx) {
         if (sp && sp.route) s.setRoute(sp.route, { loop: sp.loop, startAt: sp.startAt });
         if (sp && sp.ambush) s.plant();
       } else { s.add(e); if (s.planted) s.plant(); }
+    }
+    // the lone hider: allowed only at escalation >= 1, one per POI, three in the zone
+    if (en.extra && en.extra.hider && e.type === 'mimic') {
+      if (ambush.mayHide(ctx, poi ? poi.id : null)) {
+        const to = en.extra.toward;
+        ambush.beginHide(e, ctx, to ? to.x : (poi ? poi.x : e.position.x), to ? to.z : (poi ? poi.z : e.position.z));
+      }
     }
     return e;
   }

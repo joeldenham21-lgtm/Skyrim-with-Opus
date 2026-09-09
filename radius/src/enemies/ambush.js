@@ -99,6 +99,7 @@ export const CROUCH_H = 1.25;        // the mimic's own crouched capsule (mimic.
 export const STAND_H = 1.85;
 export const FAR_PROBE = 30;         // m up the lane the concealment test is taken from
 export const NEAR_PROBE = 6;         // m up the lane the killing-angle test is taken to
+export const NEAR_PROBE_2 = 3;       // and the fallback, for a man covering a room rather than a road
 export const IDEAL_PERP = 4.0;       // m off the lane a good hide sits: you walk PAST it, not INTO it
 export const MAX_PERP = 15;          // m off the lane past which a hide is guarding nothing
 export const CAND_MAX = 12;          // candidates kept from the pre-score
@@ -106,9 +107,16 @@ export const VALIDATE_MAX = 4;       // of those, how many are worth two rays ea
 export const PICK_EVERY = 0.5;       // s between attempts when the budget refuses
 export const PICK_TRIES = 6;         // attempts before it gives up and hides where it stands
 export const MAX_HIDERS = 3;         // in the whole zone, ever, at escalation 3
-export const CHOKE_STEP = 2.5;       // m between choke samples along the lane
-export const CHOKE_SPAN = 22;        // m of lane swept looking for a doorway
-export const CHOKE_HALF = [1.5, 3.0];// m: open at the inner half-width, solid at the outer one
+export const CHOKE_STEP = 1.2;       // m between choke samples along the lane
+export const CHOKE_SPAN = 20;        // m of lane swept looking for a place he has to commit to
+export const CHOKE_FAN = [0, 20, -20];   // degrees either side of the lane also swept
+export const CHOKE_Y = 1.35;         // m above the ground the width is measured at (chest, not ankles)
+// Three shapes, tightest first. Measured across the world's real geometry (tools/scenarios/ai2-ambush-2):
+//   0 DOORWAY  open at 0.6 m, walls at 1.5 m — a door, a hatch, a gap in a fence
+//   1 GAP      open at 1.5 m, walls at 3.2 m — between two wrecks, a gateway, a cattle race
+//   2 WALL     open both sides at 0.6 m, a wall within 2.2 m on exactly ONE side — he is hugging it, and a
+//              man with a wall on one shoulder has half the answers he had a second ago
+export const CHOKE_KIND = ['doorway', 'gap', 'wall'];
 
 // =====================================================================================================
 // SHARED PER-FRAME RAY BUDGET. traversal.js owns the real one (contract C4); until the integrator injects
@@ -156,7 +164,7 @@ const _vis = { shiver: HIDE_SHIVER, fade: HIDE_FADE, glow: 1.6, pulse: 0 };
 const _lane = { ox: 0, oz: 0, dx: 0, dz: 1, ok: false, src: 'none' };
 const _seek = { x: 0, y: 0, z: 0 };
 // candidate pool: plain numbers, never Vector3s, so a pick allocates nothing
-const CAND = []; for (let i = 0; i < CAND_MAX; i++) CAND.push({ x: 0, y: 0, z: 0, s: 0, kind: 0 });
+const CAND = []; for (let i = 0; i < CAND_MAX; i++) CAND.push({ x: 0, y: 0, z: 0, s: 0, kind: 0, enc: 0 });
 let candN = 0;
 // the live hiders, so frequency can be capped without anyone owning a registry
 const HIDERS = [];
@@ -169,7 +177,7 @@ export const COUNT = {
 };
 export function stats() {
   return {
-    picks: COUNT.picks, picked: COUNT.picked, failed: COUNT.failed, springs: COUNT.springs,
+    picks: COUNT.picks, picked: COUNT.picked, failed: COUNT.failed, inPlace: COUNT.cheap, springs: COUNT.springs,
     tells: COUNT.tells, abandons: COUNT.abandons, bored: COUNT.bored, chokes: COUNT.chokes,
     rays: COUNT.rays, solid: COUNT.solid, senseTicks: COUNT.senseTicks, looks: COUNT.looks,
     alloc: COUNT.alloc, live: hiderCount(), reasons: COUNT.reasons,
@@ -225,11 +233,11 @@ export function createHide(m, opts = {}) {
     holdFor: HOLD_S[0],
     planted: !!opts.planted,   // told to wait here: never gets bored
     // the place
-    hasSpot: false, x: 0, y: 0, z: 0, quality: 0, kind: 0, roofed: 0,
+    hasSpot: false, x: 0, y: 0, z: 0, quality: 0, kind: 0, enclosure: 0,
     // the lane it is guarding: a unit bearing from the hide toward where the man will come FROM
     laneX: 0, laneZ: 1, laneOK: false, laneSrc: 'none',
     aimX: 0, aimZ: 0,      // the point on the lane it is trained on
-    chokeX: 0, chokeZ: 0, hasChoke: false,
+    chokeX: 0, chokeZ: 0, hasChoke: false, chokeTier: -1, chokeScan: 0,
     springR: ROW_FALLBACK.springR,
     // clocks
     senseT: 0, pickT: 0, tries: 0, seekT: 0,
@@ -334,23 +342,43 @@ function laneFor(m, ctx, towardX, towardZ, out) {
 // options, which is exactly when an ambush should fire — and it is why "clearing a building" is dangerous.
 // pointInSolid only; no rays. Runs once, when the hide is chosen.
 // =====================================================================================================
-function findChoke(ctx, h) {
+// ONE bearing of the fan per call, so the sweep is spread over the settle rather than spiking a frame.
+// Returns true when a choke was found (and stops), false while there is more to sweep or nothing to find.
+function chokeStep(ctx, h) {
   const w = ctx.world;
-  if (!w.pointInSolid) { h.hasChoke = false; return false; }
-  const px = -h.laneZ, pz = h.laneX;    // the lane's perpendicular
-  for (let d = NEAR_PROBE * 0.5; d <= CHOKE_SPAN; d += CHOKE_STEP) {
-    const cx = h.x + h.laneX * d, cz = h.z + h.laneZ * d;
-    const g = w.groundHeight(cx, cz, h.y + 4);
-    const y = g.y + 1.5;
-    COUNT.solid += 4;
-    if (w.pointInSolid(cx + px * CHOKE_HALF[0], y, cz + pz * CHOKE_HALF[0])) continue;
-    if (w.pointInSolid(cx - px * CHOKE_HALF[0], y, cz - pz * CHOKE_HALF[0])) continue;
-    if (!w.pointInSolid(cx + px * CHOKE_HALF[1], y, cz + pz * CHOKE_HALF[1])) continue;
-    if (!w.pointInSolid(cx - px * CHOKE_HALF[1], y, cz - pz * CHOKE_HALF[1])) continue;
-    h.chokeX = cx; h.chokeZ = cz; h.hasChoke = true; COUNT.chokes++;
-    return true;
+  if (!w.pointInSolid || h.hasChoke || h.chokeScan >= CHOKE_FAN.length) return h.hasChoke;
+  {
+    const bi = h.chokeScan++;
+    const a = CHOKE_FAN[bi] * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+    const lx = h.laneX * ca - h.laneZ * sa, lz = h.laneX * sa + h.laneZ * ca;
+    const px = -lz, pz = lx;            // this bearing's perpendicular
+    for (let d = 2.0; d <= CHOKE_SPAN; d += CHOKE_STEP) {
+      const cx = h.x + lx * d, cz = h.z + lz * d;
+      const g = w.groundHeight(cx, cz, h.y + 4);
+      const y = g.y + CHOKE_Y;
+      COUNT.solid += 8;
+      const l06 = w.pointInSolid(cx + px * 0.6, y, cz + pz * 0.6);
+      const r06 = w.pointInSolid(cx - px * 0.6, y, cz - pz * 0.6);
+      if (l06 || r06) continue;                                     // he cannot stand here at all
+      const l15 = w.pointInSolid(cx + px * 1.5, y, cz + pz * 1.5);
+      const r15 = w.pointInSolid(cx - px * 1.5, y, cz - pz * 1.5);
+      let tier = -1;
+      if (l15 && r15) tier = 0;                                     // DOORWAY
+      else if (!l15 && !r15) {
+        const l32 = w.pointInSolid(cx + px * 3.2, y, cz + pz * 3.2);
+        const r32 = w.pointInSolid(cx - px * 3.2, y, cz - pz * 3.2);
+        if (l32 && r32) tier = 1;                                   // GAP
+        else {
+          const l22 = w.pointInSolid(cx + px * 2.2, y, cz + pz * 2.2);
+          const r22 = w.pointInSolid(cx - px * 2.2, y, cz - pz * 2.2);
+          if (l22 !== r22) tier = 2;                                // WALL on one shoulder
+        }
+      }
+      if (tier < 0) continue;
+      h.chokeX = cx; h.chokeZ = cz; h.hasChoke = true; h.chokeTier = tier; COUNT.chokes++;
+      return true;
+    }
   }
-  h.hasChoke = false;
   return false;
 }
 
@@ -370,34 +398,58 @@ function findChoke(ctx, h) {
 // findable, killable, and exactly the beatable version of the same behaviour.
 // =====================================================================================================
 function pushCand(x, y, z, s, kind) {
-  if (candN < CAND.length) { const c = CAND[candN++]; c.x = x; c.y = y; c.z = z; c.s = s; c.kind = kind; return; }
+  if (candN < CAND.length) { const c = CAND[candN++]; c.x = x; c.y = y; c.z = z; c.s = s; c.kind = kind; c.enc = 0; return; }
   let worst = 0; for (let i = 1; i < candN; i++) if (CAND[i].s < CAND[worst].s) worst = i;
-  if (s > CAND[worst].s) { const c = CAND[worst]; c.x = x; c.y = y; c.z = z; c.s = s; c.kind = kind; }
+  if (s > CAND[worst].s) { const c = CAND[worst]; c.x = x; c.y = y; c.z = z; c.s = s; c.kind = kind; c.enc = 0; }
 }
 function sortCand() {
   for (let i = 1; i < candN; i++) {
-    const c = CAND[i], x = c.x, y = c.y, z = c.z, s = c.s, k = c.kind;
+    const c = CAND[i], x = c.x, y = c.y, z = c.z, s = c.s, k = c.kind, e = c.enc;
     let j = i - 1;
-    while (j >= 0 && CAND[j].s < s) { CAND[j + 1].x = CAND[j].x; CAND[j + 1].y = CAND[j].y; CAND[j + 1].z = CAND[j].z; CAND[j + 1].s = CAND[j].s; CAND[j + 1].kind = CAND[j].kind; j--; }
-    CAND[j + 1].x = x; CAND[j + 1].y = y; CAND[j + 1].z = z; CAND[j + 1].s = s; CAND[j + 1].kind = k;
+    while (j >= 0 && CAND[j].s < s) { const a = CAND[j + 1], b = CAND[j]; a.x = b.x; a.y = b.y; a.z = b.z; a.s = b.s; a.kind = b.kind; a.enc = b.enc; j--; }
+    const t = CAND[j + 1]; t.x = x; t.y = y; t.z = z; t.s = s; t.kind = k; t.enc = e;
   }
 }
-// Can a body actually get down here, and is there a roof over it?
+// Can a body actually get down here? `fromY` is the height the ground search starts from, and a point that
+// came out of a world registry is trusted to be on the floor it was registered on — searching from three
+// metres up finds the catwalk above it instead and puts the ambush on a roof.
 function siteFor(ctx, x, z, fromY) {
   const w = ctx.world;
   if (w.isWater && w.isWater(x, z)) return null;
-  const g = w.groundHeight(x, z, fromY + 3);
-  COUNT.solid += 2;
-  if (w.pointInSolid && w.pointInSolid(x, g.y + 0.6, z)) return null;   // no room to crouch
-  const roof = w.pointInSolid && w.pointInSolid(x, g.y + 2.7, z) ? 1 : 0;
-  _site.x = x; _site.y = g.y; _site.z = z; _site.roof = roof;
+  const g = w.groundHeight(x, z, fromY);
+  COUNT.solid += 1;
+  if (w.pointInSolid && w.pointInSolid(x, g.y + 0.6, z)) return null;   // no room even to crouch
+  _site.x = x; _site.y = g.y; _site.z = z; _site.roof = 0;
   return _site;
+}
+// ENCLOSURE — 0..1 of the four cardinal bearings that are walled within 3.2 m at chest height. This world's
+// buildings have no roof colliders to test for, but a man in a room is walled on three sides and a man in the
+// open is walled on none, so this is the real "he is inside something" signal — and it is what makes clearing
+// a building dangerous, because the highest-scoring hides in the zone are the ones inside the rooms.
+export function enclosureAt(ctx, x, y, z) { return enclosure(ctx, x, y, z); }
+function enclosure(ctx, x, y, z) {
+  const w = ctx.world; if (!w.pointInSolid) return 0;
+  const h = y + 1.30; let n = 0;
+  COUNT.solid += 4;
+  if (w.pointInSolid(x + 3.2, h, z)) n++;
+  if (w.pointInSolid(x - 3.2, h, z)) n++;
+  if (w.pointInSolid(x, h, z + 3.2)) n++;
+  if (w.pointInSolid(x, h, z - 3.2)) n++;
+  return n * 0.25;
 }
 
 function scoreCands(m, ctx, h, lane) {
   const w = ctx.world;
   candN = 0;
   const ox = m.position.x, oz = m.position.z, oy = m.position.y;
+  // WHERE HE IS STANDING IS A CANDIDATE. Obvious once stated, and load-bearing: a man already inside a
+  // building is standing in the best place in the building, and every registry point within reach of him is
+  // out in the open where the approach can see it. Without this he rejects them all and falls back three
+  // seconds later to the same spot anyway, having learnt nothing about it.
+  {
+    const site = siteFor(ctx, ox, oz, oy + 1.2);
+    if (site && !anomalyNear(ctx, ox, oz, 2.5)) pushCand(site.x, site.y, site.z, 0.85 + 1.45 * concealAt(ctx, ox, oz), 3);
+  }
   const lists = [w.hidingSpots, w.spawnSpots, w.coverPoints];
   for (let li = 0; li < 3; li++) {
     const arr = lists[li]; if (!arr || !arr.length) continue;
@@ -413,20 +465,36 @@ function scoreCands(m, ctx, h, lane) {
       const proj = dx * lane.dx + dz * lane.dz;
       const perp = Math.abs(dx * -lane.dz + dz * lane.dx);
       if (perp > MAX_PERP) continue;
-      const site = siteFor(ctx, p.x, p.z, p.y != null ? p.y : oy);
+      const site = siteFor(ctx, p.x, p.z, (p.y != null ? p.y : oy) + 0.8);
       if (!site) continue;
       if (anomalyNear(ctx, p.x, p.z, 2.5)) continue;
+      // Is there anything at all between this spot and the man walking in? Two pointInSolid probes up the
+      // lane at chest height. It is not the concealment test — that needs a ray — but it predicts it well
+      // enough to put the four candidates worth a ray at the top of the list, for free.
+      let screen = 0;
+      if (w.pointInSolid) {
+        COUNT.solid += 2;
+        if (w.pointInSolid(p.x + lane.dx * 1.6, site.y + 1.30, p.z + lane.dz * 1.6)) screen += 0.6;
+        if (w.pointInSolid(p.x + lane.dx * 4.0, site.y + 1.30, p.z + lane.dz * 4.0)) screen += 0.4;
+      }
       let s = 0;
       s -= 0.055 * dm;                                                   // it has to walk there, quietly
       s += 1.45 * concealAt(ctx, p.x, p.z);                              // is the ground itself cover from view
+      s += 1.30 * screen;                                                // and is there something in front of it
       s += 0.95 * clamp01(1 - Math.abs(perp - IDEAL_PERP) / 7);          // BESIDE the lane, not on it
       s += proj > -5 && proj < 28 ? 0.55 : 0;                            // between him and where he is going
-      s += 0.75 * site.roof;                                             // under a roof: the building ambush
       s += li === 0 ? 0.45 : li === 1 ? 0.30 : 0;                        // a place built to hide in
       s += e && e.poi && e.poi === m.poi ? 0.35 : 0;
       s += (rng() - 0.5) * 0.10;                                         // tie-break only
       pushCand(site.x, site.y, site.z, s, li);
     }
+  }
+  // second pass, over the twelve survivors only: how enclosed is each. Four probes each, bounded, and it is
+  // what pulls the ambush off the open field and into the room.
+  for (let i = 0; i < candN; i++) {
+    const c = CAND[i];
+    c.enc = enclosure(ctx, c.x, c.y, c.z);
+    c.s += 1.10 * c.enc;
   }
   return candN;
 }
@@ -439,16 +507,18 @@ export function pickHide(m, ctx, towardX, towardZ, opts = {}) {
   const lane = laneFor(m, ctx, towardX, towardZ, _lane);
   h.laneX = lane.dx; h.laneZ = lane.dz; h.laneOK = lane.ok; h.laneSrc = lane.src;
   const p = clamp01(sk(m, 'patience'));
-  const strict = opts.strict != null ? opts.strict : p >= 0.35;   // must the concealment test pass at all
+  // A patient man insists on the concealment half for his first few looks, then takes the best hole he
+  // has found rather than standing in the road arguing with himself about it.
+  const strict = opts.strict != null ? opts.strict : (p >= 0.35 && (h.tries || 0) < 3);
   const n = scoreCands(m, ctx, h, lane);
   if (n === 0) { COUNT.failed++; return false; }
   sortCand();
   const w = ctx.world;
   const tries = Math.min(n, Math.max(1, Math.round(lerp(2, VALIDATE_MAX, p))));
-  let bestI = -1, bestQ = -1;
+  let bestI = -1, bestQ = -1, bestFar = true, bestKill = false, bestNear2 = false, near2 = false;
   for (let i = 0; i < tries; i++) {
     const c = CAND[i];
-    if (!budget(ctx, 2)) break;                       // the pool said no: keep what we have, retry next tick
+    if (!budget(ctx, 3)) break;                       // the pool said no: keep what we have, retry next tick
     COUNT.rays += 2;
     // the lane, taken from THIS candidate rather than from the mimic's feet
     const fx = c.x + lane.dx * FAR_PROBE, fz = c.z + lane.dz * FAR_PROBE;
@@ -459,29 +529,45 @@ export function pickHide(m, ctx, towardX, towardZ, opts = {}) {
     const seenFar = w.lineOfSight(_p1, _p2);
     _p1.set(c.x, c.y + STAND_H * 0.9, c.z);
     _p2.set(nx, ng.y + 1.30, nz);
-    const killNear = w.lineOfSight(_p1, _p2);
-    const q = (seenFar ? 0 : 0.55) + (killNear ? 0.45 : 0);
-    if (q > bestQ) { bestQ = q; bestI = i; }
+    let killNear = w.lineOfSight(_p1, _p2);
+    // A man covering a ROOM rather than a road has a wall six metres up the lane and a killing angle three
+    // metres in front of him. Without this second probe every interior hide is rejected and the building
+    // ambush — the one that ends a run — never happens.
+    near2 = false;
+    if (!killNear) {
+      near2 = true;
+      const kx = c.x + lane.dx * NEAR_PROBE_2, kz = c.z + lane.dz * NEAR_PROBE_2;
+      const kg = w.groundHeight(kx, kz, c.y + 6);
+      _p2.set(kx, kg.y + 1.30, kz);
+      killNear = w.lineOfSight(_p1, _p2);
+      COUNT.rays++;
+    }
+    const q = (seenFar ? 0 : 0.45) + (killNear ? 0.55 : 0);
+    if (q > bestQ) { bestQ = q; bestI = i; bestFar = seenFar; bestKill = killNear; bestNear2 = near2 && killNear; }
     if (!seenFar && killNear) break;                  // both halves: stop looking, this is the one
   }
-  if (bestI < 0) { COUNT.failed++; return false; }
-  if (strict && bestQ < 0.55) { COUNT.failed++; return false; }   // a good one refuses a bad hole
+  // The killing angle is not negotiable at any skill: a hole it cannot shoot out of is not a hiding place,
+  // it is a grave. The CONCEALMENT half is what the curve buys — a recruit will take a spot the man walking
+  // in can see from thirty metres, which is exactly the beatable version of this behaviour.
+  if (bestI < 0 || !bestKill) { COUNT.failed++; return false; }
+  if (strict && bestFar) { COUNT.failed++; return false; }
   const c = CAND[bestI];
   h.x = c.x; h.y = c.y; h.z = c.z; h.hasSpot = true; h.quality = bestQ; h.kind = c.kind;
-  h.roofed = w.pointInSolid && w.pointInSolid(c.x, c.y + 2.7, c.z) ? 1 : 0; COUNT.solid++;
-  h.aimX = c.x + lane.dx * NEAR_PROBE; h.aimZ = c.z + lane.dz * NEAR_PROBE;
-  findChoke(ctx, h);
+  h.enclosure = c.enc;
+  const aimD = bestNear2 ? NEAR_PROBE_2 : NEAR_PROBE;
+  h.aimX = c.x + lane.dx * aimD; h.aimZ = c.z + lane.dz * aimD;
+  h.chokeScan = 0; h.hasChoke = false; h.chokeTier = -1;   // the choke sweep is amortised over the settle
   COUNT.picked++;
   return true;
 }
 
 // The fallback when there is nothing to choose from: hide where it stands. Cheap, no rays, still silent.
 function hideInPlace(m, ctx, h) {
-  const site = siteFor(ctx, m.position.x, m.position.z, m.position.y);
+  const site = siteFor(ctx, m.position.x, m.position.z, m.position.y + 1.2);
   h.x = site ? site.x : m.position.x; h.y = site ? site.y : m.position.y; h.z = site ? site.z : m.position.z;
-  h.roofed = site ? site.roof : 0;
-  h.hasSpot = true; h.quality = 0; h.kind = 3;
+  h.enclosure = 0; h.hasSpot = true; h.quality = 0; h.kind = 3;
   h.aimX = h.x + h.laneX * NEAR_PROBE; h.aimZ = h.z + h.laneZ * NEAR_PROBE;
+  h.chokeScan = 0; h.hasChoke = false; h.chokeTier = -1;
   COUNT.cheap++;
 }
 
@@ -667,6 +753,7 @@ export function hideTick(m, dt) {
     case 'set': {
       const k = clamp01(h.t / SET_TIME);
       h.crouch = k; m.crouch = k; m.height = lerp(STAND_H, CROUCH_H, k);
+      chokeStep(ctx, h);                    // one bearing of the choke fan per frame while it goes down
       faceLane(m, h, dt, 4.5);
       if (k > 0.35 && !h.muted) silence(m, true);
       if (h.t >= SET_TIME) {
@@ -708,7 +795,7 @@ export function hideTick(m, dt) {
         COUNT.tells++;
         const a = ctx.audio;
         const name = a && a.has && !a.has('mimic_hide') ? (a.has('mimic_step') ? 'mimic_step' : null) : 'mimic_hide';
-        if (name && a) a.play(name, { pos: m.position, hrtf: true, gain: TELL_GAIN, max: TELL_MAX, rate: 0.72, ref: 2 });
+        if (name && a && a.play) a.play(name, { pos: m.position, hrtf: true, gain: TELL_GAIN, max: TELL_MAX, rate: 0.72, ref: 2 });
       }
       pulseTick(m, h, dt);
       if (h.t >= TELL_TIME) beginRise(m, h, t);

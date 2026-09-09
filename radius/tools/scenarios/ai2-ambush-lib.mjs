@@ -67,9 +67,11 @@ export const RIG = `(() => {
   if (!ctx.world.__counted) {
     ctx.world.__counted = true;
     ctx.world.__rays = 0; ctx.world.__solid = 0;
+    // lineOfSight closes over its OWN raycast reference inside collision.js, so wrapping raycast alone
+    // misses every LOS test. Both are wrapped, and lineOfSight counts one ray (it is one raycast).
     const rc = ctx.world.raycast, los = ctx.world.lineOfSight, pis = ctx.world.pointInSolid;
     ctx.world.raycast = (...a) => { ctx.world.__rays++; return rc(...a); };
-    ctx.world.lineOfSight = (...a) => { return los(...a); };   // los goes through raycast; do not double count
+    ctx.world.lineOfSight = (...a) => { ctx.world.__rays++; return los(...a); };
     ctx.world.pointInSolid = (...a) => { ctx.world.__solid++; return pis(...a); };
   }
 
@@ -125,7 +127,7 @@ export const RIG = `(() => {
     },
     step(m, dt = 0.05, n = 1) {
       let owned = 0;
-      for (let i = 0; i < n; i++) { ctx.elapsed += dt; if (A.hideTick(m, dt)) owned++; }
+      for (let i = 0; i < n; i++) { ctx.elapsed += dt; ctx.frame++; if (A.hideTick(m, dt)) owned++; }
       return owned;
     },
     // step several at once, advancing the clock ONCE per iteration
@@ -136,7 +138,9 @@ export const RIG = `(() => {
     state(m) { return m.hide ? m.hide.state : 'none'; },
     beliefErr(m) { return m.lastSeenPlayer ? Math.hypot(m.lastSeenPlayer.x - P.position.x, m.lastSeenPlayer.z - P.position.z) : Infinity; },
     dist(m) { return Math.hypot(m.position.x - P.position.x, m.position.z - P.position.z); },
-    clear() { for (const e of ctx.enemies.list) { e.alive = false; e.removeMe = true; e.squad = null; e.orders = null; } ctx.enemies.removeDead(); A.resetAmbush(); },
+    // a new frame: the shared ray budget refills, exactly as it does in the game loop
+    frame() { ctx.frame++; return ctx.frame; },
+    clear() { ctx.frame++; for (const e of ctx.enemies.list) { e.alive = false; e.removeMe = true; e.squad = null; e.orders = null; } ctx.enemies.removeDead(); A.resetAmbush(); },
     poi(id) { const p = ctx.world.poi(id); return p ? { id: p.id, x: p.x, z: p.z, r: p.r, kind: p.kind } : null; },
     counts() {
       const w = ctx.world;
