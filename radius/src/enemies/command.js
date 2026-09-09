@@ -279,7 +279,7 @@ export function createCommand(ctx, deps = {}) {
   // §read — five habits. EWMA with an asymmetric confidence: four confirmations to become actionable,
   // one contradiction to halve it. That pair of constants is the counter-play.
   // ---------------------------------------------------------------------------------------------------
-  const READ_TAU = 8, CONF_UP = 0.22, CONF_DOWN = 0.45, CONF_IDLE = 1 / 240;
+  const READ_TAU = 8, CONF_UP = 0.22, CONF_DOWN = 0.45, CONF_SWING = 0.55, CONF_IDLE = 1 / 240;
   function makeRead() {
     return {
       peek: { v: 0, c: 0, n: 0 }, mag: { v: 0, c: 0, n: 0 }, hold: { v: 0, c: 0, n: 0 }, pace: { v: 0, c: 0, n: 0 },
@@ -290,11 +290,16 @@ export function createCommand(ctx, deps = {}) {
   // one observation of one habit. `tol` is what counts as agreeing with what we already thought.
   function feed(h, obs, dt, tol, conf = 1) {
     const a = (1 - Math.exp(-dt / READ_TAU)) * clamp01(conf);
+    let against = false;
     if (h.n > 0) {
       if (Math.abs(obs - h.v) <= tol) h.c = h.c + (1 - h.c) * CONF_UP * clamp01(conf);
-      else h.c *= CONF_DOWN;
+      else { h.c *= CONF_DOWN; against = true; }
     }
-    h.v = h.n === 0 ? obs : h.v + (obs - h.v) * Math.max(a, 0.18);
+    // A contradiction does not only cost confidence, it moves the belief HARD. Four quiet confirmations to
+    // learn a habit; two deliberate changes and they have not merely lost faith in the old one, they have
+    // started believing the new one. That is what makes changing your shoulder a counter-play rather than a
+    // way of making them permanently stupid.
+    h.v = h.n === 0 ? obs : h.v + (obs - h.v) * (against ? CONF_SWING : Math.max(a, 0.18));
     h.n++;
     h.c = clamp01(h.c);
   }
