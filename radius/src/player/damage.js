@@ -86,7 +86,6 @@ export function createDamage(ctx) {
   // Recorded the moment the Explorer goes down, not on respawn: main.js reloads the save between the two,
   // and by then the inventory in memory is the one that came off the disk.
   function onDied(info = {}) {
-    const inv = ctx.inventory;
     let snap = null;
     try { snap = snapshotCarried(); } catch (e) { console.warn('[damage] snapshot', e); }
     const p = ctx.player.position;
@@ -95,7 +94,7 @@ export function createDamage(ctx) {
     const dx = p.x - M.BASE.x, dz = p.z - M.BASE.z;
     let rec = null;
     if (snap && snap.entries.length && ctx.loot?.dropCache) {
-      try { rec = ctx.loot.dropCache(snap.entries, { x: p.x, y: p.y, z: p.z }, { kind: 'corpse', name: 'EXPLORER 61' }); }
+      try { rec = ctx.loot.dropCache(snap.entries, { x: p.x, y: p.y, z: p.z }, { kind: 'explorer', name: 'EXPLORER 61' }); }
       catch (e) { console.warn('[damage] dropCache', e); }
     }
     lastLoss = {
@@ -145,11 +144,12 @@ export function createDamage(ctx) {
     const d = D();
     const step = Math.max(0, (flags().deathStreak | 0) - 1);
     const { inv, fee, torch } = reissueInventory(step);
-    // the cache is recorded by onDied; if the Explorer somehow got here without one (debug respawn), take
-    // the kit off them anyway rather than letting a death launder a full loadout
-    if (!lastLoss || lastLoss.day !== d.day || Math.abs(lastLoss.hour - d.hour) > 0.001) { /* stale report: still reissue */ }
+    // The body is recorded by onDied, which runs the instant the Explorer goes down — before main.js
+    // saves and reloads. Whatever happened, the kit comes off the person here: a respawn must never be
+    // able to launder a loadout back into the bunker.
     d.inventory = inv;
     d.hp = 60; d.stamina = 100; d.bleeding = false;
+    st.healQueue.length = 0; st.painkiller = 0; st.steady = 0; st.speedT = 0; st.staminaRegenT = 0;
     d.flashlight = { on: false, battery: Math.min(d.flashlight?.battery ?? 100, torch) };
     const charged = Math.max(0, Math.min(fee, d.money - DEBT_FLOOR));
     d.money -= charged;
@@ -167,6 +167,7 @@ export function createDamage(ctx) {
     const where = L.poi ? `${distText(L.home)} ${L.bearing} of Vanno, grid ${L.poi}` : `${distText(L.home)} ${L.bearing} of Vanno`;
     return {
       where, value: L.value, count: L.count, fee: L.fee || 0, arrears: !!L.arrears,
+      x: L.x, z: L.z, distance: L.home, bearing: L.bearing, poi: L.poi, day: L.day,
       lines: [
         `Kit last logged ${where}. Recovery at the Explorer's own risk.`,
         L.best ? `${L.best}${L.bestCondition != null ? `, condition ${L.bestCondition} %` : ''}. Not recovered.` : null,

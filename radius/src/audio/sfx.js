@@ -244,6 +244,36 @@ function nwaveKernel(a, id, T, rise) {
     }
   });
 }
+// A cluster of soft noise grains from ONE source: the ground and the clutter around the shooter answering the
+// blast in the first few tens of milliseconds. Written as a single buffer source, filter and envelope rather
+// than one burst() per grain because a gunshot schedules quite enough nodes already, and full-auto fire pays
+// for every one of them. Grains are spaced so each has died before the next begins, so the shared envelope
+// never has to jump.
+function grains(v, c = {}) {
+  const a = v.a, s = v.s, t0 = v.t0 + (c.at || 0) / s, span = (c.span ?? 0.05) / s, n = Math.max(1, c.n ?? 4);
+  const src = a.noise(c.type || 'pink'), f = a.filter('lowpass', (c.f0 ?? 1500) * v.rate, 0.6), gn = a.gain(EPS);
+  src.connect(f); f.connect(gn); gn.connect(c.to || v.out);
+  // Spacing grows geometrically: reflections arrive thick and then thin out, and — just as important —
+  // evenly spaced grains are a comb. At 4-6 grains over 60 ms, even spacing puts a periodicity at 80 Hz
+  // right inside the pitch range, and measured as a flutter on the tail of a shot that should have none.
+  const ts = [];
+  for (let i = 0; i < n; i++) ts.push(span * Math.pow((i + rnd(0.05, 0.95)) / n, 1.7));
+  ts.sort((x, y) => x - y);
+  let last = t0;
+  gn.gain.setValueAtTime(EPS, t0);
+  for (let i = 0; i < n; i++) {
+    const ti = t0 + ts[i], gap = i + 1 < n ? ts[i + 1] - ts[i] : span * 0.5;
+    const d = Math.min(gap * 0.92, Math.max(0.006, jit(c.dur ?? 0.03, 0.35) / s));
+    const g = Math.max(EPS, (c.g ?? 0.2) * jit(1, 0.4));
+    f.frequency.setValueAtTime(rnd(c.f0 ?? 1500, c.f1 ?? (c.f0 ?? 1500) * 1.8) * v.rate, ti);
+    gn.gain.setValueAtTime(EPS, ti);
+    gn.gain.linearRampToValueAtTime(g, ti + Math.min(d * 0.4, 0.004));
+    gn.gain.exponentialRampToValueAtTime(EPS, ti + d);
+    last = ti + d;
+  }
+  const tEnd = last + 0.03; src.stop(tEnd); v.src(src, tEnd);
+  return gn;
+}
 // Schedule a kernel. Sample-accurate start, optional filtering, always a scheduled stop.
 function kplay(v, buf, c = {}) {
   const a = v.a, t = v.t0 + (c.at || 0) / v.s;
@@ -303,14 +333,14 @@ function makeSpec(o) {
     hf: clamp(Math.pow(C.p / 300, 0.8) * Math.pow(mp, 0.4) * (can ? 0.2 : 1), 0.1, 2.2),
     big: clamp(tauOpen / 0.45e-3, 0.5, 2),                              // how big the space has to answer for
     tailG: can ? 0.3 : 1,
-    // 0.80 and the 0.10 exponent are the mix, and the only two numbers here chosen for the game rather than
-    // from the physics: they put a Makarov at the reference peak (0.80 raw, 0.64 through the master bus) and
+    // 0.90 and the 0.10 exponent are the mix, and the only two numbers here chosen for the game rather than
+    // from the physics: they put a Makarov at the reference peak (0.90 raw, 0.65 through the master bus) and
     // compress the real 20 dB between a Makarov and a PKM into about 3 dB, which is all a game mix can carry.
     // The ORDER is still the physics: charge, muzzle pressure and chamber pressure decide it, so the sawn-off
     // Mosin is the loudest thing in the game and the Makarov the quietest, without anyone typing that in.
     // mechG is that same figure WITHOUT the can, because a suppressor silences the blast and not the bolt —
     // that inversion is the whole reason a suppressed weapon sounds clacky and wet rather than merely quiet.
-    mechG: 0.80 * Math.pow(energy / 0.233, 0.10) * (1 + 0.06 * brake),
+    mechG: 0.90 * Math.pow(energy / 0.233, 0.10) * (1 + 0.06 * brake),
   };
   S.g = S.mechG * (can ? 0.30 : 1);
   // Supersonic bullets drag an N-wave behind them; the shooter stands inside its cone, a few decimetres off axis.
@@ -344,9 +374,7 @@ function actionNoise(v, S, g) {
   if (A === 'piston' || A === 'belt' || A === 'gasshot') {
     const t1 = rnd(0.020, 0.030), t2 = t1 + rnd(0.026, 0.040);
     knock(t1, 2100, 0.55 * k, 1.8, 0.010); clunk(t1, 148, 0.42 * k);
-    knock(t1 + 0.004, 3400, 0.22 * k, 3, 0.006);
     knock(t2, 1750, 0.75 * k, 1.6, 0.012); clunk(t2, 122, 0.6 * k);
-    knock(t2 + 0.005, 2900, 0.25 * k, 3, 0.007);
     if (A === 'belt') pulses(v, { n: irnd(3, 5), at: t1, span: 0.05, type: 'white', f0: 2600, f1: 4200, q: 4, dur: 0.005, g: 0.22 * k, decay: 0.8 });
   } else if (A === 'ar') {
     const t1 = rnd(0.016, 0.024), t2 = t1 + rnd(0.030, 0.042);
@@ -365,39 +393,55 @@ function actionNoise(v, S, g) {
     knock(t2, 1900, 0.5 * k, 1.8, 0.010); clunk(t2, 140, 0.35 * k);
   }
   // brass on the ground, a long way behind everything else
-  if (A !== 'bolt' && A !== 'break' && A !== 'pump' && Math.random() < 0.55) {
-    const at = rnd(0.20, 0.42), f = rnd(3200, 5200);
-    burst(v, { at, type: 'white', filt: 'bandpass', f0: f, q: 5, dur: 0.006, g: 0.10 * g, atk: 0.0004 });
-    burst(v, { at: at + rnd(0.03, 0.07), type: 'white', filt: 'bandpass', f0: f * 1.2, q: 6, dur: 0.004, g: 0.05 * g, atk: 0.0004 });
-  }
+  if (A !== 'bolt' && A !== 'break' && A !== 'pump' && Math.random() < 0.55)
+    pulses(v, { n: 2, at: rnd(0.20, 0.42), span: 0.06, type: 'white', f0: 3200, f1: 5200, q: 5, dur: 0.005, g: 0.11 * g, decay: 0.5 });
+}
+// How far the report had to travel, and what the air did to it on the way. Absorption in air is strongly
+// frequency dependent — over 200 m the top octaves are gone, over 400 m almost everything above a kilohertz —
+// so a rifle fired across the marsh is not the same sound quieter, it is a duller sound. The engine's panner
+// gives distance attenuation and nothing else, so the colour has to come from here. The listener position is
+// the one the engine tracks each frame, and the muzzle position is whatever the caller passed as opts.pos.
+function airCut(v) {
+  const p = v.o && v.o.pos, L = v.a.listenerPos;
+  if (!p || !L) return { d: 0, cut: 0 };
+  const d = Math.hypot((p.x || 0) - L.x, (p.y || 0) - L.y, (p.z || 0) - L.z);
+  return { d, cut: d < 25 ? 0 : 26000 / (1 + d / 30) };
 }
 // The full report: blast, its reflections, the bullet's crack, the space it happened in, and the action.
 function report(v, S, o = {}) {
   const a = v.a, envG = o.space ?? 1;
+  const { d: dist, cut: air } = airCut(v);
+  const A = (f) => { const m = air ? (f ? Math.min(f, air) : air) : f; return m && m < 19000 ? m : undefined; };
   // The crack lands within a couple of hundred microseconds of the blast, so the two sum at the peak. Dividing
   // by that sum makes the rendered peak equal S.g, which keeps the level table honest: a weapon is louder here
   // because its charge is bigger, not because its bullet happens to be supersonic.
-  const g = S.g * (o.g ?? 1) / (1 + (S.crack > 0.02 ? 0.55 * S.crack : 0));
+  const g = S.g * (o.g ?? 1) / (1 + (S.crack > 0.02 ? 0.8 * S.crack : 0));
   const kv = irnd(0, 2), kb = blastKernel(a, S.id, S, kv);
-  kplay(v, kb, { g });
+  kplay(v, kb, { g, lp: A(0) });
   // Reflections in the first few milliseconds: the shooter's own body and gun, then the ground under him. Each uses
   // a different noise realisation of the same blast so the pair does not comb into a metallic colour.
-  kplay(v, blastKernel(a, S.id, S, (kv + 1) % 3), { at: rnd(0.0012, 0.0026), g: g * 0.32, lp: 3600, rate: jit(1, 0.05) });
-  kplay(v, blastKernel(a, S.id, S, (kv + 2) % 3), { at: rnd(0.0068, 0.0098), g: g * 0.42 * envG, lp: 1900, rate: jit(1, 0.05) });
-  if (S.brake) kplay(v, blastKernel(a, S.id, S, (kv + 2) % 3), { at: rnd(0.0004, 0.0011), g: g * 0.34, hp: 700, rate: jit(1.1, 0.05) });
-  // Ballistic crack: a real N-wave, arriving with the blast because the bullet is only now leaving.
-  if (S.crack > 0.02) {
+  kplay(v, blastKernel(a, S.id, S, (kv + 1) % 3), { at: rnd(0.0012, 0.0026), g: g * 0.32, lp: A(3600), rate: jit(1, 0.05) });
+  kplay(v, blastKernel(a, S.id, S, (kv + 2) % 3), { at: rnd(0.0068, 0.0098), g: g * 0.42 * envG, lp: A(1900), rate: jit(1, 0.05) });
+  if (S.brake && dist < 60) kplay(v, blastKernel(a, S.id, S, (kv + 2) % 3), { at: rnd(0.0004, 0.0011), g: g * 0.22, hp: 700, rate: jit(1.1, 0.05) });
+  // Ballistic crack: a real N-wave, arriving with the blast because the bullet is only now leaving. It belongs
+  // to whoever is standing near the muzzle. Listening to someone ELSE shoot, you are outside the Mach cone and
+  // hear no crack from their muzzle at all — what you get instead is ballistics.js playing bullet_whiz as the
+  // round goes past you, which is the same shock arriving at the right time from the right direction.
+  const crackFade = clamp(1 - (dist - 12) / 40, 0, 1);
+  if (S.crack > 0.02 && crackFade > 0.03) {
     const nb = nwaveKernel(a, S.id, S.crackT, S.rise * 0.8);
-    kplay(v, nb, { at: rnd(0.0001, 0.0004), g: g * S.crack * 0.8, hp: 320, rate: jit(1, 0.06) });
+    kplay(v, nb, { at: rnd(0.0001, 0.0004), g: g * S.crack * 0.8 * crackFade, hp: 320, lp: A(0), rate: jit(1, 0.06) });
   }
   // The space. Early scattering off ground clutter and trees, then a dark decay: this is the part players use to
   // judge distance, and it is the environment's sound, not the gun's.
-  const tl = (o.tail ?? 1) * envG * S.tailG, big = S.big;
-  seq(v, irnd(4, 6), 0.008, 0.060, (at) => burst(v, { at, type: 'pink', filt: 'lowpass', f0: rnd(900, 2400), f1: 500, q: 0.6, dur: rnd(0.02, 0.05), g: 0.28 * g * tl, atk: 0.004 }));
-  burst(v, { at: 0.016, type: 'pink', filt: 'lowpass', f0: 1500 / big, f1: 190, q: 0.5, dur: (0.28 + 0.34 * big) * (o.tailDur ?? 1), g: 0.34 * g * tl, atk: 0.022 });
+  // The further away it was, the more of what arrives is the zone answering rather than the gun itself.
+  const tl = (o.tail ?? 1) * envG * S.tailG * (1 + clamp(dist / 180, 0, 1.1)), big = S.big;
+  grains(v, { at: 0.008, n: irnd(4, 6), span: 0.062 + 0.0004 * dist, f0: 900, f1: air ? Math.min(2400, air) : 2400, dur: 0.03, g: 0.34 * g * tl });
+  burst(v, { at: 0.016, type: 'pink', filt: 'lowpass', f0: Math.min(1500 / big, air || 1e9), f1: 190, q: 0.5, dur: (0.28 + 0.34 * big) * (o.tailDur ?? 1) * (1 + clamp(dist / 300, 0, 1)), g: 0.34 * g * tl, atk: 0.022 });
   burst(v, { at: 0.012, type: 'brown', filt: 'lowpass', f0: 420, f1: 120, q: 0.6, dur: 0.10 + 0.16 * big, g: 0.34 * g * tl * big, atk: 0.008 });
-  if (big > 0.85 && tl > 0.2) kplay(v, kb, { at: rnd(0.085, 0.20), g: g * 0.085 * tl, lp: 620, lp2: 900, rate: jit(0.94, 0.04) });
-  actionNoise(v, S, (o.mech ?? 1) * S.mechG * (o.g ?? 1) * 0.11);
+  if (big > 0.85 && tl > 0.2) kplay(v, kb, { at: rnd(0.085, 0.20), g: g * 0.085 * tl, lp: A(620), lp2: 900, rate: jit(0.94, 0.04) });
+  // The action is a quiet thing on the weapon itself; from fifty metres away nobody hears a bolt.
+  actionNoise(v, S, (o.mech ?? 1) * S.mechG * (o.g ?? 1) * 0.11 * clamp(1 - (dist - 8) / 45, 0.05, 1));
 }
 // The name the rest of the game knows. `p.spec` is the physical description; the old keyword form is still
 // understood (voices.js hands it one) and is mapped onto a cartridge rather than reproduced.
@@ -439,12 +483,17 @@ const LEVEL = {
   seeker_shot: 0.76, mimic_shot: 0.9, fragment_explode: 0.88, seeker_death: 0.8, seeker_step: 0.8,
   door_open: 0.85, door_close: 0.85, death: 0.95, ui_stamp: 0.8,
   crow: 5, bird: 3, slider_screech: 3, slider_click: 1.8, slider_death: 2.2, slider_lunge: 1.8, slider_step: 1.8, mimic_radio: 2.2, mimic_skip: 3,
-  spawn_skitter: 3, spawn_death: 1.6, spawn_bite: 1.4, seeker_hiss: 1.4, reflector_whip: 1.3, bullet_whiz: 1.4, impact_concrete: 1.3, drip: 1.4, gas_cough: 2.5,
+  spawn_skitter: 3, spawn_death: 1.6, spawn_bite: 1.4, seeker_hiss: 1.4, reflector_whip: 1.3, bullet_whiz: 1.1, impact_concrete: 1.3, drip: 1.4, gas_cough: 2.5,
   phantom_hiss: 1.5, phantom_scream: 1.25, phantom_grab: 0.9,
   armor_hit: 0.75, armor_pen: 0.8, helmet_ring: 0.68, ricochet: 2.2, thunder: 1.0,
   ads_in: 4, ads_out: 3.8, click: 4.5, jump: 3.2, ui_slip: 3, ui_click: 1.8, ui_open: 1.3, hurt: 1.3,
   mag_load_round: 3, probe_throw: 3, probe_land: 2, weapon_holster: 2.8, weapon_draw: 2.2, pickup_item: 3, pickup_ammo: 2.2, reload_magout: 2.6,
-  bandage_use: 2.5, medkit_use: 1.6, stim_use: 1.3, step_grass: 2, dry_click: 1.8, bolt_open: 2, shell_insert: 1.5, break_open: 1.5, unjam: 1.5,
+  bandage_use: 2.5, medkit_use: 1.6, stim_use: 1.3, step_grass: 2, shell_insert: 1.5, break_open: 1.5, unjam: 1.5,
+  // Rebuilt mechanical sounds: the old dry click and bolt lift were quiet recipes propped up by a large trim,
+  // and the new ones do not need it. Measured against shot_pm's 0.69 in the same offline render, the trims
+  // they had (1.8 and 2.0) made an empty chamber and a bolt handle as loud as the Makarov firing, and `jam`
+  // has always been louder than the gun it happens in.
+  dry_click: 0.9, bolt_open: 0.9, jam: 0.5,
   container_open: 1.5, artifact_pickup: 1.6, step_road: 1.5, step_concrete: 1.4,
   wind: 1.6, drizzle: 1.5, fragment_chime: 0.8, breath: 1.8,
   // The eight above were calibrated the same way, against shot_pm's 0.70 peak on the master bus: an
@@ -616,11 +665,11 @@ export function registerSfx(audio) {
       // shot that quietly, so that is the switch. The 2.2 puts back what the caller took off the mechanical
       // half, which a suppressor does not touch.
       const sup = v.o.suppressed === true || (v.o.gain != null && v.o.gain <= 0.62);
-      report(v, (integral || sup) ? SUP[id] : OPEN[id], (integral || sup) ? { g: 2.2 } : {});
+      report(v, (integral || sup) ? SUP[id] : OPEN[id], (integral || sup) ? { g: 2.5 } : {});
     });
-    def('shot_' + id + '_sup', (v) => report(v, SUP[id], { g: 2.2 }));
+    def('shot_' + id + '_sup', (v) => report(v, SUP[id], { g: 2.5 }));
   }
-  def('shot_suppressed', (v) => report(v, SUP.akm, { g: 2.2 }));
+  def('shot_suppressed', (v) => report(v, SUP.akm, { g: 2.5 }));
   // The hammer falls on an empty chamber: a dead, unresonant tick, plus the sear and the spring behind it.
   // Nothing rings, because nothing here is free to ring.
   def('dry_click', (v) => {
@@ -709,8 +758,8 @@ export function registerSfx(audio) {
   const whiz = (v, sub) => {
     if (!sub) {
       const T = rnd(0.00032, 0.00054), nb = nwaveKernel(v.a, 'whiz' + Math.round(T * 5e4), T, 3.5e-5);
-      kplay(v, nb, { g: 0.95, hp: 380 });
-      kplay(v, nb, { at: rnd(0.0016, 0.0042), g: 0.26, lp: 2600 });        // the same crack off the ground
+      kplay(v, nb, { g: 0.62, hp: 380 });
+      kplay(v, nb, { at: rnd(0.0016, 0.0042), g: 0.17, lp: 2600 });        // the same crack off the ground
     }
     burst(v, { type: 'white', filt: 'bandpass', f0: sub ? 2000 : 4400, f1: sub ? 650 : 950, q: 1.1, dur: 0.07, g: sub ? 0.5 : 0.38, atk: 0.0035, hp: 500 });
     burst(v, { at: 0.018, type: 'pink', filt: 'bandpass', f0: 1400, f1: 480, q: 0.9, dur: 0.09, g: 0.14, atk: 0.012 });
@@ -723,10 +772,10 @@ export function registerSfx(audio) {
   // gunshot was making, in a smaller place.
   def('impact_metal', (v) => {
     const f = rnd(820, 1450);
-    burst(v, { type: 'white', filt: 'highpass', f0: 2000, q: 0.6, dur: 0.0035, g: 0.95, atk: 0.0003 });
-    burst(v, { type: 'white', filt: 'bandpass', f0: 3200, f1: 1300, q: 0.8, dur: 0.018, g: 0.55, atk: 0.0004 });
-    tone(v, { f0: f * 0.42, f1: f * 0.3, dur: 0.018, g: 0.4, atk: 0.0005 });          // the panel taking the load
-    for (const [r, gg, dd] of [[1, 0.26, 0.06], [1.74, 0.19, 0.045], [2.43, 0.13, 0.032], [3.87, 0.08, 0.022]])
+    burst(v, { type: 'white', filt: 'highpass', f0: 2000, q: 0.6, dur: 0.0035, g: 0.45, atk: 0.0003 });
+    burst(v, { type: 'white', filt: 'bandpass', f0: 3200, f1: 1300, q: 0.8, dur: 0.018, g: 0.3, atk: 0.0004 });
+    tone(v, { f0: f * 0.42, f1: f * 0.3, dur: 0.018, g: 0.24, atk: 0.0005 });         // the panel taking the load
+    for (const [r, gg, dd] of [[1, 0.2, 0.06], [1.74, 0.15, 0.045], [2.43, 0.1, 0.032], [3.87, 0.06, 0.022]])
       burst(v, { at: rnd(0, 0.0015), type: 'white', filt: 'bandpass', f0: f * r, q: 7, dur: dd, g: gg, atk: 0.0007, fjit: 0.06 });
     pulses(v, { n: irnd(3, 6), at: 0.004, span: 0.08, type: 'white', f0: 3000, f1: 6500, q: 4, dur: 0.005, g: 0.14, decay: 0.75 });
   });
@@ -1063,13 +1112,13 @@ export function registerSfx(audio) {
   def('distant_shot', (v) => {
     const iv = +v.o.variant, S = OPEN[FAR[(Number.isFinite(iv) ? Math.abs(Math.round(iv)) : irnd(0, 40)) % FAR.length]];
     const dist = clamp(+v.o.dist || rnd(220, 750), 80, 1600), far = dist / 400;
-    const cut = clamp(1500 / Math.pow(far, 0.85), 170, 2400), g = 0.9 / Math.pow(far, 0.15);
+    const cut = clamp(1500 / Math.pow(far, 0.85), 170, 2400), g = 0.62 / Math.pow(far, 0.15);
     const kv = irnd(0, 2), kb = blastKernel(v.a, S.id, S, kv);
     kplay(v, kb, { g, rate: 0.82, lp: cut, lp2: cut * 1.6, lq: 0.9 });
     for (let i = 0; i < irnd(2, 3); i++)                                   // multipath: ground, tree line, ridge
       kplay(v, blastKernel(v.a, S.id, S, (kv + i + 1) % 3), { at: rnd(0.012, 0.06) * far, g: g * rnd(0.28, 0.5), rate: 0.78, lp: cut * 0.7, lp2: cut });
     burst(v, { at: 0.02, type: 'brown', filt: 'lowpass', f0: cut * 0.8, f1: 90, q: 0.6, dur: 0.5 + 0.6 * far, g: 0.5 * g, atk: 0.05 });
-    burst(v, { at: 0.06, type: 'pink', filt: 'lowpass', f0: cut * 0.5, f1: 110, q: 0.5, dur: 0.9 + 1.1 * far, g: 0.22 * g, atk: 0.14, curve: 'lin' });
+    burst(v, { at: 0.06, type: 'pink', filt: 'lowpass', f0: cut * 0.5, f1: 110, q: 0.5, dur: 0.8 + 0.7 * Math.min(far, 1.4), g: 0.22 * g, atk: 0.14, curve: 'lin' });
     if (Math.random() < 0.55) kplay(v, kb, { at: rnd(0.22, 0.5), g: g * 0.10, rate: 0.7, lp: cut * 0.55, lp2: cut * 0.8 });
   });
   def('drip', (v) => {

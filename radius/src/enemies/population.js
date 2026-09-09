@@ -31,6 +31,7 @@ import { POI_TIER } from '../data/index.js';
 
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
 const MIN_HIDDEN = 30, MIN_OPEN = 55, ACTIVATE_R = 175, RETIRE_R = 260;
+const AMBUSH_R = 250, AMBUSH_RETIRE = 330;   // a planted ambush is set up long before you get there, and kept
 const SCAN_SPAWNS = 3, SCAN_TESTS = 14;   // per scan, so a walk into a village costs the same as standing still
 
 // Spawn tables by POI kind. t = Tide level, T = threat 0..1. `patrol` is the chance a squad here walks a route
@@ -223,7 +224,9 @@ export function createPopulation(ctx) {
       if (!pos) pos = (anchor && findSpot(poi, 'exterior', used, { near: anchor, nearR: 10 })) || findSpot(poi, 'exterior', used);
       if (!pos) continue;
       if (!anchor) anchor = pos;
-      plan.push({ type: 'mimic', pos, poi, squadId, extra: { cls: (opts.classes && opts.classes[i]) || rollClass(poi, tide, T, i === 0) } });
+      // an ambush that never gets instantiated because the census filled up with garrison is not an ambush:
+      // `pri` puts these entries at the front of the queue in scan()
+      plan.push({ type: 'mimic', pos, poi, squadId, pri: opts.ambush ? 1 : 0, extra: { cls: (opts.classes && opts.classes[i]) || rollClass(poi, tide, T, i === 0) } });
       placed++;
     }
     if (!placed) { nextSquadId--; return null; }
@@ -278,8 +281,7 @@ export function createPopulation(ctx) {
         const size = 2 + (known >= 3 || T > 0.5 ? 1 : 0);
         // one of them is there to watch the ground, not to trade rounds
         const classes = known >= 3 ? ['sniper'] : null;
-        planSquad(poi, tide, T, size, used, null, { at, ambush: true, classes });
-        ambushes++;
+        if (planSquad(poi, tide, T, size, used, null, { at, ambush: true, classes })) ambushes++;
       }
     }
     // ---- the other side of the place ----
@@ -355,6 +357,19 @@ export function createPopulation(ctx) {
     const maxAlive = capAlive(), maxNear = capNear();
     let spawned = 0, tests = 0, any = false;
     const L = plan.length;
+    // Priority pass: planted ambushes first, whatever the cursor is doing, and from much further out. An
+    // ambush is placed exactly where the player is going to walk, so if it waits for the normal 175 m it can
+    // never appear: by the time the entry is eligible he is already inside MIN_HIDDEN of it.
+    for (let k = 0; k < L && spawned < 2 && n < maxAlive; k++) {
+      const en = plan[k];
+      if (!en.pri || en.spawned || !ctx.enemies.types.has(en.type)) continue;
+      const d = Math.hypot(en.pos.x - p.x, en.pos.z - p.z);
+      if (d > AMBUSH_R || d < MIN_HIDDEN || en.blockT > ctx.elapsed) continue;
+      if (!clearToSpawn(en.pos.x, en.pos.z)) { en.blockT = ctx.elapsed + 2; continue; }
+      const e = spawnEntry(en);
+      if (!e) continue;
+      en.spawned = true; any = true; spawned++; n++; if (d < 60) near++;
+    }
     for (let k = 0; k < L && spawned < SCAN_SPAWNS && tests < SCAN_TESTS && n < maxAlive; k++) {
       const en = plan[(cursor + k) % L];
       if (en.spawned || !ctx.enemies.types.has(en.type)) continue;
@@ -375,7 +390,7 @@ export function createPopulation(ctx) {
       // a squad planted on your approach is "in combat" for the whole time it is waiting; it still has to be
       // allowed back into the plan when you are 260 m away, or the census fills up with men sitting in bushes
       if (e.squad && (e.squad.inCombat || e.squad.state === 'alert') && !e.squad.planted) continue;
-      if (e.position.distanceTo(p) < RETIRE_R) continue;
+      if (e.position.distanceTo(p) < (e.squad && e.squad.planted ? AMBUSH_RETIRE : RETIRE_R)) continue;
       retire(e);
     }
   }
@@ -434,6 +449,7 @@ export function createPopulation(ctx) {
       }));
     },
     get ambushes() { return ambushes; },
+    get ambushPlanned() { let n = 0; for (const e of plan) if (e.pri && !e.spawned) n++; return n; },
     get reactions() { return reactions; },
     get drawn() { return drawn; },
     reset() { ctx.enemies.removeAll(); ctx.squads.reset(); squadRefs.clear(); squadPlans.clear(); plan = []; cursor = 0; patrols = 0; ambushes = 0; wanderer = null; stalker = null; pending = false; seeded = false; },

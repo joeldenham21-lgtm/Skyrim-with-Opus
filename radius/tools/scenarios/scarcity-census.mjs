@@ -3,7 +3,10 @@
 // game/loot.js actually built out of them. The arithmetic that turns this into money lives in
 // tools/scenarios/scarcity-curve.mjs, which is plain node and needs no browser.
 export default async (page, api) => {
-  await api.start();
+  // api.start() waits six rendered frames; under a loaded SwiftShader that is minutes we do not need. The
+  // loot census is laid down synchronously on the gameStart event, so start the game and wait on the data.
+  await api.run('window.__radius.start()');
+  await page.waitForFunction(() => window.__radius.ctx.loot.objects.length > 0, null, { timeout: 240000 });
   const out = await api.run(`(() => {
     const ctx = window.__radius.ctx;
     const spots = {}, kinds = {};

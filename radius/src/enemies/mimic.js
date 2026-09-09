@@ -749,7 +749,7 @@ class Mimic extends Enemy {
     this.searchNodes = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
     this.searchN = 0; this.searchI = 0; this.overwatchT = 0; this.listenT = 0; this.overwatchPending = false;
     this.soloRole = null; this.soloRoleT = -1e9; this.flankSide = rng.chance(0.5) ? 1 : -1;
-    this.shareT = -1e9; this.litT = -1e9; this.tacReloadT = 0; this.radioSaidT = -1e9;
+    this.shareT = -1e9; this.litT = -1e9; this.tacReloadT = 0; this.radioSaidT = -1e9; this.lastFireT = -1e9;
     this.detour = new THREE.Vector3(); this.detourT = 0; this.stuckT = 0; this.nodeT = 0;
     this._mvTarget = new THREE.Vector3(); this._mvWanted = false;
     this.lookPt = new THREE.Vector3(); this.lookValid = false;   // where it is actually looking (never through a wall)
@@ -804,12 +804,12 @@ class Mimic extends Enemy {
   // sighting sets beliefR to 0; everything else — a shot heard, a radio call, a round in the vest — hands it a
   // guess. The offset is stable per mimic and per second, so two of them guess two different wrong places and
   // neither of them walks onto your feet.
-  believe(pos, radius, t, weight = 0.5) {
+  believe(pos, radius, t, weight = 0.5, force = false) {
     if (!pos) return;
     if (!this.lastSeenPlayer) this.lastSeenPlayer = new THREE.Vector3();
     // a sighting in the last second and a bit outranks anybody's guess
-    if (radius > 0.05 && t - this.lastVisT < 1.2) return;
-    if (radius > 0.05 && radius > this.beliefR + 3 && t - this.lastSeenT < 2.5) return;
+    if (!force && radius > 0.05 && t - this.lastVisT < 1.2) return;
+    if (!force && radius > 0.05 && radius > this.beliefR + 3 && t - this.lastSeenT < 2.5) return;
     if (radius > 0.05) {
       const a = (this.beliefSeed + Math.floor(t * 0.7) * 0.317) * TAU;
       const rr = radius * (0.3 + 0.7 * Math.abs(Math.sin(this.beliefSeed * 37.1 + Math.floor(t * 0.7))));
@@ -928,7 +928,10 @@ class Mimic extends Enemy {
         const back = clamp(this.distanceToPlayer(), 8, 70);
         _bel.set(this.position.x - (info.dir.x / dl) * back, this.player.position.y, this.position.z - (info.dir.z / dl) * back);
       } else _bel.copy(this.player.position);
-      this.believe(_bel, Math.max(3, this.skill.earErr * 0.75), this.time, 0.9);
+      // Enemy.damage (common.js) has just written the player's exact position into lastSeenPlayer for every
+      // entity type. For a mimic that is a lie: it felt a round, it did not see a man. `force` overwrites it
+      // with the back-track guess, which is the only thing it is actually entitled to.
+      this.believe(_bel, Math.max(3, this.skill.earErr * 0.75), this.time, 0.9, true);
     }
     this.hurtT = this.time;
     this.morale = clamp01(this.morale - (this.stoppedHit ? 0.05 : 0.10 + amount / Math.max(40, this.maxHp)));
@@ -1097,11 +1100,15 @@ class Mimic extends Enemy {
       const n = Math.min(candN, 4);
       for (let i = 0; i < n; i++) {
         const c = CAND[i].c;
-        if (!w.lineOfSight(_v.set(c.x, c.y + 1.55, c.z), eye)) continue;
+        // `hide` inverts the test: somewhere the player CANNOT see, for a man who has been hit twice in the
+        // same spot and wants out of the exchange before he comes back from somewhere else.
+        const los = w.lineOfSight(_v.set(c.x, c.y + 1.55, c.z), eye);
+        if (opts.hide ? los : !los) continue;
         if (!this.cover) this.cover = new THREE.Vector3();
         this.cover.copy(c); this.setupPosture(eye); this.setTarget(this.hunkerPos);
         return true;
       }
+      if (opts.hide) return false;
     }
     return this.improviseCover(flank, eye);
   }
@@ -1271,6 +1278,7 @@ class Mimic extends Enemy {
     playAny(ctx, this.shotNames, { pos: muzzle, gain: this.suppressed ? 0.35 : 1.0, max: this.suppressed ? 70 : 240, ref: this.suppressed ? 3 : 4, rate: this.suppressed ? 0.85 : 1 });
     if (this.rig.rig) this.rig.rig.kick = 1; this.rig.setState?.({ hit: 0, kick: 1 });
     this.burstN++;
+    this.lastFireT = this.time;    // squad.js counts who is actually fixing the player from this, not from LOS
     this.weapon.dirt = Math.min(1, (this.weapon.dirt || 0) + 0.004);
   }
   // Reload discipline. A mimic with any of it does not empty the magazine into a wall and then stand there
@@ -1564,6 +1572,18 @@ class Mimic extends Enemy {
   tick(dt) {
     const ctx = this.ctx, p = this.player, t = this.time;
     this.followGround(dt);
+    // Fields move and appear. Whatever it was doing, it does not stand in one — this runs every tick, so a
+    // firing position that a gravity well has opened up underneath is abandoned rather than died in.
+    {
+      const a = anomalyNear(ctx, this.position.x, this.position.z, 1.2);
+      if (a) {
+        const dx = this.position.x - a.position.x, dz = this.position.z - a.position.z;
+        const dl = Math.hypot(dx, dz) || 1, r = (a.radius || 6) + 1.4;
+        this.position.x = a.position.x + (dx / dl) * r; this.position.z = a.position.z + (dz / dl) * r;
+        if (this.cover && anomalyNear(ctx, this.cover.x, this.cover.z, 1.2)) { this.cover = null; this.coverGood = false; this.postureSet = false; this.posture = 'open'; }
+        this.target = null; if (this.orders) this.orders.hasTarget = false;
+      }
+    }
     const d = this.distanceToPlayer();
     // flashbang: stands still, blind, silent
     if (this.stunned > 0) {
@@ -1700,7 +1720,10 @@ class Mimic extends Enemy {
         // lost you: the hunt, not amnesia. A mimic that is deliberately down behind cover cannot see you by
         // design — give it longer before it decides you have gone, or it would hunt its own hiding place.
         const holding = this.coverGood && !!this.cover && Math.hypot(this.position.x - this.cover.x, this.position.z - this.cover.z) < 2.4;
-        if ((t - this.lastVisT > (holding ? 12 : 6) || !this.engaged) && !holdRole) { this.setState('search'); this.searchN = 0; this.searchI = 0; this.searchT = 0; this.waitT = 0; this.listenT = 0; this.overwatchT = 0; this.aiming = false; this.target = null; break; }
+        // A man with a frag order in his hand does not wander off to search before he has thrown it. The call
+        // has already gone out; the throw is owed to the player.
+        const owesFrag = !!(this.orders && this.orders.frag > 0 && t < this.orders.frag + 8);
+        if ((t - this.lastVisT > (holding ? 12 : 6) || !this.engaged) && !holdRole && !owesFrag) { this.setState('search'); this.searchN = 0; this.searchI = 0; this.searchT = 0; this.waitT = 0; this.listenT = 0; this.overwatchT = 0; this.aiming = false; this.target = null; break; }
         // morale: break contact, call it in on the way out, come back with whoever heard
         if (!holdRole && !ambush && this.morale < s.morale && this.stateT > 1.2) { this.beginBreak(); break; }
         if (!this.squad && t - this.lastAlertT > 2) { this.lastAlertT = t; this.alertPack(); }
@@ -1709,8 +1732,14 @@ class Mimic extends Enemy {
         else {
           this.repositionT -= dt;
           if ((this.repositionT <= 0 || this.hitsSince >= 2) && this.profile.kind !== 'sniper') {
+            // Two rounds into the same rock and he stops trading: he goes somewhere you cannot see at all,
+            // and comes back into the fight from a different piece of ground.
+            const hurt = this.hitsSince >= 2;
             this.hitsSince = 0; this.repositionT = rng.range(5, 9);
-            if (this.pickCover(this.soloRole === 'flank' || this.wantFlank())) this.radioT = Math.min(this.radioT, 0.4);
+            // one pick per frame: a cover pick owns the frame's ray budget, so a failed hide is retried next
+            // second rather than immediately, and never blocks the ordinary reposition for long
+            if (hurt) { if (this.pickCover(false, { hide: true, maxD: 20 })) { this.radioT = Math.min(this.radioT, 0.4); this.repositionT = rng.range(3, 5); } else this.repositionT = 0.9; }
+            else if (this.pickCover(this.soloRole === 'flank' || this.wantFlank())) this.radioT = Math.min(this.radioT, 0.4);
           }
         }
         this.refreshPosture();
@@ -1768,7 +1797,7 @@ class Mimic extends Enemy {
         // ---- is it allowed to act? base and arrived flankers are; watchers and moving flankers only when pressed ----
         let mayAct = true;
         if (role === 'flank') mayAct = this.orders.fire || d < 12 || this.hitsSince > 0;
-        else if (role === 'watch') mayAct = d < 18 || this.hitsSince > 0;
+        else if (role === 'watch') mayAct = this.orders.fire || d < 18 || this.hitsSince > 0;   // a marksman on overwatch does shoot
         else if (ambush) mayAct = d < 15 || this.hitsSince > 0;
         else if (role === 'regroup') mayAct = d < 10 || this.hitsSince > 0;
         else if (this.soloRole === 'flank' && t - this.soloRoleT < 12 && this.moveSpeed > 1.2 && d > 18) mayAct = this.hitsSince > 0;
@@ -1776,13 +1805,23 @@ class Mimic extends Enemy {
         if (this.profile.kind === 'mg' && !atCover && this.moveSpeed > 0.5) mayFire = false;
         aimPitch = Math.atan2(this.lookPt.y - (this.position.y + 1.5), Math.max(1, Math.hypot(this.lookPt.x - this.position.x, this.lookPt.z - this.position.z)));
         aimYaw = this.faceAngleTo(this.lookPt.x, this.lookPt.z);
-        if (ambush && mayFire) { this.orders.role = 'base'; this.squad.state = 'combat'; this.squad.radioT = 0.2; }
+        // one man springs it early: he calls it, and the squad comes out of the ambush together
+        if (ambush && mayFire) { this.orders.role = 'base'; this.squad.know(this.lastSeenPlayer || p.position, t, this.beliefR); this.squad.enterCombat(); this.squad.say('contact', this, 1.1); this.squad.radioT = 0.2; }
         // the between-burst clock runs even while it is down behind the cover: that is what it is waiting on
         if (this.burstLeft === 0 && this.suppressLeft === 0 && this.cycleT <= 0) this.cooldown -= dt;
         // ---- ammunition: top up in the lull rather than running dry in the open ----
         if (this.wantTacticalReload(vis)) { this.reloadReturn = 'engage'; if (this.beginReload()) break; }
         // ---- grenade: out of that hole, please. It throws from behind the cover, not from on top of it ----
-        if (mayAct && !ambush && !this.dry && this.burstLeft === 0 && this.suppressLeft === 0 && this.cooldown < 0.5 && this.canThrowGrenade(d)) { this.beginGrenade(); break; }
+        // An order from the squad outranks the man's own reasons not to: the call has already gone out, and a
+        // frag that never leaves the hand after "frag out" is a promise to the player that the game broke.
+        // Note the missing `!this.dry`: a man out of rifle ammunition is exactly the man who throws. Blocking
+        // the grenade on being dry was why an ordered frag sometimes never left the hand at all.
+        const fragOrdered = !!(this.orders && this.orders.frag > 0 && t >= this.orders.frag);
+        if ((mayAct || fragOrdered) && !ambush && this.burstLeft === 0 && this.suppressLeft === 0
+            && (fragOrdered || this.cooldown < 0.5) && this.canThrowGrenade(d)) { this.beginGrenade(); break; }
+        // Empty, and nothing left to throw. He does not stand in the open being a target: he leaves, calling
+        // it in on the way out like any other break in contact.
+        if (this.dry && this.grenades <= 0 && !holdRole && !ambush && this.stateT > 1.5) { this.beginBreak(); break; }
         // ---- the trigger ----
         if (this.cycleT > 0) { this.cycleT -= dt; if (this.cycleT <= 0 && this.cycleSound) { this.sound(this.cycleSound, { gain: 0.6, max: 40 }); this.cycleSound = null; } }
         else if (!p.dead && d < this.profile.max && this.staggerT <= 0 && mayFire) {
@@ -1808,7 +1847,10 @@ class Mimic extends Enemy {
               const los = ctx.world.lineOfSight(_v4, _v3);
               if (los) { this.losT = t; this.fireOne(_v4, _v3, this.burstN === 0, 0, true); this.burstLeft--; this.shotT = this.profile.gap; if (this.roundsLeft() === 0) this.burstLeft = 0; if (this.burstLeft > 0 && this.wdef.modes[0] === 'bolt') this.cycleAfterShot(); }
               else { this.burstLeft = 0; }
-              if (this.burstLeft === 0) { this.cooldown = rng.range(this.profile.cooldown[0], this.profile.cooldown[1]) * s.cool + (this.moveSpeed > 0.5 ? 0.5 : 0); if (this.wdef.modes[0] === 'bolt' || this.wdef.modes[0] === 'pump') this.cycleAfterShot(); this.aiming = false; }
+              // While the other element is crossing, the base element shoots faster. That is what a base of
+              // fire is for, and it is the tell: the volume goes up a beat before somebody moves.
+              const covering = this.orders && this.orders.mv === 2 ? 0.65 : 1;
+              if (this.burstLeft === 0) { this.cooldown = rng.range(this.profile.cooldown[0], this.profile.cooldown[1]) * s.cool * covering + (this.moveSpeed > 0.5 ? 0.5 : 0); if (this.wdef.modes[0] === 'bolt' || this.wdef.modes[0] === 'pump') this.cycleAfterShot(); this.aiming = false; }
             }
           } else if (this.profile.kind === 'sniper') {
             // the marksman: a still second of glint and (with a laser) a red line, then the shot
@@ -1874,7 +1916,9 @@ class Mimic extends Enemy {
         const s = this.skill;
         if (this.engaged && t - this.lastVisT < 1) { this.setState('engage'); this.posture = 'open'; if (!this.squad) this.pickCover(this.wantFlank(), { force: true }); break; }
         // the radio hands over something better than what it has
-        if (this.squad && this.squad.hasKnown && this.squad.lastKnownT > this.lastSeenT + 0.5) { this.believe(this.squad.lastKnown, 0, this.squad.lastKnownT, 0.85); this.searchN = 0; this.overwatchT = 0; }
+        // A position off the radio is a position off the radio: it arrives with the squad's own uncertainty on
+        // it, never as a sighting. Passing radius 0 here was the last place a call could hand over your feet.
+        if (this.squad && this.squad.hasKnown && this.squad.lastKnownT > this.lastSeenT + 0.5) { this.believe(this.squad.lastKnown, Math.max(2, this.squad.spread()), this.squad.lastKnownT, 0.85); this.searchN = 0; this.overwatchT = 0; }
         else {
           const dir = ctx.director;
           if (dir && dir.contact && dir.contactConfidence() > 0.35 && dir.contact.t > this.lastSeenT + 1) { this.believe(dir.contact.position, dir.contact.radius, dir.contact.t, 0.7); this.searchN = 0; this.overwatchT = 0; }

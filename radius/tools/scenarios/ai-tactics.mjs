@@ -34,6 +34,12 @@ export default async function (page, api) {
   await boot(api);
   await api.run(HOOKS);
   await api.run('window.__walk = 0');
+  // what the world actually offers the AI: how much cover there is, and how much of it is off the ground
+  console.log('world', JSON.stringify(await api.run(`(() => {
+    const ctx = window.__radius.ctx; let hi = 0, roofed = 0, n = 0;
+    for (const c of ctx.world.coverPoints) { n++; if (c.y > ctx.world.getHeight(c.x, c.z) + 1.5) hi++; if (ctx.world.pointInSolid(c.x, c.y + 2.6, c.z)) roofed++; }
+    return { coverPoints: n, elevated: hi, roofed, interiorSpots: ctx.world.spawnSpots.filter((s) => s.kind === 'interior').length, anomalies: ctx.anomalies.list.length };
+  })()`)));
   console.log('setup', JSON.stringify(await api.run(SETUP(T))));
 
   // ---- 1-3: let a contact run and watch the unit behaviours appear ----
@@ -41,13 +47,26 @@ export default async function (page, api) {
   for (let k = 0; k < 10; k++) { await api.run(STEP(60)); tape.push(await api.run(SNAP)); }
   for (const s of tape) console.log('  ', JSON.stringify(s));
 
-  // covering fire: a man with a sector, no sight of the player, shooting into the arc
+  // covering fire, as a decision and as rounds: a man holding an arc who cannot see the player shoots the arc
   console.log('cover-fire', JSON.stringify(await api.run(`(() => {
-    const ctx = window.__radius.ctx; let seen = 0, sectors = 0, blind = 0;
+    const ctx = window.__radius.ctx, p = ctx.player;
+    let seen = 0, sectors = 0, blind = 0;
     for (let i = 0; i < 400; i++) { ctx.elapsed += 0.05; ctx.enemies.update(0.05); ctx.squads.update(0.05); ctx.director.update(0.05); ctx.player.update(0.05);
       for (const m of window.__list) { if (!m.alive || !m.orders || !m.orders.hasSector) continue; sectors++;
         if (ctx.elapsed - m.lastVisT > 0.7) { blind++; if (m.suppressLeft > 0) seen++; } } }
-    return { sectorTicks: sectors, blindTicks: blind, coveringTicks: seen };
+    // and the decision itself, with the sight of the player taken away
+    const m = window.__list.find((x) => x.alive && x.orders);
+    const dx = p.position.x - m.position.x, dz = p.position.z - m.position.z, dl = Math.hypot(dx, dz) || 1;
+    m.orders.hasSector = true;
+    m.orders.sector.set(m.position.x + (dx / dl) * 22, ctx.world.getHeight(m.position.x + (dx / dl) * 22, m.position.z + (dz / dl) * 22), m.position.z + (dz / dl) * 22);
+    m.lastVisT = ctx.elapsed - 5; m.dry = false;
+    if (m.weapon.mag) m.weapon.mag.rounds = 30; else if (m.weapon.tube) { m.weapon.tube.length = 0; for (let i = 0; i < 6; i++) m.weapon.tube.push(m.ammoId); }
+    m.weapon.chamber = m.ammoId;
+    let yes = 0; for (let i = 0; i < 400; i++) if (m.wantCover(0)) yes++;
+    m.beginSuppress(m.orders.sector);
+    const err = Math.hypot(m.suppressPos.x - m.orders.sector.x, m.suppressPos.z - m.orders.sector.z);
+    return { sectorTicks: sectors, blindTicks: blind, coveringTicks: seen,
+      wantCoverRate: +(yes / 400).toFixed(2), suppressRounds: m.suppressLeft, aimOffM: +err.toFixed(2), aimUpM: +(m.suppressPos.y - m.orders.sector.y).toFixed(2) };
   })()`)));
 
   // ---- 4: the grenade order. The call must precede the throw. ----
@@ -58,10 +77,19 @@ export default async function (page, api) {
     const tg = ctx.squads.throwGrenade.bind(ctx.squads); ctx.squads.throwGrenade = (m, f, t, id) => { log.push(['throw', +ctx.elapsed.toFixed(2)]); return tg(m, f, t, id); };
     for (const m of window.__list) { m.grenades = 2; }
     s.grenadeT = 0; s.combatT = 30; s.morale = 0.7;
-    for (let i = 0; i < 900; i++) { ctx.elapsed += 0.05; ctx.enemies.update(0.05); ctx.squads.update(0.05); ctx.director.update(0.05); ctx.player.update(0.05); }
+    let assaultTicks = 0, dIn = 0, dOut = 0, nIn = 0, nOut = 0;
+    for (let i = 0; i < 900; i++) { ctx.elapsed += 0.05; ctx.enemies.update(0.05); ctx.squads.update(0.05); ctx.director.update(0.05); ctx.player.update(0.05);
+      if (i % 4) continue;
+      let md = 999; for (const m of window.__list) if (m.alive) md = Math.min(md, m.distanceToPlayer());
+      if (s.assault) { assaultTicks++; dIn += md; nIn++; } else { dOut += md; nOut++; } }
     const gi = log.findIndex((l) => l[0] === 'say:grenade'), ti = log.findIndex((l) => l[0] === 'throw');
+    // if nothing left anybody's hand, say why: whose order it was and what he was doing instead
+    const holders = window.__list.filter((m) => m.alive && m.orders && m.orders.frag > 0)
+      .map((m) => ({ job: m.orders.job, mv: m.orders.mv, fire: m.orders.fire, gren: m.grenades, cd: +m.cooldown.toFixed(2), burst: m.burstLeft, sup: m.suppressLeft, st: m.state, d: +m.distanceToPlayer().toFixed(1), due: +(m.orders.frag - ctx.elapsed).toFixed(1) }));
     return { orders: s.fragOrders, calls: log.filter((l) => l[0] === 'say:grenade').length, throws: log.filter((l) => l[0] === 'throw').length,
-      leadS: gi >= 0 && ti > gi ? +(log[ti][1] - log[gi][1]).toFixed(2) : null, first: log.slice(0, 12) };
+      leadS: gi >= 0 && ti > gi ? +(log[ti][1] - log[gi][1]).toFixed(2) : null,
+      assaultTicks, nearestDuringAssault: nIn ? +(dIn / nIn).toFixed(1) : null, nearestOtherwise: nOut ? +(dOut / nOut).toFixed(1) : null,
+      holders, first: log.slice(0, 10) };
   })()`)));
 
   // ---- 5: the fields ----

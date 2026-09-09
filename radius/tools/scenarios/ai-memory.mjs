@@ -25,7 +25,7 @@ const VISIT = (poi, ang, shots) => `(() => {
 
 export default async function (page, api) {
   await boot(api);
-  await api.run(`(() => { const ctx = window.__radius.ctx; ctx.director.forgetAll(); ctx.debug.noEnemies = true; })()`);
+  await api.run(`(() => { const ctx = window.__radius.ctx; ctx.director.forgetAll(); ctx.debug.noEnemies = true; window.__radius.god(true); })()`);
 
   // 1. a quiet visit teaches it nothing
   console.log('quiet   ', JSON.stringify(await api.run(VISIT('zarya', 0.6, 0))));
@@ -40,7 +40,7 @@ export default async function (page, api) {
     ctx.debug.noEnemies = false; ctx.state.data.tideLevel = 2;
     const n = ctx.population.populate();
     const rec = ctx.director.poiRecord('zarya');
-    return { planned: n, ambushes: ctx.population.ambushes, patrols: ctx.population.patrols, contacts: rec ? rec.contacts : 0, ang: rec ? +rec.ang.toFixed(2) : null };
+    return { planned: n, ambushes: ctx.population.ambushes, ambushPlanned: ctx.population.ambushPlanned, patrols: ctx.population.patrols, contacts: rec ? rec.contacts : 0, ang: rec ? +rec.ang.toFixed(2) : null };
   })()`);
   console.log('census  ', JSON.stringify(plan));
 
@@ -51,14 +51,16 @@ export default async function (page, api) {
     const a = rec ? rec.ang : 0.6;
     const log = [];
     let sprung = 0, planted = 0, contacted = 0;
-    for (let step = 0; step < 26; step++) {
-      const rr = P.r * 1.6 - step * (P.r * 1.6 / 26);
+    // start well outside the place: a census taken with the player standing on top of the ambush can never
+    // instantiate it out of sight, and in the real game the census is taken at a Tide with you back at Vanno
+    for (let step = 0; step < 34; step++) {
+      const rr = P.r * 3.4 - step * (P.r * 3.2 / 34);
       r.teleport(P.x + Math.cos(a) * rr, P.z + Math.sin(a) * rr); ctx.player.update(0);
       for (let i = 0; i < 20; i++) { ctx.elapsed += 0.05; ctx.enemies.update(0.05); ctx.population.update(0.05); ctx.director.update(0.05); ctx.player.update(0.05); }
       const sq = ctx.population.squads();
       planted = Math.max(planted, sq.filter((s) => s.planted).length);
       for (const s of sq) if (s.state === 'combat' || s.state === 'alert') contacted++;
-      if (step % 6 === 0) log.push({ r: Math.round(rr), enemies: ctx.enemies.list.filter((e) => e.alive).length, planted: sq.filter((s) => s.planted).length, states: sq.map((s) => s.state).join(',') });
+      if (step % 6 === 0) log.push({ r: Math.round(rr), enemies: ctx.enemies.list.filter((e) => e.alive).length, planted: sq.filter((s) => s.planted).length, waiting: ctx.population.ambushPlanned, states: sq.map((s) => s.state).join(',') });
     }
     const sq = ctx.population.squads();
     return { log, planted, sprung: sq.filter((s) => s.state === 'combat').length, dir: ctx.director.state, squads: sq.length, esc: ctx.director.escalation };

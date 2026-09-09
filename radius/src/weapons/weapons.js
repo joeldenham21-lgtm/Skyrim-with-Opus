@@ -3,6 +3,15 @@
 // effects (optics, suppressors, lights, lasers, bipods), condition (wear, fouling, jams, misfires), the melee stab,
 // ADS with scope overlays, HUD readouts and ejected casings. The inventory weapon instance is the save data and is
 // mutated in place; it is re-resolved every frame.
+//
+// Firing hands the round to ballistics as a projectile, with the things only the weapon knows: the muzzle velocity
+// its barrel can still make, the range its sights are zeroed for, and the fixed zero error a shot-out, fouled bore
+// has worn in. Recoil is a pattern rather than a coin toss — the first round of a string throws hardest, the climb
+// flattens, the horizontal walk is a signature of the weapon design that repeats, and most of it comes back down
+// the way it went up once the trigger is released (unless the shooter has moved the view himself, in which case
+// that is his aim now). Sustained fire heats the barrel, which opens the group and eventually stops the gun; the
+// stoppage it gives is a stovepipe, a failure to feed or a double feed depending on what is wrong with the weapon,
+// and they cost different amounts of time and, for the last one, the rounds on the ramp.
 import * as THREE from 'three';
 import * as gunmesh from './gunmesh.js';
 import { WEAPONS, AMMO, MAGAZINES, CALIBERS, def as defOf, defaultAmmo } from '../data/index.js';
@@ -224,7 +233,10 @@ export function createWeapons(ctx) {
     if (!rec) { biasX = biasY = 0; return; }
     const s = seedOf(String(rec.uid || rec.id));
     const off = (1 - clamp01((rec.parts?.barrel ?? 100) / 100)) * 0.0024 + (rec.dirt || 0) * 0.0009;
-    biasX = (hash1(s) * 2 - 1) * off; biasY = (hash1(s + 11) * 2 - 1) * off;
+    // a direction, not two independent numbers: two uniform draws mostly cancel and the shift disappears.
+    // A shot-out barrel throws its group somewhere definite, and it is the same somewhere every time.
+    const a = hash1(s) * TAU;
+    biasX = Math.cos(a) * off; biasY = Math.sin(a) * off;
   }
   // The sight is set to cross the bore at this range. Irons stay close; glass reaches out.
   function zeroRange() {
@@ -380,7 +392,10 @@ export function createWeapons(ctx) {
     p.kick(pitch, yaw); hands.kick(pitch, yaw);
     recPitch += pitch * RECOVER; recYaw += yaw * RECOVER; recShots++; recIdle = 0;
     const auto = mode() === 'auto' || mode() === 'burst';
-    bloom = Math.min(d.moa * 3, bloom + d.moa * (auto ? 0.42 : 0.7) * fx.recoil);
+    // Bloom is the sight picture being lost, and it is deliberately small now: what makes automatic fire
+    // miss is the muzzle climbing on its pattern, which the player can see and fight, not an invisible
+    // cone that grows until the weapon sprays.
+    bloom = Math.min(d.moa * 1.6, bloom + d.moa * (auto ? 0.18 : 0.34) * fx.recoil);
     if (fx.flash >= 0.3) ctx.vfx.muzzleFlash(_m, _d, fx.flash);
     else { ctx.vfx.light(_m, 0xffb070, 1.5 + 3 * fx.flash, 0.05, 3); ctx.vfx.spark(_m, _d, 2, [1.0, 0.75, 0.4]); }
     if (d.recoil[0] > 2.5) ctx.post.shake(0.12);
@@ -783,7 +798,11 @@ export function createWeapons(ctx) {
       // ---- spread ----
       const base = d ? d.moa * (fx ? fx.moa : 1) : 2;
       let mult = p.crouched ? 0.8 : 1;
-      mult *= lerp(1, 0.5, adsBlend);
+      // Sights on: the weapon shoots where it is pointed. The old 0.5 left an AKM throwing a 1.2 degree
+      // cone with the sights up — a metre across at 100 m — which drowned drop, sway and everything else
+      // the round does. At 0.18 the dispersion is 38 cm at 100 m and the shooter's own wobble, his breath
+      // and the drop are what decide the shot. Hip fire is untouched and still a spray.
+      mult *= lerp(1, 0.18, adsBlend);
       mult *= lerp(1, 1.5, clamp01(p.speed / 3.6));
       if (ctx.state.data.stamina < 20) mult *= 1.4;
       if (ctx.damage) mult *= ctx.damage.steadyMul;
@@ -796,7 +815,7 @@ export function createWeapons(ctx) {
       const supp = ctx.ballistics?.suppression || 0;
       if (supp > 0) mult *= 1 + 0.6 * supp;
       bloom = damp(bloom, 0, 4.5, dt);
-      spreadDeg = base * mult + bloom;
+      spreadDeg = base * mult + bloom * lerp(1, 0.45, adsBlend);
       const px = Math.tan(spreadDeg * 0.5 * DEG) / Math.tan(fov * 0.5 * DEG) * (window.innerHeight * 0.5);
       hud.setSpread(clamp(px, 2, 260), adsBlend > 0.6);
       // the status line only changes on transitions (hot barrel, held breath, rest); ten frames is plenty

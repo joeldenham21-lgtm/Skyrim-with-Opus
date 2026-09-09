@@ -233,7 +233,7 @@ export function createSquads(ctx) {
       this.fixT = -1e9;                // when the base last actually put rounds down
       this.flankSide = rng() < 0.5 ? 1 : -1; this.flankT = -1e9; this.flankSet = false; this.flankers = 0;
       this.bounds = 0; this.boundsRefused = 0; this.fragOrders = 0;   // read by tools/scenarios/ai-*.mjs
-      this.lastSay = null; this.saidT = -1e9; this.holdCallT = -1e9;
+      this.lastSay = null; this.saidT = -1e9;
       this.sectorT = 0; this.planted = false; this.saidAt = {}; this.assaultT = -1e9; this.assault = false;
       for (const m of members) this.add(m);
       this.initial = this.members.length;
@@ -244,8 +244,8 @@ export function createSquads(ctx) {
       if (m.squad && m.squad !== this) m.squad.remove(m);
       m.squad = this; this.members.push(m); this.initial = Math.max(this.initial, this.members.length);
       if (!m.orders) m.orders = { role: 'idle', job: 'idle', target: new THREE.Vector3(), hasTarget: false, fire: false, hold: false, at: false, side: 0, element: 0, mv: 0, arrivedT: 0, flankAng: 0,
-        sector: new THREE.Vector3(), hasSector: false, covering: null, frag: 0, saidMove: 0 };
-      else if (!m.orders.sector) { m.orders.sector = new THREE.Vector3(); m.orders.hasSector = false; m.orders.covering = null; m.orders.frag = 0; m.orders.saidMove = 0; }
+        sector: new THREE.Vector3(), hasSector: false, sectorAt: -1e9, covering: null, frag: 0, saidMove: 0 };
+      else if (!m.orders.sector) { m.orders.sector = new THREE.Vector3(); m.orders.hasSector = false; m.orders.sectorAt = -1e9; m.orders.covering = null; m.orders.frag = 0; m.orders.saidMove = 0; }
       this.file.length = 0;
       if (!this.leaderRef) this.electLeader();
     }
@@ -342,11 +342,14 @@ export function createSquads(ctx) {
     converge() { if (this.hasKnown) this.report(this.lastKnown, 'call', null); }
     notify(kind, m) {
       const t = ctx.elapsed;
-      if (kind === 'spotted') { this.report(ctx.player.position, 'contact', m); if (!this.inCombat) this.enterCombat(); }
+      // A man calls in what HE has: his own belief and how wrong it may be, never the player's true position.
+      // He can reach aware 1 on sound alone, and a squad manoeuvring on a noise is the whole point of the
+      // difference between a squad that has seen you and one that has only been told about you.
+      if (kind === 'spotted') { this.report(m && m.lastSeenPlayer ? m.lastSeenPlayer : ctx.player.position, 'contact', m, (m && m.beliefR) || 0); if (!this.inCombat) this.enterCombat(); }
       else if (kind === 'hit') {
         // shot at from somewhere he was not looking: he calls in a direction, not a grid reference
         if (m && m.aware < 0.6) { const j = 6 + rng() * 6; _v.set(ctx.player.position.x + rng.range(-j, j), ctx.player.position.y, ctx.player.position.z + rng.range(-j, j)); this.report(_v, 'contact', m, j); }
-        else this.report(ctx.player.position, 'contact', m);
+        else this.report(m && m.lastSeenPlayer ? m.lastSeenPlayer : ctx.player.position, 'contact', m, (m && m.beliefR) || 0);
         if (!this.inCombat) this.enterCombat();
         this.morale = Math.max(0, this.morale - 0.03);
       } else if (kind === 'killed') this.onKilled(m, t);
@@ -424,9 +427,10 @@ export function createSquads(ctx) {
       this.grenadeT = Math.max(0, this.grenadeT - dt);
       // organisation: with somebody running it a squad manoeuvres, without one it hugs cover. It comes back
       // over ten to twenty seconds as the next man takes the picture up — never instantly.
-      const hadLeader = !!this.leader;
       if (!this.leader && alive > 0) this.electLeader();
-      this.org = clamp01(this.org + dt * (this.leader ? (hadLeader ? 0.5 : 0.075) : -0.4));
+      // ~13 s from a dead leader back to a squad that manoeuvres: long enough that killing him buys you the
+      // ground, short enough that they do not stand in the open forever.
+      this.org = clamp01(this.org + dt * (this.leader ? 0.06 : -0.4));
       this.deliver(t);
       if (this.state === 'idle' && stale) this.standDown();   // orders never outlive the fight
 
@@ -447,7 +451,9 @@ export function createSquads(ctx) {
           if (!m.alive || !m.orders) continue;
           if (m.orders.job !== 'point' && m.orders.job !== 'support') continue;
           if (!m.orders.fire) continue;
-          if (t - (m.losT ?? -1e9) < 2.5 || t - (m.lastVisT ?? -1e9) < 2.5) fix++;
+          // fixing means ROUNDS, not a line of sight from behind a rock: a man who has not fired in three
+          // seconds is not holding anybody's head down, and the flank does not step off on his account.
+          if (t - (m.lastFireT ?? -1e9) < 3 || (t - (m.lastVisT ?? -1e9) < 2 && m.burstLeft > 0)) fix++;
         }
         this.fixing = fix;
         if (fix > 0) this.fixT = t;
@@ -474,7 +480,9 @@ export function createSquads(ctx) {
       }
 
       // where the squad thinks you are, and which way it thinks you are facing
-      if (this.eyesOn) { this.aim.copy(p.position); this.faceA = Math.atan2(p.forward.z, p.forward.x); }
+      // Even with eyes on, the squad manoeuvres against what the man watching you reports, not against your
+      // transform. It is a metre or two of difference and it is the difference between a plan and a cheat.
+      if (this.eyesOn) { this.aim.copy(seer && seer.lastSeenPlayer ? seer.lastSeenPlayer : p.position); this.faceA = Math.atan2(p.forward.z, p.forward.x); }
       else if (this.hasKnown) { this.aim.copy(this.lastKnown); this.faceA = Math.atan2(this.centroid.z - this.aim.z, this.centroid.x - this.aim.x); }
       else { this.aim.copy(this.centroid); this.faceA = 0; }
       this.aimEye.set(this.aim.x, this.aim.y + 1.55, this.aim.z);
@@ -533,9 +541,10 @@ export function createSquads(ctx) {
           for (const m of this.members) {
             if (!m.alive || m.grenades <= 0 || m.stalker || m.stunned > 0 || !m.orders) continue;
             if (m.orders.frag > t) { best = null; break; }
+            if (m.orders.mv === 1) continue;                 // he is crossing; his hands are full
             const dd = m.position.distanceTo(this.aim);
             if (dd < 7 || dd > 28) continue;
-            const s = 30 - Math.abs(dd - 16) - (m.orders.job === 'flanker' ? 12 : 0);
+            const s = 30 - Math.abs(dd - 16) - (m.orders.job === 'flanker' ? 12 : 0) + (m.orders.fire ? 6 : 0);
             if (s > bs) { bs = s; best = m; }
           }
           if (best) {
@@ -771,8 +780,10 @@ export function createSquads(ctx) {
       // the men nearest the contact hold; the ones behind them come up. Split by distance, not by list order.
       if (this.bounding) { this.movingElement %= this.groups; for (let i = 0; i < movers.length; i++) movers[i].orders.element = i % this.groups; }
 
-      // sectors are handed out fresh each plan: a man only holds an arc while somebody is actually crossing it
-      for (const m of members) if (m.orders) { m.orders.hasSector = false; m.orders.covering = null; }
+      // A man holds his arc for as long as the bound he is covering lasts, not until the next re-plan: jobs are
+      // reassigned every couple of seconds and a bound takes twice that, so clearing them here on every plan
+      // was taking the sector off the coverer halfway through his mate's run.
+      for (const m of members) if (m.orders && t - (m.orders.sectorAt || -1e9) > 6) { m.orders.hasSector = false; m.orders.covering = null; }
       // the base has to be shooting before anybody walks. `fixT` is the last time a man of the base element
       // had a live line on the called position.
       const fixed = this.fixing > 0 || t - this.fixT < 3.5;
@@ -840,7 +851,7 @@ export function createSquads(ctx) {
         _v3.set(_lane.x, _lane.y + 1.1, _lane.z);
         if (!w.lineOfSight(_from.set(c.position.x, c.position.y + 1.5, c.position.z), _v3)) continue;
         o.covering = c;
-        c.orders.sector.copy(_lane); c.orders.hasSector = true;
+        c.orders.sector.copy(_lane); c.orders.hasSector = true; c.orders.sectorAt = ctx.elapsed;
         this.bounds++;
         return true;
       }
@@ -885,11 +896,35 @@ export function createSquads(ctx) {
       if (walkable(m.position.x + (_dir.x / l) * step, m.position.z + (_dir.z / l) * step, o.target)) o.hasTarget = true;
       else o.hasTarget = false;
     }
+    // The zone's cover registry has almost no height in it — three elevated cover points in the whole map —
+    // so the high ground has to come from the terrain itself. Sample the ring at overwatch range and take the
+    // bank, spoil heap or ridge that actually looks down on the called position. Nine height lookups and one
+    // ray, once per role tick, for one man.
+    highGround(m, o) {
+      const A = this.aim, w = ctx.world;
+      if (!this._hg) this._hg = new THREE.Vector3();
+      const ma = Math.atan2(m.position.z - A.z, m.position.x - A.x);
+      let bs = 2.0, got = false;
+      for (let i = 0; i < 9; i++) {
+        const a = ma + (i - 4) * 17 * DEG, r = 30 + (i % 3) * 9;
+        const x = A.x + Math.cos(a) * r, z = A.z + Math.sin(a) * r;
+        if (w.getHeight(x, z) - A.y < bs) continue;
+        if (!walkable(x, z, _v2)) continue;
+        bs = _v2.y - A.y; this._hg.copy(_v2); got = true;
+      }
+      if (!got) return false;
+      if (!ctx.world.lineOfSight(_v.set(this._hg.x, this._hg.y + 1.6, this._hg.z), this.aimEye)) return false;
+      o.target.copy(this._hg); o.hasTarget = true; o.at = false;
+      if (!m.cover) m.cover = new THREE.Vector3(); m.cover.copy(this._hg);
+      return true;
+    }
     // overwatch: 28-52 m back with a view of the ground, silent unless it is coming for him
     orderOverwatch(m, o) {
       const A = this.aim;
-      o.role = 'watch'; o.fire = false; o.hold = true;
+      // the marksman held back is held back to shoot: everyone else on overwatch stays quiet until pressed
+      o.role = 'watch'; o.fire = m.role === 'sniper' || (m.profile && m.profile.kind === 'sniper'); o.hold = true;
       if (m._dA > 26 && m._dA < 54 && m.cover && m.position.distanceTo(m.cover) < 2) { o.target.copy(m.cover); o.hasTarget = true; o.at = true; return; }
+      if (this.skill > 0.25 && this.highGround(m, o)) return;   // a bank above you beats a rock beside you
       // height first: a man on a roof or a bank sees over what you are hiding behind, and shooting back up at
       // him costs you the cover you are using. Two metres up is worth ten metres of range.
       const c = bestCover(m.position, 40, (c, dm) => { const dp = Math.hypot(c.x - A.x, c.z - A.z); if (dp < 28 || dp > 52) return null; return -dm * 0.1 - Math.abs(dp - 40) * 0.05 + clamp(c.y - A.y, 0, 6) * 2.2; }, true, 1.6, this.aimEye)
@@ -952,7 +987,18 @@ export function createSquads(ctx) {
       const step = Math.sign(dA || 1) * Math.min(35 * DEG, Math.abs(dA));
       const na = ma + step, r = clamp(m._dA, 12, 22);
       if (walkable(A.x + Math.cos(na) * r, A.z + Math.sin(na) * r, o.target) && !inFrustum(o.target.x, o.target.y + 0.9, o.target.z, 50)) { o.hasTarget = true; return; }
-      o.hasTarget = false; o.hold = true;   // in view everywhere: wait; a skip will carry him when you look away
+      // In view everywhere — open ground, and you are looking straight down it. Rather than stand still for
+      // the rest of the fight he takes the LONG way: the same bearing at a range where being seen costs him
+      // very little, and closes back in once he is round the side. It is slow, and you can hear him go.
+      const sgn = Math.sign(dA || 1);
+      for (let k = 0; k < 6; k++) {
+        const far = clamp(m._dA + 20 - (k % 3) * 9, 26, 68);
+        const swing = ma + sgn * (46 - (k >> 1) * 13) * DEG;
+        if (!walkable(A.x + Math.cos(swing) * far, A.z + Math.sin(swing) * far, o.target)) continue;
+        if (anomalyOnLine(m.position.x, m.position.z, o.target.x, o.target.z)) continue;
+        o.hasTarget = true; o.hold = false; return;
+      }
+      o.hasTarget = false; o.hold = true;   // nowhere at all: wait; a skip will carry him when you look away
     }
 
     // ---- patrol ----

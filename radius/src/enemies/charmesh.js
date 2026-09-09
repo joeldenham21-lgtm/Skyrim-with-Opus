@@ -46,6 +46,10 @@ const _m4 = new THREE.Matrix4(), _c = new THREE.Color(), _e = new THREE.Euler();
 const _v = new THREE.Vector3(), _dir = new THREE.Vector3(), _pole = new THREE.Vector3(), _axis = new THREE.Vector3();
 const _upper = new THREE.Vector3(), _elbow = new THREE.Vector3(), _fore = new THREE.Vector3(), _q = new THREE.Quaternion();
 const DOWN = new THREE.Vector3(0, -1, 0);
+// Where each elbow wants to go. The firing arm's elbow rides out and slightly up (that is what shouldering a
+// rifle does to it); the support arm's tucks down and in under the fore-end.
+const POLE_R = new THREE.Vector3(0.92, -0.28, 0.52).normalize();
+const POLE_L = new THREE.Vector3(-0.34, -0.90, 0.42).normalize();
 
 const ctxOf = () => (typeof globalThis !== 'undefined' && globalThis.__radius && globalThis.__radius.ctx) || null;
 
@@ -180,15 +184,33 @@ const COL = {
 };
 
 class Skin {
-  constructor() { this.p = []; this.col = []; this.srf = []; this.si = []; this.sw = []; this.c = [0.04, 0.04, 0.042]; this.s = SF.cloth; }
-  tint(hex, surf) { _c.setHex(hex); this.c = [_c.r, _c.g, _c.b]; if (surf) this.s = surf; return this; }
+  // Vertices land in growable typed arrays; colour and surface are recorded once per tint() as a span, not per
+  // vertex, because a body is a handful of materials over thousands of triangles.
+  constructor() {
+    this.cap = 4096; this.n = 0;
+    this.p = new Float32Array(this.cap * 3);
+    this.b = new Float32Array(this.cap * 3);
+    this.spans = []; this.c = [0.04, 0.04, 0.042]; this.s = SF.cloth;
+    this.tint(COL.cloth, SF.cloth);
+  }
+  tint(hex, surf) {
+    _c.setHex(hex);
+    const s = surf || this.s;
+    this.spans.push(this.n, _c.r, _c.g, _c.b, s[0], s[1], s[2], s[3]);
+    this.s = s;
+    return this;
+  }
+  grow() {
+    this.cap *= 2;
+    const p = new Float32Array(this.cap * 3); p.set(this.p); this.p = p;
+    const b = new Float32Array(this.cap * 3); b.set(this.b); this.b = b;
+  }
   vert(v) {
-    this.p.push(v[0], v[1], v[2]);
-    this.col.push(this.c[0], this.c[1], this.c[2]);
-    this.srf.push(this.s[0], this.s[1], this.s[2], this.s[3]);
-    const w = v[5] || 0;
-    this.si.push(v[3] | 0, (v[4] === undefined ? v[3] : v[4]) | 0, 0, 0);
-    this.sw.push(1 - w, w, 0, 0);
+    if (this.n >= this.cap) this.grow();
+    const i = this.n * 3;
+    this.p[i] = v[0]; this.p[i + 1] = v[1]; this.p[i + 2] = v[2];
+    this.b[i] = v[3]; this.b[i + 1] = v[4] === undefined ? v[3] : v[4]; this.b[i + 2] = v[5] || 0;
+    this.n++;
   }
   tri(a, b, c) {
     const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
@@ -198,20 +220,27 @@ class Skin {
     this.vert(a); this.vert(b); this.vert(c);
   }
   quad(a, b, c, d) { this.tri(a, b, c); this.tri(a, c, d); }
-  get tris() { return this.p.length / 9; }
+  get tris() { return this.n / 3; }
   // Weld, crease and index in one pass over flat arrays. three's toCreasedNormals + mergeVertices do the same
   // job through BufferAttribute accessors and string hashes and cost 170 ms a body, which is a dropped frame
   // every time a new build type spawns; this is the same result in about a tenth of the time.
   finish(scale = 1, creaseCos = 0.5) {
-    const p = this.p, N = p.length / 3;
+    const p = this.p, N = this.n;
     if (!N) return null;
+    // expand the material spans into per-vertex lookups
+    const spans = this.spans, sn = spans.length / 8;
+    const mat = new Uint16Array(N);
+    for (let k = 0; k < sn; k++) {
+      const from = spans[k * 8], to = k + 1 < sn ? spans[(k + 1) * 8] : N;
+      for (let i = from; i < to; i++) mat[i] = k;
+    }
     const tris = N / 3;
     const fx = new Float32Array(tris), fy = new Float32Array(tris), fz = new Float32Array(tris);
     for (let t = 0; t < tris; t++) {
       const i = t * 9;
       const ux = p[i + 3] - p[i], uy = p[i + 4] - p[i + 1], uz = p[i + 5] - p[i + 2];
       const vx = p[i + 6] - p[i], vy = p[i + 7] - p[i + 1], vz = p[i + 8] - p[i + 2];
-      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
       const l = Math.hypot(nx, ny, nz) || 1;
       fx[t] = nx / l; fy[t] = ny / l; fz[t] = nz / l;
     }
@@ -221,10 +250,10 @@ class Skin {
       const qx = Math.round(p[i * 3] * 1000) + 2048, qy = Math.round(p[i * 3 + 1] * 1000) + 2048, qz = Math.round(p[i * 3 + 2] * 1000) + 2048;
       const k = (qx * 4096 + qy) * 4096 + qz;
       bkey[i] = k;
-      const b = buckets.get(k);
-      if (b) b.push(i); else buckets.set(k, [i]);
+      const bk = buckets.get(k);
+      if (bk) bk.push(i); else buckets.set(k, [i]);
     }
-    // crease: a vertex takes the average of the faces at its position that are within the crease angle of its own
+    // crease: a vertex takes the average of the faces at its position within the crease angle of its own
     const nrm = new Float32Array(N * 3);
     for (const list of buckets.values()) {
       const n = list.length;
@@ -240,10 +269,13 @@ class Skin {
         else { nrm[i * 3] = nx / l; nrm[i * 3 + 1] = ny / l; nrm[i * 3 + 2] = nz / l; }
       }
     }
-    // index: inside a bucket, merge vertices that agree on normal, colour, surface and bones
-    const col = this.col, srf = this.srf, si = this.si, sw = this.sw;
-    const oP = [], oN = [], oC = [], oS = [], oI = [], oW = [], index = new Uint32Array(N);
+    // index: inside a bucket, merge vertices that agree on normal, material span and bones
+    const bo = this.b;
+    const oP = new Float32Array(N * 3), oN = new Float32Array(N * 3), oC = new Float32Array(N * 3);
+    const oS = new Float32Array(N * 4), oI = new Uint16Array(N * 4), oW = new Float32Array(N * 4);
+    const index = new Uint32Array(N);
     const seen = new Map();
+    let M = 0;
     for (let i = 0; i < N; i++) {
       const k = bkey[i];
       let list = seen.get(k);
@@ -251,25 +283,24 @@ class Skin {
       let hit = -1;
       for (let a = 0; a < list.length; a += 2) {          // the bucket holds [outIdx, srcIdx] pairs
         const oi = list[a], src = list[a + 1];
+        if (mat[i] !== mat[src]) continue;
+        if (bo[i * 3] !== bo[src * 3] || bo[i * 3 + 1] !== bo[src * 3 + 1] || bo[i * 3 + 2] !== bo[src * 3 + 2]) continue;
         if (nrm[i * 3] * nrm[src * 3] + nrm[i * 3 + 1] * nrm[src * 3 + 1] + nrm[i * 3 + 2] * nrm[src * 3 + 2] < 0.9995) continue;
-        if (col[i * 3] !== col[src * 3] || col[i * 3 + 1] !== col[src * 3 + 1] || col[i * 3 + 2] !== col[src * 3 + 2]) continue;
-        if (srf[i * 4] !== srf[src * 4] || srf[i * 4 + 1] !== srf[src * 4 + 1] || srf[i * 4 + 2] !== srf[src * 4 + 2] || srf[i * 4 + 3] !== srf[src * 4 + 3]) continue;
-        if (si[i * 4] !== si[src * 4] || si[i * 4 + 1] !== si[src * 4 + 1] || sw[i * 4] !== sw[src * 4]) continue;
         hit = oi; break;
       }
       if (hit < 0) {
-        hit = oP.length / 3;
-        oP.push(p[i * 3] * scale, p[i * 3 + 1] * scale, p[i * 3 + 2] * scale);
-        oN.push(nrm[i * 3], nrm[i * 3 + 1], nrm[i * 3 + 2]);
-        oC.push(col[i * 3], col[i * 3 + 1], col[i * 3 + 2]);
-        oS.push(srf[i * 4], srf[i * 4 + 1], srf[i * 4 + 2], srf[i * 4 + 3]);
-        oI.push(si[i * 4], si[i * 4 + 1], 0, 0);
-        oW.push(sw[i * 4], sw[i * 4 + 1], 0, 0);
+        hit = M++;
+        const o3 = hit * 3, o4 = hit * 4, sp = mat[i] * 8;
+        oP[o3] = p[i * 3] * scale; oP[o3 + 1] = p[i * 3 + 1] * scale; oP[o3 + 2] = p[i * 3 + 2] * scale;
+        oN[o3] = nrm[i * 3]; oN[o3 + 1] = nrm[i * 3 + 1]; oN[o3 + 2] = nrm[i * 3 + 2];
+        oC[o3] = spans[sp + 1]; oC[o3 + 1] = spans[sp + 2]; oC[o3 + 2] = spans[sp + 3];
+        oS[o4] = spans[sp + 4]; oS[o4 + 1] = spans[sp + 5]; oS[o4 + 2] = spans[sp + 6]; oS[o4 + 3] = spans[sp + 7];
+        oI[o4] = bo[i * 3]; oI[o4 + 1] = bo[i * 3 + 1];
+        oW[o4] = 1 - bo[i * 3 + 2]; oW[o4 + 1] = bo[i * 3 + 2];
         list.push(hit, i);
       }
       index[i] = hit;
     }
-    const M = oP.length / 3;
     const phase = new Float32Array(M), jdir = new Float32Array(M * 3);
     for (let i = 0; i < M; i++) {
       const kx = Math.round(oP[i * 3] * 1000) + 7, ky = Math.round(oP[i * 3 + 1] * 1000) + 3, kz = Math.round(oP[i * 3 + 2] * 1000) + 11;
@@ -279,17 +310,17 @@ class Skin {
       jdir[i * 3] = jx / jl; jdir[i * 3 + 1] = jy / jl; jdir[i * 3 + 2] = jz / jl;
     }
     const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(oP, 3));
-    g.setAttribute('normal', new THREE.Float32BufferAttribute(oN, 3));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(oC, 3));
-    g.setAttribute('aSurf', new THREE.Float32BufferAttribute(oS, 4));
-    g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(oI, 4));
-    g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(oW, 4));
+    g.setAttribute('position', new THREE.BufferAttribute(oP.subarray(0, M * 3), 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(oN.subarray(0, M * 3), 3));
+    g.setAttribute('color', new THREE.BufferAttribute(oC.subarray(0, M * 3), 3));
+    g.setAttribute('aSurf', new THREE.BufferAttribute(oS.subarray(0, M * 4), 4));
+    g.setAttribute('skinIndex', new THREE.BufferAttribute(oI.subarray(0, M * 4), 4));
+    g.setAttribute('skinWeight', new THREE.BufferAttribute(oW.subarray(0, M * 4), 4));
     g.setAttribute('aPhase', new THREE.BufferAttribute(phase, 1));
     g.setAttribute('aJit', new THREE.BufferAttribute(jdir, 3));
     g.setIndex(new THREE.BufferAttribute(index, 1));
-    g.computeBoundingSphere();
-    this.p.length = 0; this.col.length = 0; this.srf.length = 0; this.si.length = 0; this.sw.length = 0;
+    g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.95 * scale, 0), 1.5 * scale);
+    this.p = null; this.b = null; this.spans.length = 0; this.n = 0;
     return g;
   }
 }
@@ -323,7 +354,9 @@ function ringZ(z, rx, ryT, ryB, o = {}) {
   }
   return out;
 }
-// Connect a stack of rings. `flip` reverses the winding for stacks that run along -z instead of +y.
+// Connect a stack of rings. The winding assumes the stack runs along +y; anything built top-down (arms, legs,
+// boots) or forward (feet) must pass flip, or its faces point inwards and the part is invisible under
+// front-face culling. capA/capB fan the end rings to their centroid, with the fan facing along the stack.
 function loft(S, rings, o = {}) {
   const { flip = false, capA = false, capB = false, cA = null, cB = null } = o;
   for (let r = 0; r < rings.length - 1; r++) {
@@ -369,17 +402,19 @@ const L1 = Y.shoulder - Y.elbow;      // 0.335 humerus
 const L2 = Y.elbow - Y.wrist;         // 0.275 forearm to the grip
 // The rifle at low ready and at the shoulder, chest-bone local.
 const GUN_REST = [0.072, -0.010, -0.175];
-const GUN_AIM = [0.062, 0.272, -0.150];
+// Shouldered: the buttplate (gun-local z +0.27 on a Kalashnikov) lands in the shoulder pocket, the bore ends up
+// at chin height and the receiver stands clear of the chest. Everything about the aiming pose falls out of this.
+const GUN_AIM = [0.075, 0.300, -0.330];
 
 // ---------------------------------------------------------------- builds
 // sh: shoulder joint half-span. chest/waist/hip: torso half-widths. gut: belly. arm/thigh/calf: limb radii.
 const BUILDS = [
-  { id: 'lean', s: 0.995, sh: 0.172, chest: 0.183, waist: 0.140, hip: 0.156, gut: 0.00, arm: 0.049, fore: 0.042, thigh: 0.084, calf: 0.058, head: 0.98, slouch: 0.020, neck: 0.056 },
+  { id: 'lean', s: 0.998, sh: 0.172, chest: 0.183, waist: 0.140, hip: 0.156, gut: 0.00, arm: 0.049, fore: 0.042, thigh: 0.084, calf: 0.058, head: 0.98, slouch: 0.020, neck: 0.056 },
   { id: 'reg', s: 1.000, sh: 0.181, chest: 0.194, waist: 0.152, hip: 0.164, gut: 0.10, arm: 0.054, fore: 0.045, thigh: 0.090, calf: 0.062, head: 1.00, slouch: 0.000, neck: 0.060 },
-  { id: 'broad', s: 0.988, sh: 0.197, chest: 0.211, waist: 0.169, hip: 0.176, gut: 0.20, arm: 0.061, fore: 0.050, thigh: 0.097, calf: 0.067, head: 1.02, slouch: -0.014, neck: 0.067 },
-  { id: 'heavy', s: 0.968, sh: 0.192, chest: 0.214, waist: 0.194, hip: 0.190, gut: 0.60, arm: 0.063, fore: 0.051, thigh: 0.105, calf: 0.071, head: 1.03, slouch: 0.030, neck: 0.069 },
-  { id: 'wiry', s: 1.028, sh: 0.169, chest: 0.176, waist: 0.136, hip: 0.150, gut: 0.00, arm: 0.046, fore: 0.040, thigh: 0.080, calf: 0.056, head: 0.96, slouch: 0.048, neck: 0.053 },
-  { id: 'stocky', s: 0.952, sh: 0.187, chest: 0.203, waist: 0.172, hip: 0.180, gut: 0.34, arm: 0.058, fore: 0.048, thigh: 0.099, calf: 0.068, head: 1.04, slouch: 0.012, neck: 0.065 },
+  { id: 'broad', s: 0.990, sh: 0.197, chest: 0.211, waist: 0.169, hip: 0.176, gut: 0.20, arm: 0.061, fore: 0.050, thigh: 0.097, calf: 0.067, head: 1.02, slouch: -0.014, neck: 0.067 },
+  { id: 'heavy', s: 0.975, sh: 0.192, chest: 0.214, waist: 0.194, hip: 0.190, gut: 0.60, arm: 0.063, fore: 0.051, thigh: 0.105, calf: 0.071, head: 1.03, slouch: 0.030, neck: 0.069 },
+  { id: 'wiry', s: 1.020, sh: 0.169, chest: 0.176, waist: 0.136, hip: 0.150, gut: 0.00, arm: 0.046, fore: 0.040, thigh: 0.080, calf: 0.056, head: 0.96, slouch: 0.048, neck: 0.053 },
+  { id: 'stocky', s: 0.965, sh: 0.187, chest: 0.203, waist: 0.172, hip: 0.180, gut: 0.34, arm: 0.058, fore: 0.048, thigh: 0.099, calf: 0.068, head: 1.04, slouch: 0.012, neck: 0.065 },
 ];
 const BASE_SCALE = 0.968;            // unit crown 1.92 -> 1.859, which is the mimic's standing capsule
 
@@ -405,12 +440,13 @@ function buildBodyGeo(build, headKind, coat, seed) {
     ringY(1.320, P.chest, P.chest * 0.615, P.chest * 0.60, { seg, pow: 2.4, b0: BI.chest, jit: tj, seed: 9, cx: rr(1) * 0.006 }),
     ringY(1.400, P.chest * 1.015, P.chest * 0.585, P.chest * 0.565, { seg, pow: 2.4, b0: BI.chest, jit: tj, seed: 10 }),
     ringY(1.468, P.chest * 0.975, P.chest * 0.520, P.chest * 0.500, { seg, pow: 2.3, b0: BI.chest, jit: tj * 0.6, seed: 11 }),
-    ringY(1.522, P.chest * 0.820, P.chest * 0.430, P.chest * 0.430, { seg, pow: 2.1, b0: BI.chest, cy: 0, jit: tj * 0.6, seed: 12 }),
-    ringY(1.560, P.chest * 0.520, P.chest * 0.360, P.chest * 0.380, { seg, pow: 2.0, b0: BI.chest, b1: BI.neck, w: 0.35, cz: 0.004 }),
+    ringY(1.522, P.chest * 0.880, P.chest * 0.440, P.chest * 0.440, { seg, pow: 2.1, b0: BI.chest, jit: tj * 0.6, seed: 12 }),
+    ringY(1.562, P.chest * 0.700, P.chest * 0.390, P.chest * 0.400, { seg, pow: 2.0, b0: BI.chest, jit: tj * 0.5, seed: 13 }),
+    ringY(1.594, P.chest * 0.430, P.chest * 0.330, P.chest * 0.350, { seg, pow: 2.0, b0: BI.chest, b1: BI.neck, w: 0.35, cz: 0.004 }),
   ];
   // the shoulders are not level: one rides a centimetre higher on everybody
   const tilt = rr(2) * 0.016;
-  for (let r = 8; r < torso.length; r++) for (const v of torso[r]) v[1] += tilt * (v[0] > 0 ? 1 : -1) * ((r - 7) / 3);
+  for (let r = 8; r < torso.length; r++) for (const v of torso[r]) v[1] += tilt * clamp(v[0] * 6, -1, 1) * ((r - 7) / 4);
   loft(S, torso, { capA: true });
 
   // ---- neck and head. The head bone sits at the jaw pivot; the skull is an ovoid above it.
@@ -422,19 +458,19 @@ function buildBodyGeo(build, headKind, coat, seed) {
     ringY(1.672, P.neck * 0.99, P.neck * 0.98, P.neck * 1.06, { seg: 10, pow: 2.0, b0: BI.neck, b1: BI.head, w: 0.6, cz: 0.002 }),
   ];
   loft(S, neck);
-  const hy = [1.668, 1.700, 1.735, 1.775, 1.815, 1.855, 1.888, 1.908];
-  const head = hy.map((y, i) => {
-    const t = clamp((y - skullY) / ry, -1, 1);
-    let k = Math.sqrt(Math.max(0.02, 1 - t * t));
+  const hu = [-0.975, -0.72, -0.44, -0.12, 0.20, 0.52, 0.78, 0.945];
+  const head = hu.map((t, i) => {
+    const y = skullY + t * ry;
+    const k = Math.sqrt(Math.max(0.02, 1 - t * t));
     // jaw: narrower and pushed forward at the bottom, so the skull is not a rugby ball
-    const low = clamp01((1.760 - y) / 0.095);
+    const low = clamp01(-(t + 0.24) / 0.74);
     const kx = k * (1 - low * 0.30), kzF = k * (1 - low * 0.10), kzB = k * (1 - low * 0.34);
     return ringY(y, rx * kx, rz * kzF, rz * kzB, {
       seg: 12, pow: 2.15, cx: 0.004 + rr(3) * 0.004, cz: 0.006 - low * 0.012,
       b0: BI.head, jit: i > 0 && i < 6 ? 0.003 : 0,
     });
   });
-  loft(S, head, { capB: true, cB: [0.004, 1.918, 0.006, BI.head, BI.head, 0] });
+  loft(S, head, { capB: true, cB: [0.004, skullY + ry, 0.006, BI.head, BI.head, 0] });
 
   // ---- head covering
   if (headKind === 'hood') buildHood(S, P, rx, rz, skullY, seed);
@@ -442,12 +478,14 @@ function buildBodyGeo(build, headKind, coat, seed) {
 
   // ---- collar: a stand-up jacket collar that breaks the neck line
   S.tint(coat === 'coat' ? COL.coat : COL.clothB, SF.cloth);
-  const cy0 = 1.500, cy1 = 1.500 + (coat === 'coat' ? 0.085 : 0.062);
+  const nk = P.neck, cTop = coat === 'coat' ? 1.648 : 1.616;
   loft(S, [
-    ringY(cy0, P.chest * 0.62, P.chest * 0.46, P.chest * 0.46, { seg: 12, pow: 2.0, b0: BI.chest, cz: 0.004 }),
-    ringY(cy1 - 0.02, P.chest * 0.56, P.chest * 0.42, P.chest * 0.44, { seg: 12, pow: 2.0, b0: BI.chest, b1: BI.neck, w: 0.3, cz: 0.006, jit: 0.004, seed: 21 }),
-    ringY(cy1, P.chest * 0.60, P.chest * 0.44, P.chest * 0.47, { seg: 12, pow: 2.0, b0: BI.chest, b1: BI.neck, w: 0.4, cz: 0.008, jit: 0.005, seed: 22 }),
-  ], { capB: true });
+    ringY(1.540, nk * 1.42, nk * 1.34, nk * 1.44, { seg: 12, pow: 2.0, b0: BI.chest, b1: BI.neck, w: 0.30, cz: 0.006 }),
+    ringY(cTop - 0.028, nk * 1.50, nk * 1.40, nk * 1.52, { seg: 12, pow: 2.0, b0: BI.chest, b1: BI.neck, w: 0.40, cz: 0.006, jit: 0.004, seed: 21 }),
+    ringY(cTop, nk * 1.60, nk * 1.46, nk * 1.64, { seg: 12, pow: 2.0, b0: BI.chest, b1: BI.neck, w: 0.45, cz: 0.006, jit: 0.005, seed: 22 }),
+    ringY(cTop - 0.012, nk * 1.24, nk * 1.18, nk * 1.28, { seg: 12, pow: 2.0, b0: BI.chest, b1: BI.neck, w: 0.45, cz: 0.006 }),   // rolls over and back down
+    ringY(1.546, nk * 1.08, nk * 1.04, nk * 1.12, { seg: 12, pow: 2.0, b0: BI.chest, b1: BI.neck, w: 0.25, cz: 0.006 }),
+  ]);
 
   // ---- arms
   for (const side of [-1, 1]) {
@@ -455,7 +493,10 @@ function buildBodyGeo(build, headKind, coat, seed) {
     const x = side * P.sh, dz = -0.010;
     const jitS = side < 0 ? 40 : 60;
     const rings = [
-      // the deltoid: half on the chest so the shoulder does not tear open when the arm comes up
+      // the deltoid: half on the chest so the shoulder does not tear open when the arm comes up, and domed on
+      // top — a flat disc there reads as a mannequin peg from ten metres
+      ringY(Y.shoulder + 0.086, P.arm * 0.46, P.arm * 0.44, P.arm * 0.44, { seg: armSeg, pow: 2.2, cx: x - side * 0.010, cz: dz, b0: BI.chest, b1: bs, w: 0.35 }),
+      ringY(Y.shoulder + 0.072, P.arm * 0.94, P.arm * 0.92, P.arm * 0.90, { seg: armSeg, pow: 2.2, cx: x - side * 0.004, cz: dz, b0: BI.chest, b1: bs, w: 0.40 }),
       ringY(Y.shoulder + 0.052, P.arm * 1.28, P.arm * 1.24, P.arm * 1.22, { seg: armSeg, pow: 2.2, cx: x, cz: dz, b0: BI.chest, b1: bs, w: 0.45 }),
       ringY(Y.shoulder - 0.010, P.arm * 1.40, P.arm * 1.32, P.arm * 1.30, { seg: armSeg, pow: 2.2, cx: x + side * 0.006, cz: dz, b0: BI.chest, b1: bs, w: 0.70, jit: 0.004, seed: jitS }),
       ringY(Y.shoulder - 0.080, P.arm * 1.16, P.arm * 1.12, P.arm * 1.10, { seg: armSeg, pow: 2.2, cx: x + side * 0.004, cz: dz, b0: bs, jit: 0.004, seed: jitS + 1 }),
@@ -468,16 +509,17 @@ function buildBodyGeo(build, headKind, coat, seed) {
       ringY(Y.wrist + 0.022, P.fore * 0.96, P.fore * 0.92, P.fore * 0.92, { seg: armSeg, pow: 2.2, cx: x, cz: dz, b0: bf, jit: 0.005, seed: jitS + 5 }),
     ];
     S.tint(coat === 'coat' ? COL.coat : COL.cloth, coat === 'coat' ? SF.coat : SF.cloth);
-    loft(S, rings, { capA: true });
+    loft(S, rings, { flip: true, capA: true });
     // the glove: a mitten around the grip, wider across the knuckles than the wrist
     S.tint(COL.glove, SF.leather);
     const hand = [
       ringY(Y.wrist + 0.020, P.fore * 0.92, P.fore * 0.88, P.fore * 0.88, { seg: armSeg, pow: 2.3, cx: x, cz: dz, b0: bf }),
       ringY(Y.wrist - 0.020, P.fore * 1.00, P.fore * 0.86, P.fore * 0.90, { seg: armSeg, pow: 2.5, cx: x - side * 0.004, cz: dz - 0.006, b0: bf }),
       ringY(Y.wrist - 0.062, P.fore * 1.04, P.fore * 0.80, P.fore * 0.88, { seg: armSeg, pow: 2.6, cx: x - side * 0.008, cz: dz - 0.012, b0: bf }),
-      ringY(Y.wrist - 0.092, P.fore * 0.86, P.fore * 0.60, P.fore * 0.70, { seg: armSeg, pow: 2.6, cx: x - side * 0.012, cz: dz - 0.016, b0: bf }),
+      ringY(Y.wrist - 0.088, P.fore * 0.92, P.fore * 0.68, P.fore * 0.78, { seg: armSeg, pow: 2.6, cx: x - side * 0.012, cz: dz - 0.016, b0: bf }),
+      ringY(Y.wrist - 0.112, P.fore * 0.56, P.fore * 0.42, P.fore * 0.48, { seg: armSeg, pow: 2.4, cx: x - side * 0.014, cz: dz - 0.018, b0: bf }),
     ];
-    loft(S, hand, { capB: true });
+    loft(S, hand, { flip: true, capB: true });
   }
 
   // ---- legs: trousers over the leg, bunched above the boot
@@ -499,9 +541,12 @@ function buildBodyGeo(build, headKind, coat, seed) {
       ringY(0.238, P.calf * 0.94 + bunch, P.calf * 0.96 + bunch, P.calf * 0.98 + bunch, { seg: legSeg, pow: 2.3, cx: x, b0: bs, jit: 0.009, seed: sd + 6 }),  // bunched over the boot
       ringY(0.206, P.calf * 0.86 + bunch * 0.4, P.calf * 0.90 + bunch * 0.4, P.calf * 0.92 + bunch * 0.4, { seg: legSeg, pow: 2.3, cx: x, b0: bs, jit: 0.007, seed: sd + 7 }),
     ];
-    loft(S, rings, { capA: true });
+    loft(S, rings, { flip: true, capA: true });
     buildBoot(S, P, side, x, bs, side < 0 ? BI.ftL : BI.ftR, seed);
   }
+
+  // ---- personal kit: belt, sling and one hip item, chosen off the variant so a patrol is not five clones
+  buildPersonalKit(S, P, ['none', 'satchel', 'canteen'][seed % 3], seed);
   return S;
 }
 
@@ -515,19 +560,19 @@ function buildBoot(S, P, side, x, boneShin, boneFoot, seed) {
     ringY(0.212, w * 1.04, w * 1.06, w * 1.08, { seg, pow: 2.4, cx: x, b0: boneShin }),
     ringY(0.150, w * 0.98, w * 1.00, w * 1.06, { seg, pow: 2.4, cx: x, b0: boneShin, jit: 0.004, seed: seed + 11 }),
     ringY(0.100, w * 0.94, w * 0.98, w * 1.08, { seg, pow: 2.5, cx: x, cz: 0.004, b0: boneShin, b1: boneFoot, w: 0.4 }),
-  ]);
+  ], { flip: true });
   // the foot, swept from the heel forward. Sections are XY rounded rectangles; the sole is flat, the instep domed.
-  const fz = [0.082, 0.040, -0.012, -0.070, -0.120, -0.152];
-  const fw = [0.048, 0.055, 0.058, 0.056, 0.047, 0.030];
-  const ft = [0.092, 0.104, 0.098, 0.078, 0.058, 0.040];      // instep height above the sole
+  const fz = [0.092, 0.044, -0.014, -0.082, -0.142, -0.178];
+  const fw = [0.048, 0.056, 0.059, 0.056, 0.047, 0.030];
+  const ft = [0.096, 0.108, 0.100, 0.078, 0.056, 0.038];      // instep height above the sole
   const foot = fz.map((z, i) => ringZ(z, fw[i] * (P.calf / 0.062), 0.024 + ft[i], 0.024, {
     seg, pow: 2.9, cx: x, cy: 0.024, b0: boneFoot,
   }));
   loft(S, foot, { flip: true, capA: true, capB: true });
   // the sole: a slab under the foot with a welt that overhangs, in a different surface so it separates
   S.tint(COL.sole, SF.rubber);
-  const sz = [0.086, 0.030, -0.040, -0.110, -0.156];
-  const sw2 = [0.052, 0.060, 0.062, 0.050, 0.032];
+  const sz = [0.098, 0.034, -0.046, -0.128, -0.184];
+  const sw2 = [0.052, 0.061, 0.063, 0.051, 0.032];
   const sole = sz.map((z, i) => ringZ(z, sw2[i] * (P.calf / 0.062), 0.026, 0.026, { seg: 10, pow: 3.4, cx: x, cy: 0.026, b0: boneFoot }));
   loft(S, sole, { flip: true, capA: true, capB: true });
 }
@@ -589,6 +634,91 @@ function buildCap(S, P, rx, rz, seed) {
   }
 }
 
+// A swept strap: shoulder slings, satchel straps, anything that crosses the body. Corners run +side+up,
+// -side+up, -side-up, +side-up, which puts the outward face out.
+function strap(S, pts, w, t, b0, b1, wgt) {
+  const n = pts.length; if (n < 2) return;
+  const rings = [];
+  for (let i = 0; i < n; i++) {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)], P = pts[i];
+    let tx = b[0] - a[0], ty = b[1] - a[1], tz = b[2] - a[2];
+    const tl = Math.hypot(tx, ty, tz) || 1; tx /= tl; ty /= tl; tz /= tl;
+    let ux = 0, uy = 1, uz = 0;
+    if (Math.abs(ty) > 0.94) { ux = 1; uy = 0; }
+    let sx = ty * uz - tz * uy, sy = tz * ux - tx * uz, sz = tx * uy - ty * ux;
+    const sl = Math.hypot(sx, sy, sz) || 1; sx /= sl; sy /= sl; sz /= sl;
+    const nx = sy * tz - sz * ty, ny = sz * tx - sx * tz, nz = sx * ty - sy * tx;
+    const hw = w / 2, ht = t / 2;
+    rings.push([
+      [P[0] + sx * hw + nx * ht, P[1] + sy * hw + ny * ht, P[2] + sz * hw + nz * ht, b0, b1, wgt],
+      [P[0] - sx * hw + nx * ht, P[1] - sy * hw + ny * ht, P[2] - sz * hw + nz * ht, b0, b1, wgt],
+      [P[0] - sx * hw - nx * ht, P[1] - sy * hw - ny * ht, P[2] - sz * hw - nz * ht, b0, b1, wgt],
+      [P[0] + sx * hw - nx * ht, P[1] + sy * hw - ny * ht, P[2] + sz * hw - nz * ht, b0, b1, wgt],
+    ]);
+  }
+  for (let i = 0; i < n - 1; i++) for (let k = 0; k < 4; k++) {
+    const k2 = (k + 1) % 4;
+    S.quad(rings[i][k], rings[i + 1][k], rings[i + 1][k2], rings[i][k2]);
+  }
+  const F = rings[0], L = rings[n - 1];
+  S.quad(F[0], F[1], F[2], F[3]);
+  S.quad(L[3], L[2], L[1], L[0]);
+}
+// Personal kit that is part of the man, not of his loadout: the belt everyone wears, the sling that says he
+// carries a rifle even when you cannot see the rifle, and one of a satchel or a canteen on the hip. It lives in
+// the body geometry, so it is free — no extra draw call, no extra material, and it varies with the build.
+function buildPersonalKit(S, P, kind, seed) {
+  const wa = P.waist, seg = 12;
+  // ---- belt
+  S.tint(COL.glove, SF.leather);
+  loft(S, [
+    ringY(1.078, wa * 0.98, wa * 0.72, wa * 0.72, { seg, pow: 2.2, b0: BI.hips, b1: BI.spine, w: 0.35 }),
+    ringY(1.086, wa * 1.06, wa * 0.79, wa * 0.79, { seg, pow: 2.2, b0: BI.hips, b1: BI.spine, w: 0.35 }),
+    ringY(1.126, wa * 1.07, wa * 0.80, wa * 0.80, { seg, pow: 2.2, b0: BI.hips, b1: BI.spine, w: 0.45 }),
+    ringY(1.134, wa * 0.99, wa * 0.73, wa * 0.73, { seg, pow: 2.2, b0: BI.hips, b1: BI.spine, w: 0.45 }),
+  ], { capA: true, capB: true });
+  const bz = -(wa * 0.79 + 0.006);
+  S.tint(COL.hard, SF.hard);
+  loft(S, [
+    ringY(1.090, 0.028, 0.006, 0.006, { seg: 6, pow: 3.0, cz: bz, b0: BI.hips, b1: BI.spine, w: 0.4 }),
+    ringY(1.124, 0.028, 0.006, 0.006, { seg: 6, pow: 3.0, cz: bz, b0: BI.hips, b1: BI.spine, w: 0.4 }),
+  ], { capA: true, capB: true });
+  // ---- rifle sling over the right shoulder, down across the chest to the left hip
+  S.tint(COL.wool, SF.leather);
+  strap(S, [
+    [0.10, 1.560, 0.055], [0.135, 1.520, -0.020], [0.115, 1.430, -0.098],
+    [0.045, 1.320, -0.128], [-0.045, 1.220, -0.126], [-0.115, 1.140, -0.108],
+  ], 0.032, 0.008, BI.chest, BI.spine, 0.35);
+  if (kind === 'satchel') {
+    // a canvas map bag on the left hip, and the strap that holds it there
+    S.tint(COL.clothB, SF.cloth);
+    const cx = -(wa * 0.86), cy = 0.985;
+    loft(S, [
+      ringY(cy - 0.085, 0.088, 0.052, 0.040, { seg: 10, pow: 2.8, cx, cz: 0.012, b0: BI.hips, jit: 0.006, seed: seed + 210 }),
+      ringY(cy - 0.020, 0.094, 0.058, 0.044, { seg: 10, pow: 2.8, cx, cz: 0.010, b0: BI.hips, jit: 0.006, seed: seed + 211 }),
+      ringY(cy + 0.055, 0.090, 0.054, 0.042, { seg: 10, pow: 2.8, cx, cz: 0.008, b0: BI.hips, jit: 0.005, seed: seed + 212 }),
+    ], { capA: true, capB: true });
+    S.tint(COL.wool, SF.leather);
+    strap(S, [
+      [cx, cy + 0.050, -0.048], [-0.120, 1.200, -0.110], [-0.150, 1.380, -0.090],
+      [-0.150, 1.500, -0.020], [-0.130, 1.545, 0.055], [-0.100, 1.500, 0.100],
+    ], 0.030, 0.007, BI.chest, BI.hips, 0.35);
+  } else if (kind === 'canteen') {
+    S.tint(COL.clothB, SF.cloth);
+    const cx = wa * 0.84, cy = 1.035;
+    loft(S, [
+      ringY(cy - 0.072, 0.050, 0.036, 0.030, { seg: 10, pow: 2.4, cx, cz: 0.030, b0: BI.hips, jit: 0.004, seed: seed + 220 }),
+      ringY(cy + 0.010, 0.054, 0.040, 0.034, { seg: 10, pow: 2.4, cx, cz: 0.028, b0: BI.hips, jit: 0.004, seed: seed + 221 }),
+      ringY(cy + 0.048, 0.046, 0.034, 0.030, { seg: 10, pow: 2.4, cx, cz: 0.026, b0: BI.hips, jit: 0.004, seed: seed + 222 }),
+    ], { capA: true, capB: true });
+    // and a small utility pouch behind the left hip
+    loft(S, [
+      ringY(1.055, 0.056, 0.034, 0.030, { seg: 8, pow: 2.8, cx: -wa * 0.70, cz: 0.075, b0: BI.hips, jit: 0.005, seed: seed + 225 }),
+      ringY(1.125, 0.058, 0.036, 0.032, { seg: 8, pow: 2.8, cx: -wa * 0.70, cz: 0.072, b0: BI.hips, b1: BI.spine, w: 0.3, jit: 0.005, seed: seed + 226 }),
+    ], { capA: true, capB: true });
+  }
+}
+
 // A rifle silhouette for the rare case that gunmesh hands back nothing: still unmistakably armed at 40 m.
 function buildStandinGun() {
   const S = new Skin();
@@ -636,22 +766,28 @@ for (const b of BUILDS) for (const h of ['bare', 'hood', 'cap']) for (const c of
 const vkey = (b, h, c) => `${b.id}|${h}|${c}`;
 // the geometry is shared, so its crookedness must come from the VARIANT, never from whoever asked for it first
 function variantSeed(key) { let n = 0; for (let i = 0; i < key.length; i++) n = (n * 131 + key.charCodeAt(i)) | 0; return Math.abs(n % 9973); }
+const PREWARM_MAX = 18;
 let prewarmI = 0, prewarmOn = false;
 function startPrewarm() {
   if (prewarmOn || typeof setTimeout !== 'function') return;
   prewarmOn = true;
+  // One variant is 20-70 ms of lofting, so it goes in an idle callback where a browser has spare frame time,
+  // and the queue stops at PREWARM_MAX: the rarer combinations can pay for themselves when they first spawn.
+  const idle = typeof requestIdleCallback === 'function'
+    ? (fn, ms) => requestIdleCallback(() => fn(), { timeout: ms })
+    : (fn, ms) => setTimeout(fn, ms);
   const step = () => {
     // walk the list in an order that covers all six builds before it doubles back on head coverings
-    while (prewarmI < VARIANTS.length) {
+    while (prewarmI < PREWARM_MAX) {
       const [b, h, c] = VARIANTS[(prewarmI * 7) % VARIANTS.length];
       prewarmI++;
       if (GEO.has(vkey(b, h, c))) continue;
       variantGeo(vkey(b, h, c), b, h, c, variantSeed(vkey(b, h, c)));
       break;
     }
-    if (prewarmI < VARIANTS.length) setTimeout(step, 400);
+    if (prewarmI < PREWARM_MAX) idle(step, 900);
   };
-  setTimeout(step, 900);
+  idle(step, 1500);
 }
 // Build every body variant now (for a loading screen). Returns how many it built.
 export function prewarmHumanoids(limit = 999) {
@@ -708,7 +844,7 @@ class Poser {
     // gun-local space is NOT scaled with the body: a short man carries the same rifle as a tall one
     this.muzzle = new THREE.Object3D(); this.muzzle.position.set(0, 0.012, -0.56); B.gun.add(this.muzzle);
     this.gripR = new THREE.Vector3(0, -0.052, -0.012);
-    this.gripL = new THREE.Vector3(0, 0.020, -0.30);
+    this.gripL = new THREE.Vector3(0, 0.020, -0.26);
 
     this.phase = Math.random() * TAU; this.stepFlag = 0; this.gait = 0; this.aim = 0; this.kick = 0;
     this.headYaw = 0; this.headPitch = 0; this.flinch = 0; this.bob = 0; this.crouch = 0; this.deadT = 0;
@@ -735,7 +871,9 @@ class Poser {
     this.gait = damp(this.gait, clamp01(speed / 3.0), 6, dt);
     const g = this.gait;
     const crouch = this.crouch = damp(this.crouch, c.crouch || 0, 7, dt);
-    const stride = (c.stride ?? 1.42) * s;
+    // Stride length is what stops the feet skating: one full cycle (two steps) covers 2 x stride metres, and a
+    // man walking at 1.5 m/s covers about 1.5 m in a cycle, lengthening as he runs.
+    const stride = (c.stride ?? (0.62 + 0.10 * speed)) * s;
     const prev = this.phase;
     this.phase += (speed / stride) * TAU * 0.5 * dt;
     if (this.phase > 1e5) this.phase -= 1e5;
@@ -747,11 +885,11 @@ class Poser {
     // ---- legs. Swing about x, knee bends through the swing, ankle keeps the boot flat.
     const swing = 0.60 * g * (0.55 + 0.45 * clamp01(speed / 2.2));
     const sL = Math.sin(ph), sR = Math.sin(ph + Math.PI);
-    const thL = sL * swing + crouch * 0.62, thR = sR * swing + crouch * 0.62;
+    const thL = sL * swing + crouch * 1.05, thR = sR * swing + crouch * 1.02;
     B.thL.rotation.set(thL, 0, 0.025 + crouch * 0.10);
     B.thR.rotation.set(thR, 0, -0.025 - crouch * 0.10);
     const kL = Math.max(0, Math.cos(ph - 0.35)), kR = Math.max(0, Math.cos(ph + Math.PI - 0.35));
-    const snL = -(kL * kL * 1.05 * g + crouch * 1.15), snR = -(kR * kR * 1.05 * g + crouch * 1.15);
+    const snL = -(kL * kL * 1.05 * g + crouch * 2.10), snR = -(kR * kR * 1.05 * g + crouch * 2.04);
     B.snL.rotation.set(snL, 0, 0); B.snR.rotation.set(snR, 0, 0);
     // the foot stays level with the ground and rolls onto the toe as the leg swings back
     const toeL = clamp(-sL, 0, 1) * 0.55 * g, toeR = clamp(-sR, 0, 1) * 0.55 * g;
@@ -763,10 +901,10 @@ class Poser {
     const idle = 1 - g;
     B.hips.position.set(
       this.restHips.x + (Math.sin(ph) * 0.020 * this.bob + Math.sin(this.sway * 0.7) * 0.006 * idle) * s,
-      this.restHips.y - ((0.5 + 0.5 * Math.cos(2 * ph)) * 0.036 * this.bob + crouch * 0.30) * s,
+      this.restHips.y - ((0.5 + 0.5 * Math.cos(2 * ph)) * 0.036 * this.bob + crouch * 0.478) * s,
       this.restHips.z + Math.sin(this.sway * 0.43) * 0.004 * idle * s);
-    B.hips.rotation.set(-(0.055 + 0.075 * g + (c.lean || 0) + crouch * 0.22), Math.sin(ph) * 0.055 * g, -Math.sin(ph) * 0.05 * g);
-    B.spine.rotation.set(0.02 - 0.045 * g + crouch * 0.10, -Math.sin(ph) * 0.05 * g, Math.sin(ph) * 0.02 * g);
+    B.hips.rotation.set(-(0.055 + 0.075 * g + (c.lean || 0) + crouch * 0.30), Math.sin(ph) * 0.055 * g, -Math.sin(ph) * 0.05 * g);
+    B.spine.rotation.set(0.02 - 0.045 * g + crouch * 0.16, -Math.sin(ph) * 0.05 * g, Math.sin(ph) * 0.02 * g);
 
     // ---- chest: flinch, breathing, the turn toward what it is looking at
     this.flinch = damp(this.flinch, 0, 9, dt);
@@ -793,9 +931,13 @@ class Poser {
     gn.rotation.set(pitch, lerp(0.22, clamp(c.aimYaw || 0, -0.45, 0.45), this.aim) + Math.sin(ph) * 0.02 * g, lerp(0.14, 0.02, this.aim));
     gn.updateMatrix();
 
-    // ---- arms follow the rifle
-    this.solveArm(B.shL, B.foL, this.shPosL, _v.copy(this.gripL).applyMatrix4(gn.matrix), -1);
-    this.solveArm(B.shR, B.foR, this.shPosR, _v.copy(this.gripR).applyMatrix4(gn.matrix), 1);
+    // ---- arms follow the rifle. The support shoulder protracts (the scapula slides forward and in) and the
+    // firing shoulder shrugs, which is what actually lets a man reach the fore-end of a shouldered rifle.
+    const ai = this.aim;
+    B.shL.position.set(this.shPosL.x + 0.034 * ai * s, this.shPosL.y + 0.008 * ai * s, this.shPosL.z - 0.052 * ai * s);
+    B.shR.position.set(this.shPosR.x - 0.012 * ai * s, this.shPosR.y + 0.016 * ai * s, this.shPosR.z + 0.008 * ai * s);
+    this.solveArm(B.shL, B.foL, B.shL.position, _v.copy(this.gripL).applyMatrix4(gn.matrix), -1, POLE_L);
+    this.solveArm(B.shR, B.foR, B.shR.position, _v.copy(this.gripR).applyMatrix4(gn.matrix), 1, POLE_R);
 
     if (this.glitchOn) this.applyGlitch(s);
   }
@@ -816,8 +958,9 @@ class Poser {
     gn.position.set(this.gunRest.x, this.gunRest.y - 0.26 * fe * s, this.gunRest.z + 0.06 * fe * s);
     gn.rotation.set(-0.46 - 0.9 * fe, 0.22, 0.14 + 0.5 * fe);
     gn.updateMatrix();
-    this.solveArm(B.shL, B.foL, this.shPosL, _v.copy(this.gripL).applyMatrix4(gn.matrix), -1);
-    this.solveArm(B.shR, B.foR, this.shPosR, _v.copy(this.gripR).applyMatrix4(gn.matrix), 1);
+    B.shL.position.copy(this.shPosL); B.shR.position.copy(this.shPosR);
+    this.solveArm(B.shL, B.foL, B.shL.position, _v.copy(this.gripL).applyMatrix4(gn.matrix), -1, POLE_L);
+    this.solveArm(B.shR, B.foR, B.shR.position, _v.copy(this.gripR).applyMatrix4(gn.matrix), 1, POLE_R);
     this.mesh.scale.set(1 - 0.22 * fe, 1, 1 - 0.16 * fe);
   }
   applyGlitch(s) {
@@ -829,7 +972,7 @@ class Poser {
     this.B.hips.position.x += gl[1] * 0.2 * s;
     this.B.hips.position.y += Math.abs(gl[2]) * 0.12 * s;
   }
-  solveArm(upperBone, foreBone, shoulder, target, side) {
+  solveArm(upperBone, foreBone, shoulder, target, side, pole) {
     const a1 = this.L1, a2 = this.L2;
     _dir.subVectors(target, shoulder);
     let d = _dir.length();
@@ -838,7 +981,7 @@ class Poser {
     _dir.normalize();
     const cosA = clamp((a1 * a1 + d * d - a2 * a2) / (2 * a1 * d), -1, 1);
     const ang = Math.acos(cosA);
-    _pole.set(0.75 * side, -0.45, 0.65).normalize();
+    _pole.copy(pole || (side > 0 ? POLE_R : POLE_L)).normalize();
     _axis.crossVectors(_dir, _pole);
     if (_axis.lengthSq() < 1e-6) _axis.set(side, 0, 0);
     _axis.normalize();
@@ -917,31 +1060,37 @@ class Humanoid {
     this.rig.B.gun.add(g);
     const gr = g.userData && g.userData.grips;
     if (gr && gr.right && gr.right.p) this.rig.gripR.set(gr.right.p[0], gr.right.p[1] + 0.010, gr.right.p[2]);
-    if (gr && gr.left && gr.left.p) this.rig.gripL.set(gr.left.p[0], gr.left.p[1] - 0.008, Math.max(-0.40, gr.left.p[2]));
+    // A support hand out at the muzzle end of a full-length rifle is beyond a real arm once the butt is at the
+    // shoulder, so it grips no further forward than the magazine well.
+    if (gr && gr.left && gr.left.p) this.rig.gripL.set(gr.left.p[0], gr.left.p[1] - 0.008, Math.max(-0.26, gr.left.p[2]));
   }
   // Worn kit. Vest and helmet come from the loadout through mimic.js; the rig, pack, mask and night sights come
   // from the loadout's `kit`, which nothing was putting on a body before.
   wear(vestId, helmetId, packId) {
     for (const g of this.worn) { if (g.parent) g.parent.remove(g); }
     this.worn.length = 0;
-    const B = this.rig.B, sc = this.gearScale;
-    const put = (g, bone) => {
+    const B = this.rig.B, sc = this.gearScale, bd = this.build;
+    // gearmesh is authored against the average torso (chest half-width 0.194) and the average skull. A broad man
+    // needs his vest let out and a wiry one needs it taken in, or the panel floats or sinks into the chest.
+    const wide = sc * lerp(1, bd.chest / 0.194, 0.72);
+    const hsc = sc * bd.head;
+    const put = (g, bone, head) => {
       if (!g) return false;
-      g.scale.setScalar(sc);
+      if (head) g.scale.setScalar(hsc); else g.scale.set(wide, sc, wide);
       g.traverse((o) => { if (o.isMesh) { o.frustumCulled = false; o.receiveShadow = false; } });
       bone.add(g); this.worn.push(g); return true;
     };
     let hasVest = false;
     try { hasVest = put(vestId ? buildVest(vestId) : null, B.chest); } catch (e) { /* a missing model must never kill a spawn */ }
-    try { put(helmetId ? buildHelmet(helmetId) : null, B.head); } catch (e) { /* as above */ }
+    try { put(helmetId ? buildHelmet(helmetId) : null, B.head, true); } catch (e) { /* as above */ }
     try { put(packId ? buildPack(packId) : null, B.chest); } catch (e) { /* as above */ }
     for (const id of this.kit) {
       const d = ARMOR[id]; if (!d) continue;
       try {
         if (d.kind === 'rig') put(buildRig(id, { overVest: hasVest }), B.chest);
         else if (d.kind === 'backpack') { if (!packId) put(buildPack(id), B.chest); }
-        else if (d.kind === 'mask') put(buildMask(id), B.head);
-        else if (d.kind === 'headgear') put(buildHeadgear(id), B.head);
+        else if (d.kind === 'mask') put(buildMask(id), B.head, true);
+        else if (d.kind === 'headgear') put(buildHeadgear(id), B.head, true);
       } catch (e) { /* as above */ }
     }
     this.hasVest = hasVest;

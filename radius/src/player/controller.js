@@ -1,8 +1,21 @@
-// First-person body: movement, camera, stamina, crouch, head bob, footsteps, damage, bleeding, flashlight.
+// First-person body: movement, camera, stamina, crouch, head bob, footsteps, damage, bleeding.
+//
+// This file is where a trip is paid for. Three clocks run against the Explorer the whole time they are outside
+// the door and every one of them is legible from inside the body rather than off a number on the screen:
+//   * load    — what is in the pack is speed off the walk, wind off the sprint and rattle on the webbing.
+//   * wind    — a sprint is a commitment. Drain it to nothing and you are blown: you walk until it comes back.
+//   * blood   — bleeding is a clock the walk home speeds up, and stopping to bandage is the correct answer.
+// The lights and their cells live in player/gear.js; this file only falls back to the old torch toggle if that
+// module failed to construct, so a broken gear system can never leave the Explorer with no way to see.
 import * as THREE from 'three';
 import { clamp, clamp01, damp, lerp, smoothstep, DEG } from '../core/math.js';
 
 const WALK = 3.6, SPRINT = 6.2, CROUCH = 1.8, EYE = 1.7, EYE_CROUCH = 1.05, RADIUS = 0.35, GRAVITY = 22;
+// Wind. SPRINT_DRAIN is per second at a comfortable load and is multiplied by the load factor; REGEN is what
+// comes back once HOLD seconds have passed since the last stride. BLOWN_CLEAR is the wind you must have back
+// before you may run again — without it, tapping shift on and off made the entire stamina budget free.
+const SPRINT_DRAIN = 17, REGEN = 13, REGEN_CROUCH = 9, REGEN_HOLD = 1.9, BLOWN_CLEAR = 35;
+const BLEED_INTERVAL = 3.4;     // seconds per point, walking, from an ordinary wound
 
 export function createPlayer(ctx) {
   const { camera, input, state, events } = ctx;
@@ -20,6 +33,8 @@ export function createPlayer(ctx) {
   let lean = 0, rollKick = 0, kickPitch = 0, kickYaw = 0, recoilPitch = 0, recoilYaw = 0;
   let landDip = 0, landVel = 0, strafeRoll = 0;   // camera feel: a dip on landing, a lean into strafes
   let bleedT = 0, bleedTick = 0, hurtT = 0, breathe = 0, moveLock = 0, dead = false, lastSurface = 'grass', wading = 0;
+  let staminaHold = 0, blown = false, blownHintT = 0;   // wind: the pause before recovery, and the state of being spent
+  let loadState = null, lastLoadTier = 0, loadNoticeT = 0;
   let noiseLevel = 0;         // how loud the player is right now (0..1), read by enemies
   let heartLoop = null, breathLoop = null;   // body sounds: heartbeat under 30 HP, breath under 20 stamina
   const tmp = new THREE.Vector3(), fwd = new THREE.Vector3(), right = new THREE.Vector3(), shake = new THREE.Vector3();
@@ -33,6 +48,9 @@ export function createPlayer(ctx) {
     get moving() { return speedNow > 0.3; }, get speed() { return speedNow; },
     get noise() { return noiseLevel; }, get dead() { return dead; }, get eyeHeight() { return eyeH; },
     get bleeding() { return state.data.bleeding; },
+    get bleedRate() { return state.data.bleedRate | 0; },
+    get blown() { return blown; },                 // spent: no sprint until the wind is back
+    get load() { return loadState; },              // the live loadCurve() result, or null before the first frame
     inBase: false, inWater: false, moveLock: 0, loadFactor: 1,
     eye: new THREE.Vector3(),
     forward: fwd,
@@ -46,21 +64,29 @@ export function createPlayer(ctx) {
       hurtT = 1;
       ctx.post.damageFlash(clamp01(0.35 + amount / 40));
       ctx.post.shake(clamp01(amount / 30));
-      if (info.bleed !== false && amount >= 8 && (info.kind === 'bullet' || info.kind === 'slash')) state.data.bleeding = true;
+      // A wound that opens an artery bleeds faster than a graze, and it says so once. Severity is a rate,
+      // not a second health bar: one bandage still closes it, which keeps the answer simple under fire.
+      if (info.bleed !== false && amount >= 8 && (info.kind === 'bullet' || info.kind === 'slash')) {
+        const severe = amount >= 30 || info.zone === 'torso' && amount >= 24;
+        const was = state.data.bleedRate | 0;
+        state.data.bleeding = true;
+        state.data.bleedRate = Math.max(was, severe ? 2 : 1);
+        if (state.data.bleedRate === 2 && was < 2) ctx.hud?.notify?.('Heavy bleeding. It will not wait for the walk home.', { code: 'FIELD INJURY', ms: 5000, sound: false });
+      }
       ctx.audio.play(info.kind === 'bullet' ? 'hurt_bullet' : 'hurt', { gain: 0.8 });
       ctx.director?.notify('damaged', { amount, source: info.source });
       events.emit('playerDamaged', amount, info);
       if (state.data.hp <= 0) api.die(info);
     },
     heal(amount) { state.data.hp = Math.min(100, state.data.hp + amount); },
-    stopBleeding() { state.data.bleeding = false; },
+    stopBleeding() { state.data.bleeding = false; state.data.bleedRate = 0; },
     addStamina(v) { state.data.stamina = clamp(state.data.stamina + v, 0, 100); },
     die(info = {}) {
       if (dead) return; dead = true; state.data.stats.deaths++;
       velocity.set(0, 0, 0);
       events.emit('playerDied', info);
     },
-    revive() { dead = false; state.data.hp = Math.max(state.data.hp, 60); state.data.bleeding = false; state.data.stamina = 100; hurtT = 0; },
+    revive() { dead = false; state.data.hp = Math.max(state.data.hp, 60); state.data.bleeding = false; state.data.bleedRate = 0; state.data.stamina = 100; hurtT = 0; blown = false; staminaHold = 0; },
     // recoil from weapons: pitch up (radians), yaw random
     kick(p, y) { kickPitch += p; kickYaw += y; },
     // lock movement for a time (reload stages, using meds)
@@ -86,7 +112,9 @@ export function createPlayer(ctx) {
       rig.rotation.y = yaw;
 
       // ---- movement intent ----
-      const wantSprint = input.down('sprint') && state.data.stamina > 5 && !crouched;
+      // A broken leg does not run, and neither does an Explorer who has already spent their wind.
+      const fract = !!(ctx.damage && ctx.damage.fracture);
+      const wantSprint = input.down('sprint') && state.data.stamina > 5 && !crouched && !blown && !fract;
       if (input.pressed('crouch')) crouched = !crouched;
       moveLock = Math.max(0, moveLock - dt);
       let mx = 0, mz = 0;
@@ -101,15 +129,28 @@ export function createPlayer(ctx) {
       target *= lerp(1, 0.7, ads);
       if (state.data.hp < 25) target *= 0.85;
       if (api.inWater) target *= 0.65;
-      // load: armour and pack slow you; overweight slows more and forbids sprinting past 1.5x capacity
+      // Load. The curve lives in inventory.js so the panels and the tests read the same numbers the legs do:
+      // free to half a pack, then speed and wind come off it steadily, and past one and a half packs there is
+      // no sprint at all. Armour and webbing multiply on top, because a plate carrier is not a rucksack.
       const inv = ctx.inventory;
       let gearSpeed = 1, gearStamina = 1;
       for (const slot of ['vest', 'helmet', 'backpack', 'rig']) { const gd = inv.equippedDef?.(slot); if (gd) { gearSpeed *= gd.speed || 1; gearStamina *= gd.stamina || 1; } }
-      const over = inv.overweight ? inv.overweight() : 0, cap = inv.capacity ? inv.capacity() : 30;
-      const overK = clamp01(over / Math.max(1, cap * 0.5));
-      target *= gearSpeed * lerp(1, 0.6, overK) * (ctx.damage ? ctx.damage.speedMul : 1);
-      api.loadFactor = gearStamina * (1 + overK * 0.8);
-      if (over > cap * 0.5) sprinting = false;
+      const L = inv.load ? inv.load() : { speed: 1, stamina: 1, sprint: true, noise: 0, tier: 0, f: 0, kg: 0, cap: 30 };
+      loadState = L;
+      target *= gearSpeed * L.speed * (ctx.damage ? ctx.damage.speedMul : 1);
+      api.loadFactor = gearStamina * L.stamina;
+      if (!L.sprint) sprinting = false;
+      // one line when the pack crosses a line, and none while it sits where it was
+      loadNoticeT = Math.max(0, loadNoticeT - dt);
+      if (L.tier !== lastLoadTier && !api.inBase) {
+        if (L.tier > lastLoadTier && loadNoticeT <= 0 && L.tier >= 2) {
+          loadNoticeT = 25;
+          ctx.hud?.notify?.(L.tier >= 3
+            ? `${L.kg.toFixed(1)} kg on ${L.cap} kg of carriage. You will not run with this.`
+            : `${L.kg.toFixed(1)} kg on ${L.cap} kg of carriage. The pack is telling.`, { code: 'LOAD', ms: 4200, sound: false });
+        }
+        lastLoadTier = L.tier;
+      }
       // right = forward x up. (fwd.z, 0, -fwd.x) is up x forward — the exact negation — so strafe
       // ran backwards at every yaw: D moved you left. strafeRoll below reads the same vector to
       // build `lateral`, so its dot product is unchanged by this and must keep its leading minus.
@@ -122,9 +163,25 @@ export function createPlayer(ctx) {
       const accel = grounded ? 22 : 4;
       velocity.x = damp(velocity.x, tmp.x * target, accel, dt);
       velocity.z = damp(velocity.z, tmp.z * target, accel, dt);
-      // stamina
-      if (sprinting) state.data.stamina = Math.max(0, state.data.stamina - 16 * dt * (api.loadFactor || 1)); else state.data.stamina = Math.min(100, state.data.stamina + (crouched ? 8 : 11) * dt * (ctx.damage ? ctx.damage.staminaRegenMul : 1) / Math.sqrt(api.loadFactor || 1));
-      breathe = damp(breathe, state.data.stamina < 25 ? 1 : 0, 1.5, dt);
+      // Wind. Nothing comes back for REGEN_HOLD seconds after the last stride, so a sprint costs a decision
+      // and not a keypress; a wounded Explorer recovers worse, which is what makes a bad fight follow you home.
+      if (sprinting) {
+        state.data.stamina = Math.max(0, state.data.stamina - SPRINT_DRAIN * dt * (api.loadFactor || 1));
+        staminaHold = REGEN_HOLD;
+        if (state.data.stamina <= 0.5 && !blown) {
+          blown = true;
+          if (blownHintT <= 0) { blownHintT = 45; ctx.hud?.hint?.('Winded. Walk it back.', 2600); }
+        }
+      } else {
+        staminaHold = Math.max(0, staminaHold - dt);
+        if (staminaHold <= 0) {
+          const hpK = lerp(0.62, 1, clamp01((state.data.hp - 12) / 48));
+          state.data.stamina = Math.min(100, state.data.stamina + (crouched ? REGEN_CROUCH : REGEN) * dt * hpK * (ctx.damage ? ctx.damage.staminaRegenMul : 1) / Math.sqrt(api.loadFactor || 1));
+        }
+      }
+      if (blown && state.data.stamina >= BLOWN_CLEAR) blown = false;
+      blownHintT = Math.max(0, blownHintT - dt);
+      breathe = damp(breathe, state.data.stamina < 25 || blown ? 1 : 0, 1.5, dt);
       // gravity + ground
       velocity.y -= GRAVITY * dt;
       position.x += velocity.x * dt; position.z += velocity.z * dt; position.y += velocity.y * dt;
@@ -177,12 +234,21 @@ export function createPlayer(ctx) {
         ctx.audio.play('step_' + surf, { gain, rate: 0.95 + Math.random() * 0.1 });
         events.emit('footstep', { surface: surf, sprint: sprinting, crouch: crouched });
       }
-      noiseLevel = damp(noiseLevel, crouched ? 0.15 * bobSpeed : sprinting ? 1 : 0.45 * bobSpeed, 4, dt);
+      // What the zone hears. Webbing, tins and a full pack rattle: the Explorer who looted everything is the
+      // Explorer who is easiest to find, and a dragged foot is a sound of its own.
+      const moveN = speedNow > 0.3 ? L.noise + (fract ? 0.06 : 0) : 0;
+      noiseLevel = damp(noiseLevel, Math.min(1, (crouched ? 0.15 * bobSpeed : sprinting ? 1 : 0.45 * bobSpeed) + moveN), 4, dt);
 
       // ---- bleeding / regen / hurt ----
       if (state.data.bleeding && !dead) {
+        // The interval, not the damage, carries the severity: a torn artery empties faster and running
+        // empties it faster still, while going to ground and pressing on it buys time. One bandage
+        // closes any of it, so the decision under fire stays a single decision.
+        let iv = BLEED_INTERVAL;
+        if ((state.data.bleedRate | 0) >= 2) iv /= 1.4;
+        if (sprinting) iv /= 1.5; else if (crouched && speedNow < 0.4) iv *= 1.35;
         bleedT += dt;
-        if (bleedT > 3) {
+        if (bleedT > iv) {
           bleedT = 0;
           // A bleed tick used to write hp straight into state, so ninety-nine points of damage
           // arrived with no flash, no sound and no event: you were shot once, walked away, and
@@ -217,14 +283,19 @@ export function createPlayer(ctx) {
           if (!lowSta) { breathLoop.stop(1.2); breathLoop = null; }
         }
       }
-      // ---- flashlight ----
-      if (input.pressed('flashlight') && !dead) {
-        if (state.data.flashlight.battery <= 0 && !state.data.flashlight.on) ctx.audio.play('click', { gain: 0.5 });
-        else { state.data.flashlight.on = !state.data.flashlight.on; ctx.audio.play('flashlight', { gain: 0.6 }); }
+      // ---- lights ----
+      // player/gear.js owns the torch, the headlamp, the tubes and every cell that feeds them. This is only
+      // the fallback for a build where that module failed to construct: an Explorer with no light at all is
+      // not a harder game, it is an unplayable one.
+      if (!(ctx.gear && ctx.gear.ownsLights)) {
+        if (input.pressed('flashlight') && !dead) {
+          if (state.data.flashlight.battery <= 0 && !state.data.flashlight.on) ctx.audio.play('click', { gain: 0.5 });
+          else { state.data.flashlight.on = !state.data.flashlight.on; ctx.audio.play('flashlight', { gain: 0.6 }); }
+        }
+        if (state.data.flashlight.on) { state.data.flashlight.battery = Math.max(0, state.data.flashlight.battery - dt * (100 / (7 * 60))); if (state.data.flashlight.battery <= 0) { state.data.flashlight.on = false; ctx.audio.play('flashlight', { gain: 0.4, rate: 0.7 }); } }
+        ctx.lighting.setFlashlight(state.data.flashlight.on && !dead);
       }
-      if (state.data.flashlight.on) { state.data.flashlight.battery = Math.max(0, state.data.flashlight.battery - dt * (100 / (7 * 60))); if (state.data.flashlight.battery <= 0) { state.data.flashlight.on = false; ctx.audio.play('flashlight', { gain: 0.4, rate: 0.7 }); } }
-      ctx.lighting.setFlashlight(state.data.flashlight.on && !dead);
-      if (input.pressed('jump') && grounded && !dead && !crouched && moveLock <= 0 && state.data.stamina > 10) { velocity.y = 6.2; state.data.stamina -= 6; grounded = false; ctx.audio.play('jump', { gain: 0.5 }); }
+      if (input.pressed('jump') && grounded && !dead && !crouched && moveLock <= 0 && !blown && !fract && state.data.stamina > 12) { velocity.y = 6.2; state.data.stamina -= 8; staminaHold = Math.max(staminaHold, 0.9); grounded = false; ctx.audio.play('jump', { gain: 0.5 }); }
     },
   };
   return api;

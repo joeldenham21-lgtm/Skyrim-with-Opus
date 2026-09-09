@@ -12,11 +12,11 @@
 // Near misses on the player crack past, shake the picture and disturb the aim (api.suppression, read by weapons
 // and hands); impacts near the player throw debris and jolt the camera.
 import * as THREE from 'three';
-import { clamp, clamp01, DEG, TAU, lerp } from '../core/math.js';
+import { clamp, clamp01, DEG, TAU } from '../core/math.js';
 import { AMMO, ZONE_MULT, zoneFromHit } from '../data/index.js';
 
 const _d = new THREE.Vector3(), _u = new THREE.Vector3(), _r = new THREE.Vector3(), _p = new THREE.Vector3(), _q = new THREE.Vector3();
-const _n = new THREE.Vector3(), _far = new THREE.Vector3(), _from = new THREE.Vector3(), _pt = new THREE.Vector3();
+const _n = new THREE.Vector3(), _from = new THREE.Vector3();
 const _seg = new THREE.Vector3(), _tmp = new THREE.Vector3(), _nrm = new THREE.Vector3(), _ref = new THREE.Vector3();
 const _m4 = new THREE.Matrix4(), _rq = new THREE.Quaternion(), _sc = new THREE.Vector3(), _z = new THREE.Vector3(0, 0, 1), _col = new THREE.Color(), _roll = new THREE.Quaternion();
 
@@ -222,7 +222,7 @@ export function createBallistics(ctx) {
       pos: new THREE.Vector3(), vel: new THREE.Vector3(), prev: new THREE.Vector3(), draw: new THREE.Vector3(),
       v0: 340, speed: 340, drag: 1e-3, pen: 2, damage: 10, ammo: null, kind: 'bullet',
       source: 'player', shooter: null, what: null, pellet: false, cls: null,
-      dist: 0, tof: 0, maxDist: 300, tracer: false, ric: 0, pierced: 0, whiz: 0, hitPlayer: false, born: 0,
+      dist: 0, tof: 0, maxDist: 300, tracer: false, drawn: false, ric: 0, pierced: 0, whiz: 0, hitPlayer: false, born: 0,
     });
   }
   let poolHead = 0;
@@ -458,9 +458,10 @@ export function createBallistics(ctx) {
       p.tof += h * clamp01((p.dist - before) / len);
       // tracer: draw only the part actually flown this step
       if (p.tracer && p.dist > before + 0.05) {
-        _from.copy(p.draw.lengthSq() > 0 ? p.draw : p.prev);
+        // the first streak leaves the muzzle, the rest are the ground truth of where the round went
+        _from.copy(p.drawn ? p.prev : p.draw);
         ctx.vfx.tracer(_from, p.pos, p.pellet ? 0.012 : p.source === 'enemy' ? 0.03 : 0.02);
-        p.draw.set(0, 0, 0);
+        p.drawn = true;
       }
       if (!flying) return;
       if (p.dist >= p.maxDist) { retire(p); return; }
@@ -517,7 +518,7 @@ export function createBallistics(ctx) {
         p.dist = 0; p.tof = 0; p.maxDist = maxDist; p.ric = 0; p.pierced = 0; p.whiz = 0; p.hitPlayer = false;
         p.born = ctx.elapsed;
         p.tracer = tracerMode === 'all' || (tracerMode === 'fifth' && mgCount % 5 === 0);
-        p.draw.copy(opts.tracerFrom || origin);
+        p.drawn = false; p.draw.copy(opts.tracerFrom || origin);
         live.push(p);
         out.push(p);
         // resolve the first few metres now, so a shot inside a room lands on the frame it was fired
@@ -544,7 +545,7 @@ export function createBallistics(ctx) {
     clear() { for (let i = live.length - 1; i >= 0; i--) retire(live[i]); },
     update(dt) {
       if (dt > 0) {
-        supp = Math.max(0, supp - dt * 0.85);
+        supp = Math.max(0, supp - dt * 0.6);   // one crack rattles you for about half a second; a burst stacks
         for (let i = live.length - 1; i >= 0; i--) {
           const p = live[i];
           if (!p || !p.live) continue;

@@ -215,11 +215,12 @@ class Build {
 }
 
 // ---------------------------------------------------------------- torso: an ellipse per height, chest-bone local
-// The body is enemies/mimic.js BODY_PARTS: chest 0.40 x 0.22 tapering to a 0.27 x 0.17 waist. These radii are the
-// skin; gear rides a few millimetres outside it.
+// The skin these radii follow is the charmesh torso: the sternal notch at chest-local 0.15, the chest at 0.00
+// (0.39 x 0.24), the waist at -0.17 (0.31 x 0.23), the hips flaring again at -0.34. Gear rides a few millimetres
+// outside it. A build wider or narrower than average scales its gear in x/z to match (charmesh sets that).
 const TORSO = [
-  [0.34, 0.182, 0.104], [0.24, 0.202, 0.117], [0.12, 0.196, 0.115], [0.02, 0.180, 0.107],
-  [-0.08, 0.163, 0.100], [-0.18, 0.157, 0.098], [-0.30, 0.166, 0.104],
+  [0.200, 0.150, 0.093], [0.148, 0.189, 0.101], [0.080, 0.197, 0.113], [0.000, 0.194, 0.119],
+  [-0.075, 0.180, 0.120], [-0.170, 0.157, 0.113], [-0.250, 0.155, 0.116], [-0.340, 0.164, 0.125],
 ];
 // returns a fresh [rx, rz]: this runs at build time only, never per frame, and a shared temp would alias
 function torsoR(y) {
@@ -233,8 +234,8 @@ function torsoR(y) {
   const L = TORSO[TORSO.length - 1];
   return [L[1], L[2]];
 }
-// the head is a 0.19 x 0.22 box centred at head-local y 0.13; the skull it stands in for is an ellipsoid
-const SKULL = { cx: 0.004, cy: 0.130, cz: 0.008, rx: 0.098, ry: 0.126, rz: 0.112 };
+// the charmesh skull: 16.4 cm across, 20.4 long, 25 chin to crown, centred at head-local y 0.13
+const SKULL = { cx: 0.004, cy: 0.130, cz: 0.006, rx: 0.082, ry: 0.125, rz: 0.102 };
 
 // ---------------------------------------------------------------- primitives
 const win = (u) => Math.sin(Math.PI * clamp01(u));     // 0 at the ends, 1 in the middle
@@ -397,6 +398,7 @@ function buckle(B, x, y, z, w = 0.026, h = 0.019, rx = 0, ry = 0) {
 // that only show up on the heavy classes. Class 2 is a bib. Class 6 is a house.
 // =====================================================================================================
 // fa/ba: half-span of the front and back panel in radians (pi/2 = wraps to the side seam)
+const VEST_DY = -0.105;
 const VEST = {
   vest_paca: { fam: 'blk', t: 0.019, top: 0.27, bot: -0.02, fa: 1.02, ba: 0.98, sag: 0.014, jit: 0.007, bulge: 0.004, pouches: 0, collar: 0, groin: 0, sidePlate: 0, arms: 0, cummer: 0, pals: 0, shoulder: 'thin', drag: 0 },
   vest_6b2: { fam: 'sov', t: 0.030, top: 0.28, bot: -0.09, fa: 1.30, ba: 1.16, sag: 0.010, jit: 0.005, bulge: 0.006, pouches: 0, collar: 0.5, groin: 0, sidePlate: 0, arms: 0, cummer: 0, pals: 0, shoulder: 'wide', quilt: 5, drag: 0 },
@@ -445,7 +447,10 @@ function buildVestGeo(id) {
   const zones = def.zones || ['torso'];
   const B = new Build();
   const off = 0.009, t = sp.t;
-  const yTop = sp.top, yBot = zones.includes('stomach') ? sp.bot : Math.max(sp.bot, -0.04);
+  // VEST_DY: the table below was authored against the old body, whose chest block reached to the chin. On a real
+  // torso the front panel's top edge belongs at the sternal notch (chest-local 0.16), not the throat.
+  const yTop = sp.top + VEST_DY;
+  const yBot = Math.max(-0.285, (zones.includes('stomach') ? sp.bot : Math.max(sp.bot, -0.04)) + VEST_DY);
 
   // ---- front and back panels ----
   B.tint(F.shell, S.fabric);
@@ -563,49 +568,51 @@ function buildVestGeo(id) {
 // composite, drop it at the front quarters for Altyn's cheek flaps, drop it at the back for a nape skirt.
 // =====================================================================================================
 // cut(a) is the polar angle the shell reaches at azimuth a (a = 0 faces front). Past pi/2 the surface hangs
-// straight down instead of curving back in. Calibrated against the head: the brow sits at head-local y 0.17,
-// the ear at 0.09, the jaw at 0.02, so a front cut near 1.45 rad clears the eyes and a side cut near 2.05 rad
-// covers the ear. Everything that separates a steel pot from a titanium dome lives in these three numbers.
+// straight down instead of curving back in. Calibrated against the head: the brow sits at head-local y 0.185,
+// the ear at 0.12, the jaw at 0.02. CUT_RAISE lifts every shell off the eyes — the table below was written for
+// a skull 1.6 cm taller and 1.6 wider, and on the real head it sat over the brow like a bucket.
 const HELM = {
   helm_ssh68: {
-    fam: 'sov', mat: S.steel, col: 'helm', rx: 0.108, ry: 0.132, rz: 0.118, t: 0.007, flare: 0.10, segU: 16, segV: 4,
+    fam: 'sov', mat: S.steel, col: 'helm', rx: 0.117, ry: 0.134, rz: 0.140, t: 0.007, flare: 0.10, segU: 16, segV: 4,
     cut: (a) => 1.74 - 0.32 * Math.cos(a) + 0.28 * Math.abs(Math.sin(a)), brim: 1, liner: 1, strap: 'single', shroud: 0, rails: 0, cover: 0,
   },
   helm_6b7: {
-    fam: 'sov', mat: S.shell, col: 'cover', rx: 0.106, ry: 0.128, rz: 0.116, t: 0.010, flare: 0.03, segU: 16, segV: 4,
+    fam: 'sov', mat: S.shell, col: 'cover', rx: 0.114, ry: 0.130, rz: 0.136, t: 0.010, flare: 0.03, segU: 16, segV: 4,
     cut: (a) => 1.76 - 0.32 * Math.cos(a) + 0.30 * Math.abs(Math.sin(a)) + 0.08 * Math.max(0, -Math.cos(a)), brim: 0, liner: 1, strap: 'side', shroud: 0, rails: 0, cover: 1, nape: 0.5,
   },
   helm_6b47: {
-    fam: 'khk', mat: S.shell, col: 'helm', rx: 0.102, ry: 0.124, rz: 0.114, t: 0.009, flare: 0, segU: 16, segV: 4,
+    fam: 'khk', mat: S.shell, col: 'helm', rx: 0.110, ry: 0.126, rz: 0.130, t: 0.009, flare: 0, segU: 16, segV: 4,
     cut: (a) => 1.61 - 0.31 * Math.cos(a) + 0.18 * Math.abs(Math.sin(a)), brim: 0, liner: 1, strap: 'four', shroud: 1, rails: 1, cover: 0,
   },
   helm_kiver: {
-    fam: 'sov', mat: S.shell, col: 'cover', rx: 0.110, ry: 0.130, rz: 0.120, t: 0.013, flare: 0.02, segU: 16, segV: 5,
+    fam: 'sov', mat: S.shell, col: 'cover', rx: 0.118, ry: 0.132, rz: 0.142, t: 0.013, flare: 0.02, segU: 16, segV: 5,
     cut: (a) => 1.80 - 0.36 * Math.cos(a) + 0.30 * Math.abs(Math.sin(a)) + 0.10 * Math.max(0, -Math.cos(a)), brim: 0, liner: 1, strap: 'cup', shroud: 0, rails: 0, cover: 1, nape: 1,
   },
   helm_zsh: {
-    fam: 'blk', mat: S.shell, col: 'helm', rx: 0.114, ry: 0.136, rz: 0.124, t: 0.012, flare: 0, segU: 16, segV: 5,
+    fam: 'blk', mat: S.shell, col: 'helm', rx: 0.120, ry: 0.138, rz: 0.144, t: 0.012, flare: 0, segU: 16, segV: 5,
     cut: (a) => 1.82 - 0.34 * Math.cos(a) + 0.34 * Math.abs(Math.sin(a)), brim: 0, liner: 1, strap: 'cup', shroud: 0, rails: 0, cover: 0, ears: 1, nape: 0.8,
   },
   helm_altyn: {
-    fam: 'sov', mat: S.alloy, col: 'metal', rx: 0.112, ry: 0.134, rz: 0.122, t: 0.014, flare: 0, segU: 16, segV: 5, skirt: 1.6,
+    fam: 'sov', mat: S.alloy, col: 'metal', rx: 0.119, ry: 0.136, rz: 0.142, t: 0.014, flare: 0, segU: 16, segV: 5, skirt: 1.6,
     // the extra term is the cheek flap: it peaks in the front quarter and dies at the nose and the nape
     cut: (a) => 1.76 - 0.28 * Math.cos(a) + 0.26 * Math.abs(Math.sin(a)) + 0.50 * Math.sin(a) * Math.sin(a) * (0.5 + 0.5 * Math.cos(a)),
     brim: 0, liner: 1, strap: 'cup', shroud: 0, rails: 0, cover: 0, bolts: 1, nape: 1,
   },
   helm_ach: {
-    fam: 'coy', mat: S.shell, col: 'helm', rx: 0.104, ry: 0.126, rz: 0.116, t: 0.009, flare: 0, segU: 16, segV: 4,
+    fam: 'coy', mat: S.shell, col: 'helm', rx: 0.112, ry: 0.128, rz: 0.132, t: 0.009, flare: 0, segU: 16, segV: 4,
     cut: (a) => 1.63 - 0.30 * Math.cos(a) + 0.16 * Math.abs(Math.sin(a)), brim: 0, liner: 1, strap: 'four', shroud: 1, rails: 0.6, cover: 0, pads: 1,
   },
 };
 
+const CUT_RAISE = 0.18;
 function buildHelmetGeo(id) {
   const def = ARMOR[id]; if (!def) return null;
   const sp = HELM[id] || HELM.helm_6b7;
+  const cutFn = (a) => sp.cut(a) - CUT_RAISE;
   const F = FAM[sp.fam] || FAM.sov;
   const B = new Build(), G = new Build();
   const shellCol = F[sp.col] || F.hard;
-  const geom = { cx: SKULL.cx, cy: SKULL.cy + 0.012, cz: SKULL.cz, rx: sp.rx, ry: sp.ry, rz: sp.rz, t: sp.t, cut: sp.cut, flare: sp.flare, segU: sp.segU, segV: sp.segV, skirt: sp.skirt || 1.35 };
+  const geom = { cx: SKULL.cx, cy: SKULL.cy + 0.012, cz: SKULL.cz, rx: sp.rx, ry: sp.ry, rz: sp.rz, t: sp.t, cut: cutFn, flare: sp.flare, segU: sp.segU, segV: sp.segV, skirt: sp.skirt || 1.35 };
 
   B.tint(shellCol, sp.mat);
   dome(B, geom);
@@ -630,7 +637,7 @@ function buildHelmetGeo(id) {
   // ---- the cloth cover, stitched on: a seam band and a scrim loop ----
   if (sp.cover) {
     B.tint(F.cover, S.fabric);
-    dome(B, Object.assign({}, geom, { rx: sp.rx + 0.004, ry: sp.ry + 0.004, rz: sp.rz + 0.004, t: 0.003, segV: Math.max(3, sp.segV - 1), cut: (a) => sp.cut(a) * 0.86, rim: true }));
+    dome(B, Object.assign({}, geom, { rx: sp.rx + 0.004, ry: sp.ry + 0.004, rz: sp.rz + 0.004, t: 0.003, segV: Math.max(3, sp.segV - 1), cut: (a) => cutFn(a) * 0.86, rim: true }));
     B.tint(F.strap, S.webbing);
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * TAU + 0.4;
@@ -809,7 +816,7 @@ function buildRigGeo(id, lift = 0) {
     const yTop = sp.y + sp.h + 0.06;
     for (const sgn of [1, -1]) {
       const rF = torsoR(yTop);
-      ribbon(B, arcPts([sgn * 0.070, yTop, -(rF[1] + off - 0.020)], [sgn * 0.086, yTop - 0.02, rF[1] + 0.030], [sgn * 0.130, 0.34, 0], 5), 0.042, 0.009, [0, 0, 1]);
+      ribbon(B, arcPts([sgn * 0.070, yTop, -(rF[1] + off - 0.020)], [sgn * 0.086, yTop - 0.02, rF[1] + 0.030], [sgn * 0.140, 0.275, 0], 5), 0.042, 0.009, [0, 0, 1]);
     }
     band(B, { y0: 0.055, y1: 0.085, a0: Math.PI - 0.60, a1: Math.PI + 0.60, t: 0.008, seg: 5, rows: 1, out: 0.020, capTop: false, capBot: false });
   }
@@ -892,7 +899,7 @@ function buildPackGeo(id) {
   // shoulder straps over the trapezius to the front of the chest
   for (const sgn of [1, -1]) {
     const rF = torsoR(0.16);
-    ribbon(B, arcPts([sgn * 0.080, sp.y + sp.h * 0.44, z0 + 0.010], [sgn * 0.088, 0.06, -(rF[1] + 0.016)], [sgn * 0.135, 0.36, -0.02], 6), 0.052, 0.014, [0, 0, 1]);
+    ribbon(B, arcPts([sgn * 0.080, sp.y + sp.h * 0.44, z0 + 0.010], [sgn * 0.088, 0.02, -(rF[1] + 0.016)], [sgn * 0.142, 0.278, -0.02], 6), 0.052, 0.014, [0, 0, 1]);
   }
   // the frame: aluminium tubing you can see standing proud of the fabric
   if (sp.frame) {

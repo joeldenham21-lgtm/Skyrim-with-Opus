@@ -15,6 +15,16 @@ export const CALIBERS = {
 
 // Ammunition types. id -> { cal, name, kind, damage, pen, pellets, noise, speed, price (per round), rank, rarity }
 // kind: fmj | hp (expanding: more flesh damage, poor pen) | ap (armour piercing) | sub (subsonic: quiet, slower, less damage) | tracer | buck | slug | flechette
+//
+// PRICE IS THE DIFFICULTY DIAL, not the damage number. A contract pays 1,200 to 2,700 ₽, so the price per round
+// says how many shots a contract buys: 320 of 9×18, 84 of 7.62×39, 36 of 9×39. The Makarov is the floor and it
+// stays cheap on purpose — an Explorer with nothing can always feed the pistol and get back out. Everything
+// above it is a running cost that has to be earned, and a firefight you did not have to take is money.
+//
+// RARITY IS QUANTITY AS WELL AS FREQUENCY: data/loot.js AMMO_ROLL pays out by rarity, so a 'rare' round both
+// turns up less often and turns up seven at a time instead of twenty. That is the only lever that makes a
+// calibre scarce in the zone rather than merely expensive at the crate, and it is why the exotic loads
+// (9×39, AP, subsonic, flechette) are marked rare and the surplus loads are not.
 const A = (id, cal, name, kind, damage, pen, price, rank, rarity, extra = {}) => [id, Object.assign({ id, cal, name, kind, damage, pen, pellets: 1, noise: 1.0, speed: 340, price, rank, rarity, weight: CALIBERS[cal].weight }, extra)];
 export const AMMO = Object.fromEntries([
   // 9x18

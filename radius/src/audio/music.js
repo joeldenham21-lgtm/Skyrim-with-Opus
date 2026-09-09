@@ -168,14 +168,14 @@ function env(param, t, pts) {
 // the input gives ((1+g^2)z^-D - g)/(1 - g z^-D), which has up to +8 dB of gain and is not allpass.
 const APQ = -6;      // dB: an overdamped, strictly non-resonant lowpass
 export function buildReverb(ac, o = {}) {
-  const rt = o.rt ?? 2.6, dampF = o.damp ?? 3000;
+  const rt = o.rt ?? 3.2, dampF = o.damp ?? 3000;
   const input = G(ac, 1), output = G(ac, o.gain ?? 0.85);
   const pre = ac.createDelay(0.25); pre.delayTime.value = o.pre ?? 0.026;
   input.connect(pre);
-  const sum = G(ac, 0.24);
-  for (const d of o.combs ?? [0.0297, 0.0371, 0.0411, 0.0437]) {
+  const sum = G(ac, 0.2);
+  for (const d of o.combs ?? [0.0297, 0.0371, 0.0411, 0.0437, 0.0491, 0.0533]) {
     const dl = ac.createDelay(0.6); dl.delayTime.value = d;
-    const fb = G(ac, Math.min(0.86, Math.pow(10, (-3 * d) / rt) * 0.96));
+    const fb = G(ac, Math.min(0.91, Math.pow(10, (-3 * d) / rt) * 0.96));
     const lp = F(ac, 'lowpass', dampF, APQ);
     pre.connect(dl); dl.connect(lp); lp.connect(fb); fb.connect(dl); dl.connect(sum);
   }
@@ -206,13 +206,15 @@ export function buildReverb(ac, o = {}) {
 // Drop-D: the low string tuned down a tone so the open D can drone under everything in D minor.
 export const TUNING = [38, 45, 50, 55, 59, 64];      // D2 A2 D3 G3 B3 E4
 // Per-string character: the low strings are wound (dull, stiff, long), the trebles plain.
+// `dur` is where the buffer is cut: at the string's measured -13 to -25 dB/s that is 30-40 dB down,
+// under the reverb tail, and it is what keeps the note cache inside ~16 MB rather than 60.
 const STRINGS = [
-  { damp: 0.47, stiff: 0.115, decay: 5.2, bright: 0.50, pick: 0.125, noise: 0.34, wound: 1.0, pan: -0.20, lvl: 1.00 },
-  { damp: 0.45, stiff: 0.095, decay: 4.8, bright: 0.53, pick: 0.130, noise: 0.35, wound: 1.0, pan: -0.13, lvl: 0.98 },
-  { damp: 0.42, stiff: 0.070, decay: 4.3, bright: 0.58, pick: 0.135, noise: 0.36, wound: 0.9, pan: -0.05, lvl: 0.95 },
-  { damp: 0.37, stiff: 0.040, decay: 3.7, bright: 0.65, pick: 0.145, noise: 0.40, wound: 0.4, pan: 0.05, lvl: 0.92 },
-  { damp: 0.32, stiff: 0.022, decay: 3.1, bright: 0.72, pick: 0.155, noise: 0.44, wound: 0.1, pan: 0.13, lvl: 0.88 },
-  { damp: 0.29, stiff: 0.016, decay: 2.7, bright: 0.78, pick: 0.165, noise: 0.46, wound: 0.1, pan: 0.20, lvl: 0.84 },
+  { damp: 0.42, stiff: 0.115, decay: 5.2, bright: 0.56, pick: 0.125, noise: 0.34, wound: 1.0, pan: -0.34, lvl: 1.00, dur: 3.4 },
+  { damp: 0.41, stiff: 0.095, decay: 4.8, bright: 0.58, pick: 0.130, noise: 0.35, wound: 1.0, pan: -0.22, lvl: 0.98, dur: 3.2 },
+  { damp: 0.38, stiff: 0.070, decay: 4.3, bright: 0.62, pick: 0.135, noise: 0.36, wound: 0.9, pan: -0.09, lvl: 0.95, dur: 2.6 },
+  { damp: 0.34, stiff: 0.040, decay: 3.7, bright: 0.68, pick: 0.145, noise: 0.40, wound: 0.4, pan: 0.09, lvl: 0.92, dur: 2.2 },
+  { damp: 0.30, stiff: 0.022, decay: 3.1, bright: 0.75, pick: 0.155, noise: 0.44, wound: 0.1, pan: 0.22, lvl: 0.88, dur: 1.9 },
+  { damp: 0.27, stiff: 0.016, decay: 2.7, bright: 0.82, pick: 0.165, noise: 0.46, wound: 0.1, pan: 0.34, lvl: 0.84, dur: 1.7 },
 ];
 
 export function buildGuitar(ac, dest, o = {}) {
@@ -245,12 +247,12 @@ export function buildGuitar(ac, dest, o = {}) {
   const cache = new Map();
   const voices = new Array(6).fill(null);
   const live = new Set();
-  let renders = 0;
+  let renders = 0, clock = 0;
 
   function buffer(f0, s, variant, durCap) {
     const key = s.i + '|' + Math.round(f0 * 4) + '|' + variant;
     let e = cache.get(key);
-    if (e) { e.t = ac.currentTime; return e.buf; }
+    if (e) { e.t = ++clock; return e.buf; }
     const decay = Math.min(durCap, s.decay * lerp(1.15, 0.72, clamp01((f0 - 70) / 340)));
     const data = renderString(sr, f0, {
       decay, damp: s.damp, stiff: s.stiff, bright: s.bright * rnd(0.94, 1.07),
@@ -259,10 +261,10 @@ export function buildGuitar(ac, dest, o = {}) {
     });
     const buf = ac.createBuffer(1, data.length, sr);
     buf.copyToChannel ? buf.copyToChannel(data, 0) : buf.getChannelData(0).set(data);
-    e = { buf, t: ac.currentTime };
+    e = { buf, t: ++clock };
     cache.set(key, e);
     renders++;
-    if (cache.size > 72) { let oldest = null, ot = Infinity; for (const [k, v] of cache) if (v.t < ot) { ot = v.t; oldest = k; } cache.delete(oldest); }
+    if (cache.size > 44) { let oldest = null, ot = Infinity; for (const [k, v] of cache) if (v.t < ot) { ot = v.t; oldest = k; } cache.delete(oldest); }
     return buf;
   }
 
@@ -272,10 +274,17 @@ export function buildGuitar(ac, dest, o = {}) {
     const s = STRINGS[si]; s.i = si;
     const f0 = mtof(midi) * Math.pow(2, (opt.cents ?? 0) / 1200);
     if (f0 < 40 || f0 > 2000) return null;
-    const durCap = opt.dur ?? (si < 2 ? 4.4 : si < 4 ? 3.6 : 2.9);
-    const buf = buffer(f0, s, (Math.random() * 3) | 0, durCap);
+    const durCap = opt.dur ?? s.dur;
+    const buf = buffer(f0, s, si < 2 ? (Math.random() * 2) | 0 : 0, durCap);
     const src = ac.createBufferSource(); src.buffer = buf;
-    src.playbackRate.value = Math.pow(2, rnd(-4, 4) / 1200);
+    const rate = Math.pow(2, rnd(-4, 4) / 1200);
+    src.playbackRate.value = rate;
+    // a slide: the note starts a fret or two low and the hand arrives. Ramping playbackRate is
+    // exactly what a finger moving along a string does to the speaking length.
+    if (opt.slide) {
+      src.playbackRate.setValueAtTime(rate * Math.pow(2, -opt.slide / 1200), t);
+      src.playbackRate.linearRampToValueAtTime(rate, t + (opt.slideT ?? 0.1));
+    }
     // dynamics: a harder pluck is brighter, not just louder
     const tone = F(ac, 'lowpass', lerp(1500, 8600, Math.pow(clamp01(vel), 0.6)), -1);
     const g = G(ac, 0);
@@ -292,7 +301,12 @@ export function buildGuitar(ac, dest, o = {}) {
     src.onended = () => { live.delete(voice); try { src.disconnect(); tone.disconnect(); g.disconnect(); pan && pan.disconnect(); } catch { /* gone */ } };
     // re-plucking a string kills whatever it was ringing: a guitar has six strings, not six voices per string
     const prev = voices[si];
-    if (prev && prev.ends > t) { prev.g.gain.cancelScheduledValues(t); prev.g.gain.setValueAtTime(prev.g.gain.value, Math.max(t - 0.004, ac.currentTime)); prev.g.gain.linearRampToValueAtTime(0, t + 0.018); }
+    if (prev && prev.ends > t) {
+      const t2 = Math.max(t - 0.004, ac.currentTime);
+      prev.g.gain.cancelScheduledValues(t2);
+      prev.g.gain.setValueAtTime(prev.g.gain.value, t2);
+      prev.g.gain.linearRampToValueAtTime(0, t2 + 0.022);
+    }
     voices[si] = voice;
 
     // the finger or nail leaving the string
@@ -315,7 +329,7 @@ export function buildGuitar(ac, dest, o = {}) {
     const s = STRINGS[clamp(si | 0, 0, 5)]; s.i = si;
     const f0 = mtof(midi) * n;
     if (f0 > 1900) return null;
-    const buf = buffer(f0, { ...s, i: si + 10, damp: 0.20, stiff: 0.004, decay: 2.6, bright: 0.85, pick: 1 / (2 * n), noise: 0.22 }, 0, 3.0);
+    const buf = buffer(f0, { ...s, i: si + 10, damp: 0.34, stiff: 0.004, decay: 3.0, bright: 0.9, pick: 1 / (2 * n), noise: 0.18 }, 0, 2.4);
     const src = ac.createBufferSource(); src.buffer = buf;
     src.playbackRate.value = Math.pow(2, rnd(-3, 3) / 1200);
     const g = G(ac, 0), hp = F(ac, 'highpass', f0 * 0.75, -3);
@@ -364,8 +378,30 @@ export function buildGuitar(ac, dest, o = {}) {
     }
   }
 
+  // Rendering a 3 s string costs 5-25 ms of JS. Scheduled a beat ahead that is inaudible, but the
+  // first phrase would otherwise render half a dozen at once. warm() renders exactly one uncached
+  // note per call, so the cost is spread over the first couple of seconds of play.
+  const warmList = [];
+  for (const name of ['Dm', 'C', 'Bb', 'A', 'Gm', 'F']) {
+    const sh = SHAPES[name];
+    for (let i = 0; i < 6; i++) if (sh[i] !== null && sh[i] !== undefined) warmList.push([i, TUNING[i] + sh[i]]);
+  }
+  let warmI = 0;
+  function warm() {
+    while (warmI < warmList.length) {
+      const [si, midi] = warmList[warmI++];
+      const st = STRINGS[si]; st.i = si;
+      const f0 = mtof(midi);
+      const key = si + '|' + Math.round(f0 * 4) + '|0';
+      if (cache.has(key)) continue;
+      buffer(f0, st, 0, st.dur);
+      return true;
+    }
+    return false;
+  }
+
   return {
-    out, input, pluck, harmonic, squeak, fret, damp,
+    out, input, pluck, harmonic, squeak, fret, damp, warm,
     get voices() { return live.size; },
     get renders() { return renders; },
     get cached() { return cache.size; },
@@ -462,7 +498,7 @@ export function buildCombat(ac, dest, o = {}) {
   function lowHit(t, vel = 1) {
     const o1 = O(ac, 'sine', 78), g1 = G(ac, 0);
     o1.connect(g1); g1.connect(out);
-    o1.frequency.setValueAtTime(rnd(74, 88), t); o1.frequency.exponentialRampToValueAtTime(rnd(31, 37), t + 0.16);
+    o1.frequency.setValueAtTime(rnd(78, 94), t); o1.frequency.exponentialRampToValueAtTime(rnd(38, 45), t + 0.16);
     env(g1.gain, t, [[0, 0], [0.008, vel * 0.42], [0.12, vel * 0.20], [rnd(0.55, 0.85), 0]]);
     o1.start(t); o1.stop(t + 1.1);
     o1.onended = () => { try { o1.disconnect(); g1.disconnect(); } catch { /* gone */ } };
@@ -480,11 +516,12 @@ export function buildCombat(ac, dest, o = {}) {
     ns.connect(bp); bp.connect(g);
     if (pan) { g.connect(pan); pan.connect(out); } else g.connect(out);
     const n = 14 + ((Math.random() * 18) | 0), span = rnd(0.18, 0.36);
+    const step = span / n, rel = Math.min(0.016, step * 0.55);   // grains must not overlap their own release
     g.gain.setValueAtTime(0, t);
     for (let i = 0; i < n; i++) {
-      const tt = t + (i / n) * span + rnd(0, span / n);
+      const tt = t + i * step + rnd(0, step * 0.35);
       const a = vel * 0.11 * (1 - i / n) * rnd(0.4, 1);
-      g.gain.setValueAtTime(0, tt); g.gain.linearRampToValueAtTime(a, tt + 0.0015); g.gain.linearRampToValueAtTime(0, tt + rnd(0.006, 0.016));
+      g.gain.setValueAtTime(0, tt); g.gain.linearRampToValueAtTime(a, tt + 0.0015); g.gain.linearRampToValueAtTime(0, tt + rel);
     }
     g.gain.setValueAtTime(0, t + span + 0.03);
     ns.start(t); ns.stop(t + span + 0.08);
@@ -524,8 +561,13 @@ export function buildCombat(ac, dest, o = {}) {
   function start(t) { for (const s of allSources) { try { s.start(t + rnd(0, 0.05)); } catch { /* already started */ } } }
   function stopAll(t) { for (const s of allSources) { try { s.stop(t); } catch { /* already stopped */ } } }
 
+  // While the section is resolving, the per-frame intensity control must keep its hands off: the
+  // comedown is a nine-second scripted ramp on the same gains, and a setTargetAtTime on top of it
+  // cancels it and leaves the cluster hanging.
+  let resolveUntil = -1e9;
   // bow pressure: how many desks are playing and how open the section sounds
   function setIntensity(t, v, tc = 1.2) {
+    if (t < resolveUntil) return;
     const lv = clamp01(v);
     for (let i = 0; i < desks.length; i++) {
       const d = desks[i];
@@ -537,6 +579,7 @@ export function buildCombat(ac, dest, o = {}) {
   }
   // the moment it starts: a bite, not a fade
   function attack(t) {
+    resolveUntil = -1e9;
     for (let i = 0; i < desks.length; i++) {
       const d = desks[i];
       const target = [1, 0.9, 0.7, 0.55, 0.5][i] * d.def.lvl * 0.24;
@@ -552,6 +595,7 @@ export function buildCombat(ac, dest, o = {}) {
   }
   // the comedown: the cluster resolves to an octave and lets go
   function resolve(t, seconds = 8) {
+    resolveUntil = t + seconds;
     const dest2 = [38, 45, 38, 50, 50];
     for (let i = 0; i < desks.length; i++) {
       const d = desks[i];
@@ -572,6 +616,7 @@ export function buildCombat(ac, dest, o = {}) {
     riseBP.frequency.setValueAtTime(700, t); riseBP.frequency.exponentialRampToValueAtTime(rnd(2400, 4000), t + len);
   }
   function transpose(t, semis) {
+    if (t < resolveUntil) return;
     for (const d of desks) for (const s of d.oscs) s.frequency.setTargetAtTime(mtof(d.def.midi + semis), t, 0.8);
   }
 
@@ -590,14 +635,14 @@ export function buildCombat(ac, dest, o = {}) {
 // sound Slavic rather than merely sad.
 const SHAPES = {
   Dm:    [0, 0, 0, 2, 3, 1],
-  Dm9:   [0, 0, 0, 2, 0, 0],
+  Dm9:   [0, 0, 0, 2, 1, 0],
   Dm7:   [0, 0, 0, 2, 1, 1],
   C:     [null, 3, 2, 0, 1, 0],
   Bb:    [null, 1, 0, 3, 3, 1],
-  BbM7:  [null, 1, 0, 2, 3, 0],
+  BbM7:  [null, 1, 0, 2, 3, 1],
   A:     [null, 0, 2, 2, 2, 0],
   Am:    [null, 0, 2, 2, 1, 0],
-  Gm:    [5, null, 0, 0, 3, 3],
+  Gm:    [5, null, 0, 3, 3, 3],
   F:     [3, 0, 3, 2, 1, 1],
   Eb:    [1, 1, 1, 0, 4, null],
   Dsus4: [0, 0, 0, 2, 3, 3],
@@ -623,6 +668,18 @@ const PATTERNS = [
   [0, null, null, 4, null, null, 3, null], // very slow, almost a pulse
   [0, 4, null, 3, -1, 5, null, 4],
 ];
+// D aeolian over two octaves. The melody lives here; the motifs below are scale-degree indices, so
+// they stay in the mode wherever the harmony happens to be.
+const SCALE = [62, 64, 65, 67, 69, 70, 72, 74, 77, 79, 81];   // D E F G A Bb C D F G A
+// [degree, eighth-notes to the next note]. Minor descents, a Phrygian lean, a rising sigh.
+const MOTIFS = [
+  [[4, 1], [3, 1], [2, 2], [0, 4]],
+  [[7, 2], [6, 1], [4, 1], [3, 3]],
+  [[2, 1], [4, 1], [5, 2], [4, 1], [2, 1], [0, 4]],
+  [[0, 2], [2, 1], [4, 3], [3, 2], [2, 4]],
+  [[4, 3], [4, 1], [3, 1], [1, 3]],
+  [[5, 1], [4, 1], [2, 2], [3, 1], [2, 5]],
+];
 // The sparse forms used when the zone is leaning in and the player should be listening for footsteps.
 const THIN = [
   [0, null, null, null, null, null, 4, null],
@@ -633,13 +690,22 @@ const THIN = [
 export function createMusic(ctx) {
   const audio = ctx.audio;
   let running = false, built = false, subscribed = false;
-  let ac = null, master = null, musicOut = null;
+  let ac = null, master = null;
   let guitar = null, combat = null;
   let drone = null, unease = null, base = null, tideL = null;
   let extraSources = [], extraNodes = [];
   const issued = new Map();
+  const throttled = new Map();
+  // call fn(v) only when the value has actually moved, or a quarter second has passed
+  function nudge(key, v, fn, eps = 0.01, every = 0.25) {
+    const st = throttled.get(key);
+    const now = ac.currentTime;
+    if (st && Math.abs(st.v - v) < eps && now - st.t < every) return;
+    throttled.set(key, { v, t: now });
+    fn(v);
+  }
   let frameDt = 1 / 60, tideRise = 0, lastMode = '';
-  let lastState = 'CALM', comedownAt = -1e9, stingerAt = -1e9;
+  let comedownAt = -1e9;
   const LOOKAHEAD = 2.2;    // seconds of music scheduled ahead on the audio clock
 
   // ---- fades (slow parameter approach, throttled so the automation timeline is not flooded) ----
@@ -713,10 +779,9 @@ export function createMusic(ctx) {
   function build() {
     ac = audio.ctx;
     master = G(ac, 0); master.connect(audio.musicBus);
-    musicOut = master;
     // Levels, measured on the master bus with settings at 0.8/0.8 against shot_pm's 0.70 peak:
     // the guitar sits about 11 dB under a pistol shot, the combat section about 6 dB under.
-    guitar = buildGuitar(ac, master, { gain: 0, verb: 0.30, rt: 2.7 });
+    guitar = buildGuitar(ac, master, { gain: 0, verb: 0.30, rt: 3.2 });
     combat = buildCombat(ac, master, { gain: 0 });
     buildDrone(); buildUnease(); buildBase(); buildTide();
     for (const s of extraSources) { try { s.start(ac.currentTime + rnd(0, 0.05)); } catch { /* started */ } }
@@ -746,13 +811,13 @@ export function createMusic(ctx) {
       try { master.disconnect(); } catch { /* gone */ }
     }, (fadeS + 0.3) * 1000);
     guitar = null; combat = null; drone = null; unease = null; base = null; tideL = null;
-    issued.clear(); master = null; musicOut = null; built = false;
+    issued.clear(); throttled.clear(); master = null; built = false;
   }
 
   // ---- the guitarist ---------------------------------------------------------------------------
   const Gt = {
     t: 0, playing: false, restUntil: 0, bpm: 56, prog: null, bar: 0, slot: 0,
-    pattern: null, phraseBars: 0, thin: 0, lastChord: null, capoOct: 0, phrases: 0,
+    pattern: null, phraseBars: 0, lastChord: null, phrases: 0, melody: null, roll: false,
   };
 
   // Turn a shape into sounding notes, lowest first.
@@ -771,6 +836,20 @@ export function createMusic(ctx) {
     Gt.phraseBars = Math.min(Gt.prog.length, thin > 0.5 ? 4 : pick([4, 4, 6, 8, Gt.prog.length]));
     Gt.playing = true; Gt.lastChord = null;
     Gt.phrases++;
+    // a melody in the second half of the phrase, sometimes, and never when the guitar is thinning out
+    Gt.melody = thin < 0.35 && Math.random() < 0.5
+      ? { m: pick(MOTIFS), bar: 1 + ((Math.random() * Math.max(1, Gt.phraseBars - 2)) | 0), slot: pick([0, 2, 4]) }
+      : null;
+    Gt.roll = Math.random() < 0.55;
+  }
+
+  // Put a scale note on a real string and fret. The top two strings carry the tune, which is where
+  // a guitarist's little finger lives.
+  function melodyNote(t, midi, vel, slide) {
+    const si = midi >= 69 ? 5 : 4;
+    const fret = midi - TUNING[si];
+    if (fret < 0 || fret > 15) return;
+    guitar.pluck(t, si, midi, vel, slide ? { slide: pick([100, 200]), slideT: rnd(0.07, 0.13) } : {});
   }
 
   function guitarTick(horizon, weight, thin) {
@@ -795,7 +874,35 @@ export function createMusic(ctx) {
       if (isNew && Gt.lastChord && Math.random() < 0.45) guitar.squeak(t - rnd(0.1, 0.22), 0.5 + thin * 0.2);
       if (isNew && Math.random() < 0.5) guitar.fret(t - rnd(0.02, 0.07), 0.5);
 
-      if (v !== null && notes.length) {
+      // the melody, laid over the arpeggio on the top strings (which the arpeggio then has to give up:
+      // re-plucking a string stops what it was ringing, exactly as it does under a real hand)
+      if (Gt.melody && Gt.bar === Gt.melody.bar && Gt.slot === Gt.melody.slot) {
+        let mt = t, first = true;
+        for (const [deg, dur] of Gt.melody.m) {
+          const midi = SCALE[clamp(deg, 0, SCALE.length - 1)];
+          melodyNote(mt + rnd(-0.01, 0.015), midi, clamp01(rnd(0.62, 0.86) * weight), first && Math.random() < 0.4);
+          // a hammer-on: the next note arrives under the finger with no pluck behind it
+          if (!first && Math.random() < 0.22) {
+            const up = SCALE[clamp(deg + 1, 0, SCALE.length - 1)];
+            const si2 = up >= 69 ? 5 : 4;
+            guitar.fret(mt + slotDur * 0.44, 0.35);
+            guitar.pluck(mt + slotDur * 0.5, si2, up, clamp01(0.3 * weight), { noise: 0.25, amp: 0.6 });
+          }
+          mt += dur * slotDur;
+          first = false;
+        }
+        Gt.melody = null;
+      }
+
+      // the last chord of the phrase, rolled with the thumb and left to ring
+      let rolled = false;
+      if (Gt.roll && Gt.bar === Gt.phraseBars - 1 && Gt.slot === 4 && notes.length) {
+        const sp = rnd(0.028, 0.05);
+        notes.forEach((nn, i) => guitar.pluck(t + i * sp + rnd(0, 0.008), nn.si, nn.midi, clamp01(rnd(0.5, 0.7) * weight * (1 - i * 0.04))));
+        Gt.roll = false; rolled = true;
+      }
+
+      if (v !== null && notes.length && !rolled) {
         let n;
         if (v === -1) n = notes[Math.min(1, notes.length - 1)];
         else if (v === 0) n = notes[0];
@@ -839,37 +946,42 @@ export function createMusic(ctx) {
   let ostinato = OSTINATO[0];
   const BASSLINE = [0, 0, 0, 0, 1, 1, 0, 0, -2, -2, 0, 0, 1, 1, 5, 5];   // semitone moves off D: D, Eb, C, G
 
-  function combatTick(horizon, intensity) {
+  // `drive` is the ostinato: only COMBAT gets it. HUNT gets the bowed bed, the riser and the odd
+  // scrape, which is a room holding its breath rather than a fight already happening.
+  function combatTick(horizon, intensity, drive) {
     const now = ac.currentTime;
     if (Ct.t < now - 0.4) { Ct.t = now + 0.12; Ct.step = 0; }
-    const bpm = lerp(116, 148, clamp01(intensity));
-    const stepDur = 60 / bpm / 4;
-    let guard = 0;
-    while (Ct.t < horizon && guard++ < 96) {
-      const s = Ct.step % 16;
-      if (s === 0) {
-        Ct.bar++;
-        ostinato = OSTINATO[(Math.random() * OSTINATO.length) | 0];
-        if (Ct.bar % 4 === 1) combat.lowHit(Ct.t, 0.85 + intensity * 0.3);
-        const semis = BASSLINE[(Ct.bar - 1) % BASSLINE.length];
-        Ct.root = 38 + semis;
-        combat.transpose(Ct.t, semis);
+    if (drive <= 0) { Ct.t = now; Ct.step = 0; }
+    else {
+      const bpm = lerp(120, 150, clamp01(intensity));
+      const stepDur = 60 / bpm / 4;
+      let guard = 0;
+      while (Ct.t < horizon && guard++ < 96) {
+        const s = Ct.step % 16;
+        if (s === 0) {
+          Ct.bar++;
+          ostinato = OSTINATO[(Math.random() * OSTINATO.length) | 0];
+          if (Ct.bar % 4 === 1) combat.lowHit(Ct.t, 0.85 + intensity * 0.3);
+          const semis = BASSLINE[(Ct.bar - 1) % BASSLINE.length];
+          Ct.root = 38 + semis;
+          combat.transpose(Ct.t, semis);
+        }
+        const v = ostinato[s];
+        if (v > 0) {
+          const vel = clamp01(v * lerp(0.6, 1, intensity) * rnd(0.9, 1.05));
+          combat.pizz(Ct.t + rnd(-0.006, 0.006), Ct.root, vel);
+        }
+        Ct.t += stepDur; Ct.step++;
       }
-      const v = ostinato[s];
-      if (v > 0 && intensity > 0.12) {
-        const vel = clamp01(v * lerp(0.55, 1, intensity) * rnd(0.9, 1.05));
-        combat.pizz(Ct.t + rnd(-0.006, 0.006), Ct.root, vel);
-      }
-      Ct.t += stepDur; Ct.step++;
     }
     // textures on their own clock, sparse enough that they read as events rather than a loop
     Ct.textureT -= frameDt;
-    if (Ct.textureT <= 0 && intensity > 0.3) {
-      Ct.textureT = rnd(2.2, 6.5) / Math.max(0.35, intensity);
+    if (Ct.textureT <= 0 && intensity > 0.16) {
+      Ct.textureT = (drive > 0 ? rnd(2.2, 6.5) : rnd(6, 16)) / Math.max(0.35, intensity);
       const r = Math.random();
-      if (r < 0.4) combat.rattle(now + 0.05, 0.5 + intensity * 0.5);
-      else if (r < 0.72) combat.scrape(now + 0.05, 0.4 + intensity * 0.5);
-      else combat.lowHit(now + 0.05, 0.5 + intensity * 0.4);
+      if (r < 0.4) combat.rattle(now + 0.05, 0.4 + intensity * 0.6);
+      else if (r < 0.75) combat.scrape(now + 0.05, 0.4 + intensity * 0.5);
+      else combat.lowHit(now + 0.05, 0.45 + intensity * 0.45);
     }
   }
 
@@ -902,7 +1014,6 @@ export function createMusic(ctx) {
       // The guitarist stops playing and puts a hand across the strings; the section takes the room.
       guitar.damp(now + 0.05, 0.9);
       Gt.playing = false; Gt.restUntil = now + 24;
-      stingerAt = now;
       combat.attack(now + 0.02);
       combat.lowHit(now + 0.02, 1.1);
       combat.scrape(now + 0.02, 0.9);
@@ -919,7 +1030,7 @@ export function createMusic(ctx) {
 
   function subscribe() {
     if (subscribed) return; subscribed = true;
-    ctx.events.on('directorState', (s, prev) => { lastState = s; onState(s, prev); });
+    ctx.events.on('directorState', (s, prev) => onState(s, prev));
     ctx.events.on('tideRising', () => { tideRise = 1; });
     ctx.events.on('tide', () => { tideRise = 0; });
   }
@@ -947,26 +1058,30 @@ export function createMusic(ctx) {
     if (now - comedownAt < 7) wGuitar *= clamp01((now - comedownAt) / 7);
     const thin = clamp01((tension - 0.2) / 0.45) * (inBase ? 0.2 : 1);
 
+    // HUNT keeps a floor of bowed low strings whatever the tension: something is looking for you and
+    // the room should say so even before the Director has finished making up its mind.
     const wCombat = s === 'COMBAT' ? 1
-      : s === 'HUNT' ? clamp01((tension - 0.5) / 0.35) * 0.45
-        : now - comedownAt < 9 ? clamp01(1 - (now - comedownAt) / 9) : 0;
-    const intensity = clamp01(s === 'COMBAT' ? 0.55 + tension * 0.45 : wCombat * 0.75);
+      : s === 'HUNT' ? 0.30 + clamp01((tension - 0.3) / 0.4) * 0.42
+        : s === 'UNEASE' ? clamp01((tension - 0.5) / 0.4) * 0.22
+          : now - comedownAt < 9 ? clamp01(1 - (now - comedownAt) / 9) : 0;
+    const drive = s === 'COMBAT' ? 1 : 0;
+    const intensity = clamp01(s === 'COMBAT' ? 0.6 + tension * 0.4 : wCombat * 0.55);
 
     let wUnease = s === 'UNEASE' ? 0.8 : s === 'HUNT' ? 0.55 : s === 'AFTERMATH' ? 0.15 : s === 'CALM' ? night * 0.5 : 0;
     wUnease = clamp01(wUnease + tension * 0.2) * (1 - inBase);
     const wDrone = (0.55 + night * 0.35) * (1 - wCombat * 0.7) * (1 - inBase * 0.9);
 
     // ---- levels. Calibrated against shot_pm = 0.70 peak on the master bus. ----
-    fade(guitar.out.gain, 0.50 * wGuitar * duck, 2.5, 4);
-    fade(combat.out.gain, 0.62 * wCombat * duck, 1.2, 5);
-    fade(drone.g.gain, 0.075 * wDrone * duck, 4, 8);
+    fade(guitar.out.gain, 0.55 * wGuitar * duck, 2.5, 4);
+    fade(combat.out.gain, 0.42 * wCombat * duck, 1.2, 5);
+    fade(drone.g.gain, 0.105 * wDrone * duck, 4, 8);
     fade(unease.g.gain, 0.085 * wUnease * duck, 5, 8);
     fade(base.g.gain, 0.075 * inBase * duck, 5, 4);
 
-    combat.setIntensity(now, wCombat > 0.02 ? intensity : 0, 1.4);
+    nudge('intensity', wCombat > 0.02 ? intensity : 0, (v) => combat.setIntensity(ac.currentTime, v, 1.4));
     // the riser leans on HUNT, where something is coming but has not arrived
     const wRise = s === 'HUNT' ? clamp01((tension - 0.35) / 0.4) : s === 'UNEASE' ? clamp01((tension - 0.55) / 0.4) * 0.4 : 0;
-    combat.setRise(now, wRise * duck, 3);
+    nudge('rise', wRise * duck, (v) => combat.setRise(ac.currentTime, v, 3), 0.02);
     Ct.riseT -= frameDt;
     if (wRise > 0.15 && Ct.riseT <= 0) { Ct.riseT = rnd(13, 22); combat.riseSweep(now + 0.05, rnd(9, 15)); }
 
@@ -978,11 +1093,13 @@ export function createMusic(ctx) {
     const glide = w > 0 || tideRise ? 520 * w + 1300 * tideRise : 0;
     tideL.oscs.forEach((o, i) => fade(o.detune, tideL.det0[i] + glide * tideL.rate[i], tideRise ? 5 : 12, 12));
 
-    if (!live || vol < 0.004) return;
+    if (vol < 0.004) return;
+    guitar.warm();
+    if (!live) return;
     const horizon = now + LOOKAHEAD;
     if (est(guitar.out.gain) > 0.01 || Gt.playing) guitarTick(horizon, clamp01(wGuitar), thin);
     else { Gt.playing = false; Gt.t = now; }
-    if (est(combat.out.gain) > 0.008) combatTick(horizon, intensity); else { Ct.t = now; Ct.step = 0; }
+    if (est(combat.out.gain) > 0.008) combatTick(horizon, intensity, drive); else { Ct.t = now; Ct.step = 0; }
     if (est(unease.g.gain) > 0.004) uneaseEvents(unease, frameDt);
   }
 

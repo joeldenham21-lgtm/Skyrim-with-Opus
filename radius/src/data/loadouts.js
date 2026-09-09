@@ -15,15 +15,15 @@ export const GEAR_CURVE = {
   grade: [-2.2, 3.2],  // exponent on an item's grade: negative picks the beaten end of a class pool, positive the good end
   bare: [0.85, 0.05],       // chance of no vest at all, times the class's own `bare`
   bareHelmet: [0.95, 0.12],
-  spares: [-1, 1.4],        // added to the class `mags` count
+  spares: [-1.2, 0.8],      // added to the class `mags` count (a recruit at the gate carries one spare, an elite five)
   grenade: [0.3, 1.6],      // multiplier on the class grenade chance
-  attach: [0.3, 1.5],       // multiplier on every attachment chance
-  optic: 0.62,              // above this progress a class reaches for glass; the more it lists, the surer it is
+  attach: [0.25, 1.15],     // multiplier on every attachment chance
+  optic: 0.70,              // above this progress a class reaches for glass; the more it lists, the surer it is
   ammo: [0.0, 0.7],         // chance of reaching for the better round
-  condition: [[18, 48], [45, 88]],      // weapon condition band, percent
+  condition: [[15, 42], [38, 78]],      // weapon condition band, percent
   dirt: [[0.25, 0.7], [0.05, 0.35]],
   durability: [[0.25, 0.6], [0.45, 0.9]],   // fraction of an armour piece's durability left
-  magFill: [[0.2, 0.7], [0.45, 0.95]],      // fraction of a spare magazine that is loaded
+  magFill: [[0.15, 0.5], [0.3, 0.75]],      // fraction of a spare magazine that is loaded
 };
 export function gearProgress({ tide = 1, security = 1, classRank = 0 } = {}) {
   const p = Math.max(0, (tide | 0) - 1) * GEAR_CURVE.tide + Math.max(0, (security | 0) - 1) * GEAR_CURVE.security + Math.max(0, classRank) * GEAR_CURVE.classRank;
@@ -38,14 +38,17 @@ export function gearProgress({ tide = 1, security = 1, classRank = 0 } = {}) {
 // recruits at the checkpoint. What a body should leave is what keeps you out here — rounds, a magazine, a
 // bandage — and, one time in two, a weapon that needs the workbench before it needs a target.
 export const DROPS = {
-  weapon: 0.62,             // the weapon is recoverable at all
-  ruined: [0.55, 0.20],     // of those, this many are wrecked (low condition, fouled, jammed) — by class rank 0..4
-  lost: 0.16,               // and this many go into the ash with the body
-  mag: 0.55,                // each spare magazine
-  vest: [0.06, 0.42],       // by durability left, none -> full: a carrier that stopped the rounds you fired is scrap
-  helmet: [0.05, 0.35],
+  weapon: 0.42,             // the weapon is recoverable at all
+  ruined: [0.60, 0.35],     // of those, this many are wrecked (low condition, fouled, jammed) — by class rank 0..4
+  lost: 0.22,               // and this many go into the ash with the body
+  mag: 0.38,                // each spare magazine
+  vest: [0.02, 0.20],       // by durability left, none -> full: a carrier that stopped the rounds you fired is scrap
+  helmet: [0.02, 0.16],
+  kit: 0.30,                // the rig, pack, mask or tubes it was wearing (enemies/loadout.js hard-codes 0.6;
+                            // see the report — a looted raid pack and a set of tubes were the largest
+                            // untaxed line on a body, because neither has durability to price them down)
   item: 0.35,               // each entry on the class drop list
-  grenade: 0.55,
+  grenade: 0.50,
   loose: [0, 5],            // extra loose rounds in the pockets
 };
 
@@ -61,7 +64,7 @@ export const MIMIC_CLASSES = {
     drops: ['bandage', 'cigarettes', 'bread', 'probe', 'water'],
   },
   regular: {
-    name: 'Mimic', hp: 90, accuracy: 1.0, bare: 0.8, mags: 3, grenades: 0.25,
+    name: 'Mimic', hp: 90, accuracy: 1.0, bare: 0.8, mags: 2, grenades: 0.25,
     weapons: ['akm', 'akms', 'sks', 'aks74u', 'ak74m', 'mp153', 'saiga', 'bizon', 'vityaz', 'ak105'],
     armor: ['vest_paca', 'vest_6b2', 'vest_kirasa', 'vest_6b23_1'], helmet: ['helm_ssh68', 'helm_6b7', 'helm_kiver'],
     kit: ['rig_belt', 'rig_6sh112', 'pack_tortilla', 'mask_resp'],
@@ -69,7 +72,7 @@ export const MIMIC_CLASSES = {
     drops: ['bandage', 'medkit', 'tushonka', 'battery', 'cleankit', 'part_spring'],
   },
   veteran: {
-    name: 'Mimic', hp: 100, accuracy: 0.8, bare: 0.35, mags: 4, grenades: 0.5,
+    name: 'Mimic', hp: 100, accuracy: 0.8, bare: 0.35, mags: 3, grenades: 0.5,
     weapons: ['ak74m', 'ak105', 'akms', 'vityaz', 'mp5', 'saiga', 'svd', 'rpk74', 'vss', 'ak12'],
     armor: ['vest_kirasa', 'vest_6b23_1', 'vest_6b23_2', 'vest_zhuk'], helmet: ['helm_6b7', 'helm_6b47', 'helm_kiver', 'helm_ach'],
     kit: ['rig_6sh112', 'rig_alpha', 'pack_pilgrim', 'mask_gp5', 'head_lamp'],
@@ -77,7 +80,7 @@ export const MIMIC_CLASSES = {
     drops: ['medkit', 'hemostat', 'morphine', 'repairkit', 'energy', 'part_bolt', 'filter'],
   },
   elite: {
-    name: 'Mimic', hp: 110, accuracy: 0.65, bare: 0.15, mags: 5, grenades: 0.7,
+    name: 'Mimic', hp: 110, accuracy: 0.65, bare: 0.15, mags: 4, grenades: 0.7,
     weapons: ['ak12', 'ak105', 'm4', 'hk416', 'scar', 'val', 'vss', 'sr3m', 'sv98'],
     armor: ['vest_zhuk', 'vest_iotv', 'vest_fort', 'vest_6b43'], helmet: ['helm_6b47', 'helm_ach', 'helm_zsh', 'helm_altyn'],
     kit: ['rig_alpha', 'rig_smersh', 'rig_tv110', 'pack_attack2', 'pack_6sh118', 'head_pnv57', 'mask_gp7'],
@@ -85,7 +88,7 @@ export const MIMIC_CLASSES = {
     drops: ['medkit_ai2', 'adrenaline', 'armorkit', 'part_barrel', 'lockpick', 'energy'],
   },
   sniper: {
-    name: 'Mimic marksman', hp: 90, accuracy: 0.5, bare: 0.7, mags: 3, grenades: 0.05, role: 'sniper',
+    name: 'Mimic marksman', hp: 90, accuracy: 0.5, bare: 0.7, mags: 2, grenades: 0.05, role: 'sniper',
     weapons: ['mosin', 'sks', 'svd', 'vss', 'sv98'],
     armor: ['vest_paca', 'vest_6b2', 'vest_kirasa'], helmet: ['helm_ssh68', 'helm_6b7'], kit: ['rig_belt', 'rig_6sh112', 'head_lamp'],
     attachments: { opt_pu: 0.6, opt_pso1: 0.6, rail_mosin: 0.6, opt_mark4: 0.3, opt_nspu: 0.15, muz_sv98_sup: 0.15, bipod: 0.25 },
@@ -100,7 +103,7 @@ export const MIMIC_CLASSES = {
     drops: ['medkit', 'armorkit', 'tushonka', 'part_barrel'],
   },
   shotgunner: {
-    name: 'Mimic', hp: 100, accuracy: 1.0, bare: 0.5, mags: 3, grenades: 0.3, role: 'breacher',
+    name: 'Mimic', hp: 100, accuracy: 1.0, bare: 0.5, mags: 2, grenades: 0.3, role: 'breacher',
     weapons: ['toz', 'mp153', 'rem870', 'saiga'],
     armor: ['vest_paca', 'vest_kirasa', 'vest_6b23_1', 'vest_zhuk'], helmet: ['helm_ssh68', 'helm_kiver', 'helm_6b47'],
     kit: ['rig_belt', 'rig_6sh112', 'pack_tortilla'],
@@ -112,8 +115,8 @@ export const MIMIC_CLASSES = {
 export const CLASS_MIX = {
   1: { recruit: 0.55, regular: 0.35, veteran: 0.06, shotgunner: 0.04 },
   2: { recruit: 0.25, regular: 0.4, veteran: 0.2, shotgunner: 0.07, sniper: 0.05, gunner: 0.03 },
-  3: { recruit: 0.1, regular: 0.3, veteran: 0.3, elite: 0.12, shotgunner: 0.08, sniper: 0.06, gunner: 0.04 },
-  4: { regular: 0.2, veteran: 0.35, elite: 0.25, shotgunner: 0.08, sniper: 0.07, gunner: 0.05 },
+  3: { recruit: 0.12, regular: 0.34, veteran: 0.28, elite: 0.06, shotgunner: 0.09, sniper: 0.07, gunner: 0.04 },
+  4: { regular: 0.28, veteran: 0.36, elite: 0.12, shotgunner: 0.09, sniper: 0.09, gunner: 0.06 },
 };
 // POI danger tier (1..4) adds to the tide level for class selection
 export const POI_TIER = { checkpoint: 1, convoy: 1, village: 1, marsh: 0, rail: 2, industrial: 2, church: 2, forest: 1, anomaly: 1, ridge: 3, base: 0 };

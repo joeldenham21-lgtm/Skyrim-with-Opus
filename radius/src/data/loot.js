@@ -16,7 +16,7 @@
 
 // How far into the Radius a POI kind sits. 'field' is the roadside and open ground between them.
 export const LOOT_TIER = { base: 0, checkpoint: 0, field: 0, marsh: 0, village: 1, convoy: 1, forest: 1, church: 2, rail: 2, industrial: 2, anomaly: 2, ridge: 3 };
-export const TIER = { tide: 0.4, security: 0.2, max: 5 };
+export const TIER = { tide: 0.35, security: 0.15, max: 5 };
 export function lootTier(poiKind, tide = 1, security = 1) {
   const base = LOOT_TIER[poiKind] ?? 1;
   const t = base + Math.max(0, (tide | 0) - 1) * TIER.tide + Math.max(0, (security | 0) - 1) * TIER.security;
@@ -32,8 +32,8 @@ export function rarityWeight(rarity, tier) {
   switch (rarity) {
     case 'common': return Math.max(10, 62 - 7 * t);
     case 'uncommon': return 22 + 2.5 * t;
-    case 'rare': return 3 + 2.2 * t;
-    case 'epic': return 0.15 + 0.55 * t;
+    case 'rare': return 3 + 1.6 * t;
+    case 'epic': return 0.1 + 0.35 * t;
     default: return 1;
   }
 }
@@ -54,18 +54,18 @@ export const CONTAINERS = {
   ammo_crate:   { name: 'Ammunition crate', mesh: 'crate',      rolls: [1, 3], categories: { ammo: 9, mag: 2.5, grenade: 0.8 }, empty: 0.30, tierMin: 1 },
   med_bag:      { name: 'Medical bag',      mesh: 'medBag',     rolls: [1, 2], categories: { med: 8, food: 2 }, empty: 0.40 },
   med_cabinet:  { name: 'Medical cabinet',  mesh: 'cabinet',    rolls: [1, 3], categories: { med: 9, filter: 1.5, food: 1 }, empty: 0.45, tierMin: 1 },
-  footlocker:   { name: 'Footlocker',       mesh: 'footlocker', rolls: [1, 3], categories: { tool: 4, food: 3, battery: 2, mag: 1.5, attachment: 1, armor: 0.35, weapon: 0.3 }, empty: 0.45 },
-  weapon_crate: { name: 'Weapon crate',     mesh: 'crate',      rolls: [1, 2], categories: { weapon: 3, attachment: 3, mag: 4, ammo: 3 }, empty: 0.55, tierMin: 1, scale: [1.35, 0.8, 0.85] },
-  weapon_rack:  { name: 'Weapon rack',      mesh: 'rack',       rolls: [1, 2], categories: { weapon: 4, mag: 4, attachment: 1.5, ammo: 2 }, empty: 0.62, tierMin: 2 },
-  gun_case:     { name: 'Weapon case',      mesh: 'toolbox',    rolls: [1, 2], categories: { weapon: 2, attachment: 6, mag: 2 }, empty: 0.40, tierMin: 3, locked: 0.4, scale: [1.9, 0.65, 1.15] },
-  armor_locker: { name: 'Armour locker',    mesh: 'cabinet',    rolls: [1, 2], categories: { armor: 3, helmet: 2.5, kit: 4 }, empty: 0.50, tierMin: 2, locked: 0.4 },
+  footlocker:   { name: 'Footlocker',       mesh: 'footlocker', rolls: [1, 3], categories: { tool: 4, food: 3.5, battery: 2.5, mag: 1.5, attachment: 0.4, armor: 0.12, weapon: 0.1 }, empty: 0.45 },
+  weapon_crate: { name: 'Weapon crate',     mesh: 'crate',      rolls: [1, 2], categories: { weapon: 1.4, attachment: 1.2, mag: 3.5, ammo: 5 }, empty: 0.55, tierMin: 1, scale: [1.35, 0.8, 0.85] },
+  weapon_rack:  { name: 'Weapon rack',      mesh: 'rack',       rolls: [1, 2], categories: { weapon: 2, mag: 3.5, attachment: 1, ammo: 4 }, empty: 0.62, tierMin: 2 },
+  gun_case:     { name: 'Weapon case',      mesh: 'toolbox',    rolls: [1, 2], categories: { weapon: 2, attachment: 3, mag: 2.5 }, empty: 0.50, tierMin: 3, locked: 0.5, scale: [1.9, 0.65, 1.15] },
+  armor_locker: { name: 'Armour locker',    mesh: 'cabinet',    rolls: [1, 2], categories: { armor: 1.2, helmet: 0.9, kit: 3, med: 1.5 }, empty: 0.58, tierMin: 2, locked: 0.5 },
   toolbox:      { name: 'Toolbox',          mesh: 'toolbox',    rolls: [1, 2], categories: { tool: 5, part: 3, battery: 2 }, empty: 0.40 },
-  tool_chest:   { name: 'Tool chest',       mesh: 'toolbox',    rolls: [1, 3], categories: { tool: 5, part: 4, battery: 2, attachment: 1 }, empty: 0.38, tierMin: 1, scale: [1.55, 1.4, 1.4] },
+  tool_chest:   { name: 'Tool chest',       mesh: 'toolbox',    rolls: [1, 3], categories: { tool: 5, part: 4, battery: 2.5, attachment: 0.5 }, empty: 0.38, tierMin: 1, scale: [1.55, 1.4, 1.4] },
   ration_box:   { name: 'Ration box',       mesh: 'carton',     rolls: [1, 2], categories: { food: 9, med: 1 }, empty: 0.30 },
   // a body is not furniture: an Explorer who did not come back is still carrying what they went in with
-  explorer_pack:{ name: 'Explorer’s pack',  mesh: 'pack',       rolls: [2, 4], categories: { ammo: 3, med: 3, food: 2, tool: 2, mag: 2, attachment: 1, artifact: 0.2, mission: 0.3 }, empty: 0.10 },
-  field_cache:  { name: 'Field cache',      mesh: 'pack',       rolls: [2, 4], categories: { ammo: 3, med: 2, weapon: 1, attachment: 2, grenade: 1, kit: 1, artifact: 0.3 }, empty: 0.08, tierMin: 2, scale: [0.9, 0.9, 0.9] },
-  safe:         { name: 'Safe',             mesh: 'safe',       rolls: [1, 3], categories: { attachment: 4, weapon: 1.2, artifact: 0.5, armor: 0.8, grenade: 1.2, key: 0.8 }, empty: 0.15, locked: 0.9, tierMin: 2 },
+  explorer_pack:{ name: 'Explorer’s pack',  mesh: 'pack',       rolls: [2, 4], categories: { ammo: 3, med: 3.5, food: 2, tool: 2, mag: 2, attachment: 0.6, artifact: 0.2, mission: 0.3 }, empty: 0.10 },
+  field_cache:  { name: 'Field cache',      mesh: 'pack',       rolls: [2, 4], categories: { ammo: 4, med: 3, weapon: 0.5, attachment: 1, grenade: 1, kit: 0.6, artifact: 0.3 }, empty: 0.08, tierMin: 2, scale: [0.9, 0.9, 0.9] },
+  safe:         { name: 'Safe',             mesh: 'safe',       rolls: [1, 3], categories: { attachment: 2, weapon: 0.6, artifact: 0.5, armor: 0.4, grenade: 1.2, key: 0.8 }, empty: 0.25, locked: 0.9, tierMin: 2 },
   desk:         { name: 'Desk',             mesh: 'desk',       rolls: [0, 1], categories: { food: 3, battery: 2, tool: 2, key: 0.6, med: 1 }, empty: 0.55 },
   shelf:        { name: 'Shelf',            mesh: 'carton',     rolls: [0, 1], categories: { food: 4, tool: 3, ammo: 2, battery: 2 }, empty: 0.55, scale: [0.85, 0.85, 0.85] },
 };
@@ -76,13 +76,13 @@ export const CONTAINERS_BY_POI = {
   checkpoint: { ammo_tin: 4, footlocker: 3, med_bag: 2, desk: 2.5, weapon_crate: 0.5, weapon_rack: 0.4, armor_locker: 0.4 },
   convoy:     { ammo_crate: 4, ammo_tin: 3, footlocker: 2, weapon_crate: 0.8, toolbox: 2.5, ration_box: 2, tool_chest: 1, gun_case: 0.35 },
   village:    { shelf: 5, ration_box: 3, med_bag: 2, footlocker: 2, toolbox: 2, desk: 1.5, ammo_tin: 1, gun_case: 0.2 },
-  industrial: { toolbox: 4, ammo_tin: 3, desk: 3, med_cabinet: 2, armor_locker: 1.4, tool_chest: 2, safe: 0.7, weapon_crate: 0.6, weapon_rack: 0.5 },
+  industrial: { toolbox: 4, ammo_tin: 3, desk: 3, med_cabinet: 2, armor_locker: 0.8, tool_chest: 2, safe: 0.5, weapon_crate: 0.5, weapon_rack: 0.35 },
   church:     { shelf: 3, med_bag: 2, ration_box: 2, explorer_pack: 1, safe: 0.7, ammo_tin: 1, field_cache: 0.8 },
   rail:       { ammo_crate: 3, toolbox: 3, footlocker: 2, weapon_crate: 0.7, weapon_rack: 0.5, explorer_pack: 1, tool_chest: 1 },
   forest:     { ration_box: 3, ammo_tin: 2, med_bag: 1.5, explorer_pack: 1.2, toolbox: 1, field_cache: 0.7, footlocker: 0.5 },
   marsh:      { ammo_tin: 2, ration_box: 2, med_bag: 1.5, explorer_pack: 1.2, footlocker: 0.6 },
   anomaly:    { explorer_pack: 2, ammo_tin: 1.5, med_bag: 1.2, field_cache: 1, ration_box: 1 },
-  ridge:      { explorer_pack: 1.5, ammo_crate: 1.5, safe: 1, weapon_crate: 1, field_cache: 1, armor_locker: 1, weapon_rack: 1, med_cabinet: 0.8 },
+  ridge:      { explorer_pack: 1.6, ammo_crate: 1.6, safe: 0.7, weapon_crate: 0.7, field_cache: 1.1, armor_locker: 0.6, weapon_rack: 0.6, med_cabinet: 1 },
   field:      { ammo_tin: 2, ration_box: 2, med_bag: 1.5, explorer_pack: 1, footlocker: 0.8 },
 };
 

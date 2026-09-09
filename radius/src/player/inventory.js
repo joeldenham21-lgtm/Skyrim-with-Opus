@@ -39,6 +39,37 @@ export function syncUid(data) {
 export const SLOTS = ['primary', 'secondary', 'sidearm', 'melee'];
 export const BASE_CAPACITY = 10;   // kg carried without a backpack
 
+// ---- the load curve ---------------------------------------------------------------------------------------------
+// One curve, in one place, because the controller reads it every frame, the panels print it, and a test has to be
+// able to assert on it without a renderer.
+//
+// The rule the whole trip turns on: greed is paid for on the way home. Below COMFORT nothing costs anything — a
+// rifle, four magazines, a vest, meds and a day's probes is about half a Tortilla, and a working loadout is meant
+// to be free. Past it every kilogram is speed off the walk and wind off the sprint, and it is a slope rather than
+// a threshold so the Explorer feels the pack filling instead of hitting a wall at the capacity line. Past HARD
+// there is no sprint at all: you decided to carry the second rifle, and now you are walking.
+export const LOAD_COMFORT = 0.5;    // fraction of capacity that is free
+export const LOAD_HARD = 1.5;       // fraction past which sprinting is off the table
+export function loadCurve(kg, cap) {
+  const c = Math.max(1, cap || 1);
+  const f = Math.max(0, kg) / c;
+  const over = Math.max(0, f - LOAD_COMFORT);
+  // 1.00 at half a pack · 0.90 at the capacity line · 0.62 at the sprint cutoff · 0.55 floor
+  const speed = f <= LOAD_COMFORT ? 1
+    : f <= 1 ? 1 - (f - LOAD_COMFORT) * 0.20
+      : f <= LOAD_HARD ? 0.90 - (f - 1) * 0.56
+        : Math.max(0.55, 0.62 - (f - LOAD_HARD) * 0.14);
+  return {
+    kg, cap: c, f, over: Math.max(0, kg - c),
+    speed,                                   // walk/sprint multiplier
+    stamina: 1 + over * 1.15,                // sprint drain up, regeneration down
+    sprint: f <= LOAD_HARD,
+    noise: clamp01((f - 0.6) / 0.9) * 0.22,  // webbing and tins: a heavy Explorer is a loud one
+    tier: f <= LOAD_COMFORT ? 0 : f <= 1 ? 1 : f <= LOAD_HARD ? 2 : 3,
+  };
+}
+export const LOAD_WORDS = ['light', 'loaded', 'heavy', 'overloaded'];
+
 export function makeWeapon(id, opts = {}) {
   const d = WEAPONS[id]; if (!d) throw new Error('unknown weapon ' + id);
   const w = { uid: nextUid(), id, parts: { barrel: 100, bolt: 100, frame: 100 }, dirt: 0, jammed: false, chamber: null, mag: null, tube: [], fireMode: d.modes[0], attachments: {}, rails: [], upgrades: {}, factory: {} };
@@ -298,6 +329,9 @@ export function createInventory(ctx) {
     },
     capacity() { const p = api.equippedDef('backpack'); return BASE_CAPACITY + (p?.capacity || 0); },
     overweight() { return Math.max(0, api.weight() - api.capacity()); },
+    // the whole load state as the controller and the panels want it, memoised behind weight()'s frame memo
+    load() { return loadCurve(api.weight(), api.capacity()); },
+    loadWord() { return LOAD_WORDS[api.load().tier]; },
     // ---- money ----
     money() { return ctx.state.data.money; },
     spend(n) { if (ctx.state.data.money < n) return false; ctx.state.data.money -= n; return true; },

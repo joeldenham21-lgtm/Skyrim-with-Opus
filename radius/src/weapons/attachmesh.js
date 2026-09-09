@@ -726,7 +726,7 @@ export function buildAttachment(id, opts = {}) {
 // One family table; length, curve, floor plate and the visible top round come from cap and calibre.
 const MAG_FAM = {
   pm: { w: 0.021, z: 0.028, mat: 'steelDark', pitch: 0.0068, base: 0.030, curve: 0.000, pistol: true },
-  aps: { w: 0.023, z: 0.030, mat: 'steelDark', pitch: 0.0042, base: 0.030, curve: 0.004, pistol: true },
+  aps: { w: 0.023, z: 0.030, mat: 'steelDark', pitch: 0.0042, base: 0.022, curve: 0.004, pistol: true },
   tt: { w: 0.021, z: 0.036, mat: 'steelDark', pitch: 0.0072, base: 0.038, curve: 0.000, pistol: true },
   glock: { w: 0.025, z: 0.032, mat: 'polymer', pitch: 0.0042, base: 0.030, curve: 0.000, pistol: true },
   m9: { w: 0.024, z: 0.032, mat: 'steelDark', pitch: 0.0044, base: 0.030, curve: 0.000, pistol: true },

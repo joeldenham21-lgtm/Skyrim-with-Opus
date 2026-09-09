@@ -4,6 +4,14 @@
 // rest, draw/holster, and the staged reload/cycle animations weapons.js drives by name: magazines, belts (PKM top
 // cover), stripper clips, tube shells, pumps, bolts (with scope clearance), break-open, jams, and the blade stab.
 // The weapon light and the laser line live here, parented to the muzzle.
+//
+// It also owns the SIGHT PICTURE. A held weapon never sits still, and how still it sits is the whole skill: the
+// slow wander of breathing, much worse when winded, hurt, walking or holding something heavy, much better crouched,
+// rested on cover or down on a bipod — and killable for a few seconds by holding the breath (Shift with the sights
+// up and the feet still, paid for in stamina and ending in a forced exhale that throws the picture wide). Rounds
+// cracking past add a jolt on top of it (ctx.ballistics.suppression). All of that is applied to ctx.camera.rotation,
+// not to the weapon, so the sights, the crosshair and the world drift together: the shot goes exactly where the
+// picture says it will, and the difficulty is keeping the picture on the target.
 // Other modules may parent their own held items under hands.root; setWeaponMesh only touches the weapon child.
 import * as THREE from 'three';
 import { mergeGeometries, toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';

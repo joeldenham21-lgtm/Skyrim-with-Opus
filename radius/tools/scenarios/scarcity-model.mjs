@@ -38,6 +38,12 @@ async function load(dir) {
 // ui/panel_supply.js: BUYBACK 0.4 of the listed price, attachments and the magazine in the gun included,
 // loose rounds returned ten at a time at 0.4 each. ui/panel_terminal.js takes artifacts at full price.
 const BUYBACK = 0.4;
+// ui/panel_supply.js pays 0.4 of the LISTED price no matter what state the thing is in: a seized, fouled AKM
+// out of the ash returns exactly what a new one does. --condition models the fix (see the report): the sale
+// is scaled by what is left of the object.
+const COND = has('--condition');
+const wearScale = (c01) => (COND ? 0.10 + 0.90 * c01 : 1);
+const durScale = (d01) => (COND ? 0.10 + 0.90 * d01 : 1);
 
 function makeTables(T) {
   const { I, L, O } = T;
@@ -65,7 +71,8 @@ function makeTables(T) {
   // value of one rolled entry in roubles, as the Return tab would pay for it
   const sellAmmo = (id, n) => (AMMO[id]?.price || 0) * n * BUYBACK;
   function rollWeaponValue(d, tier01, rnd) {
-    let v = d.price;
+    const cond = band(FOUND.weapon.parts, tier01, rnd) / 100;
+    let v = d.price * wearScale(Math.max(0, Math.min(1, cond)));
     let hasMag = !!d.defaultMag;
     if (hasMag && rnd() < lerp(FOUND.weapon.noMag[0], FOUND.weapon.noMag[1], tier01)) hasMag = false;
     if (hasMag) { const m = MAGAZINES[d.defaultMag]; v += m.price; const rounds = Math.round(m.cap * band(FOUND.weapon.loaded, tier01, rnd)); v += rounds * (AMMO[I.defaultAmmo(m.cal)]?.price || 0) / BUYBACK * BUYBACK; }
@@ -95,7 +102,7 @@ function makeTables(T) {
       return { cat, id: m.id, n: 1, value: m.price * BUYBACK + sellAmmo(I.defaultAmmo(m.cal), rounds), kg: (m.weight || 0.2) + rounds * (AMMO[I.defaultAmmo(m.cal)]?.weight || 0.012), rounds: owned.cals.has(m.cal) ? rounds : 0 };
     }
     if (cat === 'weapon') { const d = pickDef(poolFor('weapon'), tier, rnd); if (!d) return null; return { cat, id: d.id, n: 1, value: rollWeaponValue(d, tier01, rnd), kg: (d.weight || 3) + (d.defaultMag ? (MAGAZINES[d.defaultMag].weight || 0.2) : 0), rounds: 0 }; }
-    if (cat === 'armor' || cat === 'helmet' || cat === 'kit') { const d = pickDef(poolFor(cat), tier, rnd); if (!d) return null; return { cat, id: d.id, n: 1, value: (d.price || 0) * BUYBACK, kg: d.weight || 3, rounds: 0 }; }
+    if (cat === 'armor' || cat === 'helmet' || cat === 'kit') { const d = pickDef(poolFor(cat), tier, rnd); if (!d) return null; const dur = d.durability ? band(FOUND.gear.durability, tier01, rnd) : 1; return { cat, id: d.id, n: 1, value: (d.price || 0) * BUYBACK * durScale(Math.max(0, Math.min(1, dur))), kg: d.weight || 3, rounds: 0 }; }
     const d = pickDef(poolFor(cat), tier, rnd);
     if (!d) return null;
     const r = COUNT_ROLL[cat] || [1, 1];
@@ -118,11 +125,15 @@ function makeTables(T) {
 }
 
 // ---- the census: what the structures actually put on the ground ---------------------------------
-// Measured with tools/scenarios/scarcity-census.mjs against the built game (see the report). Containers
-// per POI after game/loot.js has drawn its 0.75 share of the registered spots.
-const CENSUS = {
-  checkpoint: 11, convoy: 12, village: 26, industrial: 24, church: 13, rail: 15, forest: 9, marsh: 7, anomaly: 6, ridge: 10, field: 14,
-};
+// MEASURED is what tools/scenarios/scarcity-economy.mjs read out of the built game on 2026-09-09: only 36
+// world.lootSpots are registered in total (village 18, industrial 4, convoy/church/rail 3, checkpoint/forest 2,
+// marsh 1, nothing at all on the ridge, in the anomaly fields or along the roads), so game/loot.js builds 27
+// objects for the whole 640 m map. FULL is the world the structures agent is building toward — every POI
+// furnished at the density the village already has. The tables have to be right for FULL and are merely
+// generous in MEASURED, so both are modelled; --census picks one.
+const CENSUS_MEASURED = { checkpoint: 2, convoy: 3, village: 18, industrial: 4, church: 3, rail: 3, forest: 2, marsh: 1, anomaly: 0, ridge: 0, field: 0 };
+const CENSUS_FULL = { checkpoint: 11, convoy: 12, village: 26, industrial: 24, church: 13, rail: 15, forest: 9, marsh: 7, anomaly: 6, ridge: 10, field: 14 };
+const CENSUS = arg('--census', 'full') === 'measured' ? CENSUS_MEASURED : CENSUS_FULL;
 const LOOSE_SHARE = 0.32;   // loose bandages / batteries / probes / ammo boxes, not containers
 
 // ---- the run -----------------------------------------------------------------------------------
@@ -168,7 +179,7 @@ function simulate(T, opts = {}) {
 
   for (let day = 1; day <= days; day++) {
     if (day > 1 && (day - 1) % 3 === 0) tide = Math.min(3, tide + 1);
-    let income = 0, spend = 0, lootValue = 0, dropValue = 0, artValue = 0, fired = 0, found = 0;
+    let income = 0, spend = 0, lootValue = 0, dropValue = 0, artValue = 0, fired = 0, found = 0, kept = 0; const byCat = {};
     const route = ROUTE[Math.min(ROUTE.length - 1, day - 1)];
     const packCap = T.ARMOR[packId]?.capacity || 12;
     for (let s = 0; s < RUN.sortiesPerDay; s++) {
@@ -195,9 +206,10 @@ function simulate(T, opts = {}) {
       for (const e of entries) { const k = e.kg || 0.2; if (k > free) continue; free -= k; carried.push(e); }
       for (const e of carried) {
         found++;
+        if (e.rounds) { const c = AMMO[e.id]?.cal || MAGAZINES[e.id]?.cal; rounds[c] = (rounds[c] || 0) + e.rounds; kept += e.rounds; continue; }
         if (ITEMS[e.id] && ITEMS[e.id].kind === 'artifact') artValue += e.value;
-        else if (e.from === 'mimic') dropValue += e.value; else lootValue += e.value;
-        if (e.rounds) rounds[AMMO[e.id]?.cal || MAGAZINES[e.id]?.cal] = (rounds[AMMO[e.id]?.cal || MAGAZINES[e.id]?.cal] || 0) + e.rounds;
+        else if (e.from === 'mimic') { dropValue += e.value; byCat[e.cat] = (byCat[e.cat] || 0) + e.value; }
+        else { lootValue += e.value; byCat[e.cat] = (byCat[e.cat] || 0) + e.value; }
       }
       // consumption paid for out of pocket (what was not found)
       spend += RUN.bandagesPerSortie * (ITEMS.bandage.price) * 0.5;
@@ -228,9 +240,29 @@ function simulate(T, opts = {}) {
     if (pi >= 0 && pi < packs.length - 1) { const nx = T.ARMOR[packs[pi + 1]]; if ((nx.rank || 1) <= rank && money > nx.price * 2.2) { money -= nx.price; packId = nx.id; } }
     const buy = shopUpgrade(T, arsenal, rank, money);
     if (buy) { money -= buy.price; arsenal.push(buy.id); owned.cals.add(buy.cal); owned.fams.add(buy.family); }
-    log.push({ day, tide, rank, money, earned, income, spend, lootValue, dropValue, artValue, pay, fired, found, arsenal: [...arsenal], pack: packId, kit: kitValue(T, arsenal) });
+    log.push({ day, tide, rank, money, earned, income, spend, lootValue, dropValue, artValue, pay, fired, found, arsenal: [...arsenal], pack: packId, byCat, kept, bought, replace: replacementCost(T, arsenal, rank, packId), net: income - spend, kit: kitValue(T, arsenal) });
   }
   return log;
+}
+// Replacement cost of what the Explorer is carrying, at requisition prices — the number the death card is
+// really quoting. Weapons with their issue magazine and a full combat load, plus the armour, plus a day of
+// consumables. This is what has to be earned again if the body is never recovered.
+function replacementCost(T, arsenal, rank, packId) {
+  const { WEAPONS, MAGAZINES, AMMO, ITEMS, ARMOR, defaultAmmo } = T;
+  let v = 0;
+  for (const id of arsenal) {
+    const w = WEAPONS[id]; if (!w) continue;
+    v += w.price;
+    const m = w.defaultMag ? MAGAZINES[w.defaultMag] : null;
+    const cap = m ? m.cap : (w.internal || 6);
+    if (m) v += m.price * 3;                                   // one in the gun, two in the rig
+    v += cap * 3 * (AMMO[defaultAmmo(w.cal)]?.price || 10);    // a combat load
+  }
+  const vest = Object.values(ARMOR).filter((a) => a.kind === 'vest' && (a.rank || 1) <= rank).sort((a, b) => b.price - a.price)[0];
+  if (vest && rank >= 2) v += vest.price;
+  v += (ARMOR[packId]?.price || 0) + (ARMOR.rig_6sh112?.price || 0);
+  v += ITEMS.bandage.price * 4 + ITEMS.medkit.price * 2 + ITEMS.battery.price * 3 + ITEMS.probe.price * 8 + ITEMS.cleankit.price;
+  return v;
 }
 function bestCal(T, arsenal) { let best = null, bp = -1; for (const id of arsenal) { const d = T.WEAPONS[id]; if (d && d.price > bp) { bp = d.price; best = d.cal; } } return best || '9x18'; }
 function kitValue(T, arsenal) { let v = 0; for (const id of arsenal) v += T.WEAPONS[id]?.price || 0; return v; }
@@ -268,7 +300,9 @@ function mimicDrop(T, rnd, tide, security, pk, owned) {
   const BUY = 0.4;
   const magDef = wd.defaultMag ? MAGAZINES[wd.defaultMag] : null;
   if (rnd() >= DROPS.lost && rnd() < DROPS.weapon) {
-    let v = wd.price;
+    const ruin = rnd() < lerp(DROPS.ruined[0], DROPS.ruined[1], rank01);
+    const cond = ruin ? 0.11 : lerp(lerp(GEAR_CURVE.condition[0][0], GEAR_CURVE.condition[1][0], p), lerp(GEAR_CURVE.condition[0][1], GEAR_CURVE.condition[1][1], p), rnd()) / 100;
+    let v = wd.price * wearScale(Math.max(0, Math.min(1, cond)));
     const mult = lerp(GEAR_CURVE.attach[0], GEAR_CURVE.attach[1], p);
     for (const [id, ch] of Object.entries(c.attachments || {})) if (rnd() < ch * mult) v += def(id)?.price || 0;
     if (magDef) v += magDef.price;
@@ -284,9 +318,9 @@ function mimicDrop(T, rnd, tide, security, pk, owned) {
     out.push({ from: 'mimic', cat: 'mag', id: magDef.id, n: 1, value: magDef.price * BUY + fill * (AMMO[ammoId]?.price || 0) * BUY, kg: magDef.weight + fill * (AMMO[ammoId]?.weight || 0.012), rounds: owned.cals.has(wd.cal) ? fill : 0 });
   }
   const skipVest = rnd() < lerp(GEAR_CURVE.bare[0], GEAR_CURVE.bare[1], p) * (c.bare ?? 1);
-  if (!skipVest) { const v = gradedPick(c.armor, ARMOR); if (v) { const left = lerp(lerp(GEAR_CURVE.durability[0][0], GEAR_CURVE.durability[1][0], p), lerp(GEAR_CURVE.durability[0][1], GEAR_CURVE.durability[1][1], p), rnd()); if (rnd() < lerp(DROPS.vest[0], DROPS.vest[1], left)) out.push({ from: 'mimic', cat: 'armor', id: v.id, n: 1, value: v.price * BUY, kg: v.weight || 5, rounds: 0 }); } }
+  if (!skipVest) { const v = gradedPick(c.armor, ARMOR); if (v) { const left = lerp(lerp(GEAR_CURVE.durability[0][0], GEAR_CURVE.durability[1][0], p), lerp(GEAR_CURVE.durability[0][1], GEAR_CURVE.durability[1][1], p), rnd()); if (rnd() < lerp(DROPS.vest[0], DROPS.vest[1], left)) out.push({ from: 'mimic', cat: 'armor', id: v.id, n: 1, value: v.price * BUY * durScale(left), kg: v.weight || 5, rounds: 0 }); } }
   const skipHelm = rnd() < lerp(GEAR_CURVE.bareHelmet[0], GEAR_CURVE.bareHelmet[1], p) * (c.bare ?? 1);
-  if (!skipHelm) { const h = gradedPick(c.helmet, ARMOR); if (h) { const left = 0.7; if (rnd() < lerp(DROPS.helmet[0], DROPS.helmet[1], left)) out.push({ from: 'mimic', cat: 'helmet', id: h.id, n: 1, value: h.price * BUY, kg: h.weight || 1.5, rounds: 0 }); } }
+  if (!skipHelm) { const h = gradedPick(c.helmet, ARMOR); if (h) { const left = 0.7; if (rnd() < lerp(DROPS.helmet[0], DROPS.helmet[1], left)) out.push({ from: 'mimic', cat: 'helmet', id: h.id, n: 1, value: h.price * BUY * durScale(left), kg: h.weight || 1.5, rounds: 0 }); } }
   if (c.kit && c.kit.length && rnd() < 0.25 + p * 0.55 && rnd() < 0.6) { const k = gradedPick(c.kit, ARMOR); if (k) out.push({ from: 'mimic', cat: 'kit', id: k.id, n: 1, value: (k.price || 0) * BUY, kg: k.weight || 1, rounds: 0 }); }
   for (const id of c.drops || []) { if (rnd() < 0.4 + p * 0.25 && rnd() < DROPS.item) { const d = def(id); if (d) out.push({ from: 'mimic', cat: 'item', id, n: 1, value: (d.price || 0) * BUY, kg: d.weight || 0.2, rounds: 0 }); } }
   const loose = Math.round(lerp(DROPS.loose[0], DROPS.loose[1], rnd()));
@@ -315,13 +349,22 @@ function report(name, T, seeds = [12345, 999, 4242]) {
     out.push(pad(day, 5) + rpad(r.tide, 5) + rpad(Math.round(avg(day, 'rank') * 10) / 10, 6) + rpad(money(avg(day, 'income')), 10) + rpad(money(avg(day, 'spend')), 9)
       + rpad(money(avg(day, 'money')), 10) + rpad(money(avg(day, 'earned')), 10) + rpad(money(avg(day, 'kit')), 9) + '  ' + r.arsenal.join(' '));
   }
+  out.push(pad('', 5) + 'what a death costs (replacement at the crate) against net income per day:');
+  for (const day of [1, 3, 7, 14]) {
+    const r = runs[0][day - 1];
+    const net = runs.reduce((s2, rr) => s2 + rr[day - 1].net, 0) / runs.length;
+    const rep = runs.reduce((s2, rr) => s2 + rr[day - 1].replace, 0) / runs.length;
+    out.push(pad('  day ' + day, 10) + rpad(money(rep) + ' ₽ of kit', 20) + rpad(money(net) + ' ₽/day net', 18) + rpad((rep / Math.max(1, net)).toFixed(1) + ' days of work', 20));
+  }
   const d1 = runs[0][0], d7 = runs[0][6];
   out.push(`  income split day 1: contract ${money(d1.pay)} · containers ${money(d1.lootValue)} · bodies ${money(d1.dropValue)} · artifacts ${money(d1.artValue)}`);
   out.push(`  income split day 7: contract ${money(d7.pay)} · containers ${money(d7.lootValue)} · bodies ${money(d7.dropValue)} · artifacts ${money(d7.artValue)}`);
-  out.push(`  rounds fired day 7: ${d7.fired} · items carried home ${d7.found}`);
+  out.push(`  day 7 ammunition: ${d7.fired} fired · ${d7.kept} recovered from the zone · ${d7.bought} bought · items home ${d7.found} · pack ${d7.pack}`);
+  out.push('  day 7 by category: ' + Object.entries(d7.byCat).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`${k} ${money(v)}`).join(' · '));
   return { text: out.join('\n'), runs };
 }
 
+if (has('--careful')) { RUN.sortiesPerDay = 1; RUN.searchFraction = 0.55; RUN.contactsPerSortie = [2, 4]; }
 const live = makeTables(await load(arg('--tables', 'src/data')));
 console.log(report(arg('--name', 'LIVE ' + arg('--tables', 'src/data')), live).text);
 

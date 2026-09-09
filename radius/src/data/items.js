@@ -1,5 +1,20 @@
 // Gear, consumables, tools, grenades, artifacts, parts and mission objects. Weapons/ammo/mags/armor/attachments live in their own files.
 // kind: med | food | tool | grenade | artifact | mission | part | battery | filter | key
+//
+// These prices exist to compete with each other. A day in the Radius spends roughly a contract's worth of
+// ammunition, and every line here is another claim on the same money: a battery is 120 ₽ and the torch eats
+// one a night (night vision eats three), a bandage is 90 ₽ and you will use two, probes are 26 ₽ each and the
+// marsh takes a dozen. None of it is ruinous on its own. Together they are the reason the balance does not
+// climb, and the reason a firefight you could have walked around costs something.
+//
+// The maintenance line is deliberately the cheap one — the ITR asymmetry. A repair kit is 140 ₽ a part against
+// a 5,600 ₽ rifle and solvent is 38 ₽ a clean, so keeping the weapon you already carry is always the correct
+// answer and a specific gun stays with you long enough to be worth losing. Replacement parts (barrel, bolt,
+// spring) cost several times a kit use and buy a jump straight to 100 %: the impatient option, priced as one.
+//
+// Artifacts are the only thing in the zone the terminal buys at full listed price, and the only income that
+// does not come out of a body. They are what a deliberate expedition — detector, probes, an anomaly field and
+// a long walk home — is worth: one Pearl is most of a contract, a Heart is four.
 const I = (id, o) => [id, Object.assign({ id, rank: 1, rarity: 'common', weight: 0.2, stack: 10 }, o)];
 export const ITEMS = Object.fromEntries([
   // ---- medical ----

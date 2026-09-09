@@ -105,6 +105,9 @@ export const RUN = (n, dt = 0.05) => `(() => {
     minD: +minD.toFixed(1), losFrac: +(losT / Math.max(1, samples)).toFixed(2),
     swaps, bounds: s.bounds | 0, refused: s.boundsRefused | 0, frags: s.fragOrders | 0, fixing: s.fixing | 0,
     states: window.__list.filter((m) => m.alive).map((m) => m.state).join(','),
+    rounds: window.__list.reduce((a, m) => a + (m.alive ? m.roundsLeft() : 0), 0),
+    spares: window.__list.reduce((a, m) => a + (m.alive ? m.loadout.mags.reduce((b, g) => b + g.rounds, 0) : 0), 0),
+    dryMen: window.__list.filter((m) => m.alive && m.dry).length,
     sect: sectors, cov: covering, kind: s.contactKind || '-', radio: M.radio.length, calls: kinds,
     dir: ctx.director.state, pr: +ctx.director.pressure.toFixed(2) };
 })()`;

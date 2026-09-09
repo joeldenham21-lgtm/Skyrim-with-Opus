@@ -6,8 +6,9 @@
 // respawn() is monkeypatched here to the exact shape of the main.js diff in the report, so this test runs
 // the code path the orchestrator is being asked to wire, not a private helper.
 export default async function (page, api) {
-  await api.run(`window.__radius.ctx.debug.noEnemies = true;`);
-  await api.start();
+  // Never api.start(): it waits on six rendered frames, and SwiftShader on a loaded box is well under
+  // one frame a second. Nothing in this test needs a pixel — the whole loss economy is numbers.
+  await api.run(`window.__radius.ctx.debug.noEnemies = true; window.__radius.start();`);
 
   const before = await api.run(`(() => {
     const ctx = window.__radius.ctx, inv = ctx.inventory;
@@ -20,8 +21,7 @@ export default async function (page, api) {
     };
     // a mid-game loadout: rifle, spare glass, meds, an artifact, and money in the pocket
     window.__radius.giveWeapon('akm');
-    inv.add('7.62x39_ps', 120); inv.add('medkit', 2); inv.add('art_pearl', 1); inv.add('probe', 8);
-    inv.addMag(ctx.inventory.mags.length ? inv.mags[0] : null) , 0;
+    inv.add('762_fmj', 120); inv.add('medkit', 2); inv.add('art_pearl', 1); inv.add('probe', 8);
     ctx.state.data.money = 2600;
     // something safe at Vanno
     const st = ctx.state.data.storage = ctx.state.data.storage || { by: {} };
@@ -41,7 +41,7 @@ export default async function (page, api) {
     const p = { x: ctx.player.position.x, z: ctx.player.position.z };
     ctx.player.die({ kind: 'bullet' });
     const caches = ctx.state.data.caches || [];
-    const marks = ctx.loot.markers().filter((m) => m.kind === 'corpse');
+    const marks = ctx.loot.markers().filter((m) => m.kind === 'explorer');
     const loss = ctx.damage.lossReport();
     return {
       at: [+p.x.toFixed(1), +p.z.toFixed(1)],
@@ -50,7 +50,7 @@ export default async function (page, api) {
       entries: caches[0] ? caches[0].entries.length : 0,
       hasAkm: !!(caches[0] && caches[0].entries.some((e) => e.id === 'akm')),
       hasArtifact: !!(caches[0] && caches[0].entries.some((e) => e.id === 'art_pearl')),
-      rounds: caches[0] ? (caches[0].entries.find((e) => e.id === '7.62x39_ps') || {}).count : 0,
+      rounds: caches[0] ? (caches[0].entries.find((e) => e.id === '762_fmj') || {}).count : 0,
       corpseMarks: marks.length,
       loss,
     };
@@ -72,7 +72,7 @@ export default async function (page, api) {
       weight: +inv.weight().toFixed(2), capacity: inv.capacity(),
       storage: (d.storage.by || {}).shelf_a,
       caches: (d.caches || []).length,
-      corpseMarks: ctx.loot.markers().filter((m) => m.kind === 'corpse').length,
+      corpseMarks: ctx.loot.markers().filter((m) => m.kind === 'explorer').length,
     };
   })()`);
   console.log('AFTER ' + JSON.stringify(after, null, 1));
@@ -89,10 +89,11 @@ export default async function (page, api) {
     const btn = root && [...root.querySelectorAll('button')].find((b) => (b.dataset.a || '') === 'takeall');
     if (btn) btn.click();
     const inv = ctx.inventory;
+    ctx.frame++;                                   // weight() is memoised per frame and nothing renders here
     const out = {
       clicked: !!btn,
       weapons: inv.weapons.map((x) => x.id),
-      rounds762: inv.count('7.62x39_ps'), artifact: inv.count('art_pearl'),
+      rounds762: inv.count('762_fmj'), artifact: inv.count('art_pearl'),
       leftInPile: o.pile.entries.length,
       cachesLeft: (ctx.state.data.caches || []).length,
       weight: +inv.weight().toFixed(2), capacity: inv.capacity(),

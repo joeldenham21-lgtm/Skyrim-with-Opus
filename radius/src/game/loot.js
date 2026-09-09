@@ -714,7 +714,7 @@ export function createLoot(ctx) {
   let cacheSeq = 0;
   function spawnCache(rec) {
     const y = typeof rec.y === 'number' ? rec.y : groundAt(rec.x, rec.z);
-    const o = spawnPile({ x: rec.x, y, z: rec.z }, rec.entries, { kind: rec.kind || 'corpse', name: rec.name || 'EXPLORER 61' });
+    const o = spawnPile({ x: rec.x, y, z: rec.z }, rec.entries, { kind: rec.kind || 'explorer', name: rec.name || 'EXPLORER 61' });
     if (!o) return null;
     o.cacheId = rec.id;
     // share the array, so every Take in the loot panel lands directly in the saved record
@@ -735,20 +735,25 @@ export function createLoot(ctx) {
   function dropCache(entries, position, opts = {}) {
     const list = (entries || []).filter((e) => e && e.id);
     if (!list.length) return null;
-    const d = D();
     const x = position?.x ?? ctx.player.position.x, z = position?.z ?? ctx.player.position.z;
     const poi = (() => { try { return ctx.world.nearestPoi(x, z)?.poi || null; } catch { return null; } })();
     const rec = {
-      id: 'k' + (++cacheSeq) + '-' + Math.round(nowHours() * 60),
+      // the sequence restarts on reload and the record does not, so the id carries the clock and a die roll too
+      id: 'k' + (++cacheSeq) + '-' + Math.round(nowHours() * 60) + '-' + Math.floor(Math.random() * 4096).toString(36),
       x, z, y: typeof position?.y === 'number' ? position.y : groundAt(x, z),
       t0: nowHours(), tides: 0, degraded: false,
-      kind: opts.kind || 'corpse', name: (opts.name || 'EXPLORER 61').toUpperCase(),
+      kind: opts.kind || 'explorer', name: (opts.name || 'EXPLORER 61').toUpperCase(),
       poi: poi ? poi.id : null, poiName: poi ? poi.name : null,
       entries: JSON.parse(JSON.stringify(list)),
     };
     const cl = cacheList();
     cl.push(rec);
-    while (cl.length > MAX_CACHES) cl.shift();
+    // past the cap the oldest body is gone: forget the record and take its pile off the ground with it
+    while (cl.length > MAX_CACHES) {
+      const old = cl.shift();
+      const o = objects.find((x2) => x2.cacheId === old.id);
+      if (o) { disposeObject(o); const i = objects.indexOf(o); if (i >= 0) objects.splice(i, 1); }
+    }
     try { spawnCache(rec); } catch (e) { console.warn('[loot] cache', e); }
     ctx.events.emit('cacheDropped', rec);
     return rec;

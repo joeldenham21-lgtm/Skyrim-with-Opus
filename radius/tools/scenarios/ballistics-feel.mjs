@@ -115,9 +115,9 @@ export default async function (page, api) {
     const od = c.input.down, oe = c.input.enabled;
     c.input.enabled = true;
     c.input.down = (a) => (a === 'sprint' ? !!hold : false);
-    for (let i = 0; i < 60; i++) hands.update(1 / 60);
+    for (let i = 0; i < 30; i++) hands.update(1 / 60);
     let sx = 0, sy = 0, n = 0, peak = 0;
-    for (let i = 0; i < 180; i++) {
+    for (let i = 0; i < 120; i++) {
       hands.update(1 / 60);
       const rx = c.camera.rotation.x, ry = c.camera.rotation.y;
       sx += rx * rx; sy += ry * ry; n++;
@@ -202,7 +202,7 @@ export default async function (page, api) {
   L.inFlight = B.inFlight;
   return L;
 })()`);
-  console.log('SWAY (sight picture over a 3 s window)');
+  console.log('SWAY (sight picture over a 2 s window, half a second of settle discarded)');
   for (const [k, v] of Object.entries(feel.sway)) console.log(`  ${k.padEnd(16)} pitch ${String(v.pitchRmsDeg).padStart(6)} deg  yaw ${String(v.yawRmsDeg).padStart(6)} deg  = ${String(v.cmAt100m).padStart(6)} cm rms / ${String(v.peakCmAt100m).padStart(6)} cm peak at 100 m   holding=${v.holding} stamina=${v.stamina}`);
   console.log('SUPPRESSION', JSON.stringify(feel.suppression));
   console.log('STOPPAGE KINDS', JSON.stringify(feel.stoppages));

@@ -5,11 +5,12 @@
 export default async function (page, api) {
   await api.run('window.__radius.start()');
   await api.wait(1500);
-  const out = await api.run(`(() => {
+  const runs = [];
+  for (let pass = 0; pass < 3; pass++) runs.push(await api.run(`(() => {
   const r = window.__radius, c = r.ctx, T = c.THREE;
   r.teleport(30, 130); r.setTime(11);
   c.debug.noEnemies = true; c.enemies.removeAll();
-  c.state.data.hp = 100; c.player.revive && c.player.revive();
+  c.state.data.hp = 100; c.state.data.stamina = 100; c.state.data.bleeding = false; if (c.player.dead) c.player.revive && c.player.revive(); c.player.revive && c.player.revive();
   const p = c.player;
   const B = c.ballistics;
   let enemyShots = 0, playerHits = 0, whizzes = 0, worldHits = 0, maxSupp = 0, errors = [];
@@ -45,7 +46,7 @@ export default async function (page, api) {
     inFlight: B.inFlight, enemiesAlive: c.enemies.list.filter((e) => e.alive).length,
     msPerFrame: +((t1 - t0) / Math.max(1, frames)).toFixed(3), errors: errors.slice(0, 3),
   };
-})()`);
-  console.log('COMBAT', JSON.stringify(out, null, 1));
+})()`));
+  for (const out of runs) console.log('COMBAT', JSON.stringify(out));
   console.log('stats', JSON.stringify(await api.run('window.__radius.stats()')));
 }

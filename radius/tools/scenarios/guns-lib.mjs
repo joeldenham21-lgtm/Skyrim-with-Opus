@@ -152,9 +152,16 @@ export const DSP = `
     if (peak < 1e-5) return { peak: 0, silent: true };
     const th = 0.02 * peak;
     let onset = ip; while (onset > s0 && Math.abs(d[onset]) > th) onset--;
-    let i10 = onset, i90 = ip;
-    for (let i = onset; i <= ip; i++) if (Math.abs(d[i]) >= 0.1 * peak) { i10 = i; break; }
-    for (let i = i10; i <= ip; i++) if (Math.abs(d[i]) >= 0.9 * peak) { i90 = i; break; }
+    // Rise time of the SHOCK FRONT, not of the loudest sample in the sound. The two are often different: a
+    // ground reflection or a bullet's N-wave can sum higher than the direct blast a few milliseconds later,
+    // and measuring 10-90 % against that global peak reports a millisecond-long "front" for a sound that
+    // plainly has a one-sample step in it. So the reference is the largest excursion in the first millisecond.
+    const fEnd = Math.min(s1, onset + Math.round(0.001 * SR));
+    let front = 0, ifr = onset;
+    for (let i = onset; i < fEnd; i++) { const x = Math.abs(d[i]); if (x > front) { front = x; ifr = i; } }
+    let i10 = onset, i90 = ifr;
+    for (let i = onset; i <= ifr; i++) if (Math.abs(d[i]) >= 0.1 * front) { i10 = i; break; }
+    for (let i = i10; i <= ifr; i++) if (Math.abs(d[i]) >= 0.9 * front) { i90 = i; break; }
     // 0.5 ms max-envelope for decay times
     const bs = Math.max(1, Math.round(SR * 0.0005)), nb = Math.floor((s1 - ip) / bs);
     const env = new Float64Array(nb);
