@@ -298,12 +298,12 @@ export default async function (page, api) {
   const rest = await api.run(`(() => {
     const ctx = window.__radius.ctx, K = window.__KIT, S = window.__site;
     const drive = (m, n) => { for (let i = 0; i < (n || 300); i++) { ctx.elapsed += 0.05; ctx.frame++; K.kitTick(m, 0.05); K.updateKit(ctx, 0.05); } };
-    const one = (items, act, setup, read) => {
+    const one = (items, act, setup, read, steps) => {
       window.__clear();
       const m = window.__man(S.x, S.z + 120, items, {});
       if (setup) setup(m);
       const started = K.beginUse(m, items[0], act, 0);
-      drive(m);
+      drive(m, steps);
       return { started: started, out: read(m), items: m.loadout.items.slice() };
     };
     const out = {};
@@ -324,7 +324,7 @@ export default async function (page, api) {
       (m) => ({ charge: m.loadout.kit[0].charge }));
     out.filter = one(['filter'], 'filter', (m) => { m.loadout.kit = [K.makeGear('mask_gp5')]; m.loadout.kit[0].charge = 0; K.createKit(m); m.loadout.items = ['filter']; },
       (m) => ({ charge: m.loadout.kit[0].charge }));
-    out.binos = one(['binoculars'], 'binos', null, (m) => ({ glassing: K.glassing(m) }));
+    out.binos = one(['binoculars'], 'binos', null, (m) => ({ glassing: K.glassing(m), t: +m.kit.binoT.toFixed(1) }), 60);
     // the two thrown things nothing carries yet, so the paths are proved rather than assumed
     window.__clear();
     const flareman = window.__man(S.x, S.z + 140, ['gr_flare'], {});

@@ -111,7 +111,18 @@ export const WIRE = `(() => { window.__wire = (sq, opts) => {
   const killed = sq.onKilled.bind(sq);
   sq.onKilled = (m, t) => { const wasLeader = (sq.leaderRef === m); const r = killed(m, t); if (wasLeader) mind.onLeaderDown(m); else mind.interrupt('manDown', m.position.x, m.position.z, m); return r; };
   const up = sq.update.bind(sq);
-  sq.update = (dt) => { mind.update(dt); return up(dt); };
+  sq.update = (dt) => {
+    mind.update(dt);
+    // senses.js's licensed job, standing in for it here: a man with a live line can see which way the Explorer
+    // is pointing, and that is the ONLY route by which picture.facing is ever written. Without it the belief
+    // cone is 180 degrees and the squad refuses to manoeuvre, which is correct and is why this must be wired.
+    const p = ctx.player;
+    for (const m of sq.members) {
+      if (!m.alive || ctx.elapsed - (m.lastVisT ?? -1e9) > 0.4) continue;
+      mind.observe('face', Math.atan2(p.forward.z, p.forward.x)); break;
+    }
+    return up(dt);
+  };
   void say;
   return mind;
 }; return 1; })()`;

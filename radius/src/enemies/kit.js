@@ -482,9 +482,14 @@ export function hasThrowable(m, act) { return !!findThrowable(m, act); }
 // integrator's tick() must not fire, aim or reload through it. A mimic with his hands in a pouch is a free
 // target, and that price is exactly what makes the capability fair.
 // =====================================================================================================
+// The acts finishUse() actually implements. 'frag' belongs to squad.js, 'light' to mimic.js's own wantLight
+// (gate it with mayLight), 'melee' to traversal.js, 'detect' to nobody: none of them may be spent here, so
+// nothing is ever consumed for no effect.
+const USABLE = { heal: 1, pain: 1, stim: 1, food: 1, mask: 1, filter: 1, battery: 1, clean: 1, repair: 1, armorkit: 1, binos: 1, probe: 1, pick: 1 };
 export function beginUse(m, id, act, idx = -1, tx, tz) {
   const k = m.kit; if (!k || k.verb) return false;
   if (!act) act = actFor(id); if (!act) return false;
+  if (!THROWN_ACTS[act] && !USABLE[act]) return false;
   if (!gateFor(m, act)) return false;
   // a thrown act is not a pouch action: it has a windup, a word and an arc, and throwKit owns all three
   if (THROWN_ACTS[act]) return throwKit(m, act, tx === undefined ? m.position.x : tx, tz === undefined ? m.position.z : tz);
@@ -1004,13 +1009,14 @@ export function rearm(m, w) {
 }
 
 // The best melee item he is carrying, for traversal.js's takedown to use a real number rather than a constant.
+let _mBest = null, _mDmg = 0;
+function _melee(id) { const d = def(id); if (!d || d.kind !== 'melee') return; if ((d.damage || 0) > _mDmg) { _mDmg = d.damage; _mBest = d; } }
 export function bestMelee(m) {
   const lo = m.loadout; if (!lo) return null;
-  let best = null, bd = 0;
-  const scan = (id) => { const d = def(id); if (!d || d.kind !== 'melee') return; if ((d.damage || 0) > bd) { bd = d.damage; best = d; } };
-  if (lo.items) for (let i = 0; i < lo.items.length; i++) scan(lo.items[i]);
-  if (lo.scavenged) for (let i = 0; i < lo.scavenged.length; i++) scan(lo.scavenged[i].id);
-  return best;
+  _mBest = null; _mDmg = 0;
+  if (lo.items) for (let i = 0; i < lo.items.length; i++) _melee(lo.items[i]);
+  if (lo.scavenged) for (let i = 0; i < lo.scavenged.length; i++) _melee(lo.scavenged[i].id);
+  return _mBest;
 }
 export function meleeDamage(m, fallback = 30) { const d = bestMelee(m); return d ? d.damage : fallback; }
 

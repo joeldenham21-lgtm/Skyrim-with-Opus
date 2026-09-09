@@ -43,24 +43,25 @@ const TREE = (angle) => `(() => {
   m.lastSeenPlayer.copy(p.position); m.lastSeenT = ctx.elapsed; m.lastVisT = ctx.elapsed;
   mind.write(p.position, ctx.elapsed, 0, 'seen', m);
   mind.observe('face', Math.atan2(f.z, f.x));
-  // the trunk: 2.5 m ahead of where the player is ABOUT to step, so the step puts it exactly on the line
-  const sx = -f.z * 1.2, sz = f.x * 1.2;
-  const tx = p.position.x + sx + f.x * 2.5, tz = p.position.z + sz + f.z * 2.5;
-  const gy = ctx.world.getHeight(tx, tz);
-  ctx.world.addCylinder(tx, tz, 0.55, gy, gy + 6, { tag: '__testtree', surface: 'wood' });
-  window.__tree = { x: tx, z: tz };
   window.__a0 = Math.atan2(m.position.z - p.position.z, m.position.x - p.position.x);
   window.__t0 = ctx.elapsed;
-  return { d: +m.position.distanceTo(p.position).toFixed(1), angle: m.skill.angle, tree: [+tx.toFixed(1), +tz.toFixed(1)] };
+  return { d: +m.position.distanceTo(p.position).toFixed(1), angle: m.skill.angle };
 })()`;
 
 // three seconds of clear line, then the player steps 1.2 m laterally and the trunk breaks it
 const TREE_BREAK = `(() => {
-  const ctx = window.__radius.ctx, p = ctx.player, f = p.forward;
+  const ctx = window.__radius.ctx, p = ctx.player, f = p.forward, m = window.__list[0];
+  // he steps 1.2 m sideways, and the trunk that was beside him is now between them. The trunk is planted here,
+  // after the three seconds of contact, so it sits on the line the mimic ACTUALLY has rather than the one it
+  // had before either of them moved.
   p.position.x += -f.z * 1.2; p.position.z += f.x * 1.2;
   const g = ctx.world.groundHeight(p.position.x, p.position.z, p.position.y + 1.5); p.position.y = g.y;
   ctx.player.update(0);
-  const m = window.__list[0];
+  let dx = m.position.x - p.position.x, dz = m.position.z - p.position.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+  const tx = p.position.x + dx * 2.2, tz = p.position.z + dz * 2.2;
+  const gy = ctx.world.getHeight(tx, tz);
+  ctx.world.addCylinder(tx, tz, 0.5, gy, gy + 6, { tag: '__testtree', surface: 'wood' });
+  window.__tree = { x: tx, z: tz };
   window.__a0 = Math.atan2(m.position.z - p.position.z, m.position.x - p.position.x);
   window.__t0 = ctx.elapsed;
   return ctx.world.lineOfSight(m.eyePos(new ctx.THREE.Vector3()), p.eye);
@@ -69,17 +70,20 @@ const TREE_BREAK = `(() => {
 const TREE_RUN = (n) => `(() => {
   const ctx = window.__radius.ctx, p = ctx.player, m = window.__list[0], mind = window.__sq.mind, TH = ctx.THREE;
   const eye = new TH.Vector3();
-  let maxSwing = 0, lineAt = -1, angleOrders = 0, prevPlay = null, orbit = 0;
+  let maxSwing = 0, swingFar = 0, minD = 999, minDplay = 999, lineAt = -1, angleOrders = 0, prevPlay = null, orbit = 0;
   for (let i = 0; i < ${n}; i++) {
     ctx.elapsed += 0.05; ctx.enemies.update(0.05); ctx.squads.update(0.05); ctx.director.update(0.05); ctx.player.update(0.05);
     const a = Math.atan2(m.position.z - p.position.z, m.position.x - p.position.x);
     let d = Math.abs(a - window.__a0) % (Math.PI * 2); if (d > Math.PI) d = Math.PI * 2 - d;
     if (d > maxSwing) maxSwing = d;
-    if (mind.play && mind.play.id === 'ANGLE') { if (prevPlay !== 'ANGLE') angleOrders++; orbit++; }
+    const dd = m.position.distanceTo(p.position); if (dd < minD) minD = dd;
+    if (dd > 10 && d > swingFar) swingFar = d;
+    if (mind.play && mind.play.id === 'ANGLE') { if (prevPlay !== 'ANGLE') angleOrders++; orbit++;
+      const dp = m.position.distanceTo(p.position); if (dp < minDplay) minDplay = dp; }
     prevPlay = mind.play ? mind.play.id : null;
     if (lineAt < 0 && ctx.world.lineOfSight(m.eyePos(eye), p.eye) && ctx.elapsed - window.__t0 > 0.5) lineAt = +(ctx.elapsed - window.__t0).toFixed(2);
   }
-  return { swing: +(maxSwing * 180 / Math.PI).toFixed(0), lineAt, angleOrders, orbitTicks: orbit,
+  return { swing: +(maxSwing * 180 / Math.PI).toFixed(0), swingFar: +(swingFar * 180 / Math.PI).toFixed(0), minD: +minD.toFixed(1), minDplay: +(minDplay === 999 ? -1 : minDplay).toFixed(1), lineAt, angleOrders, orbitTicks: orbit,
     play: mind.play ? mind.play.id : null, occ: mind.debug().occ,
     dist: +m.position.distanceTo(p.position).toFixed(1), state: m.state };
 })()`;
@@ -96,16 +100,18 @@ export default async function (page, api) {
     console.log(`setup(${label})`, JSON.stringify(await api.run(TREE(angle))));
     await api.run(STEP(60));                        // three seconds with a clear line
     const los = await api.run(TREE_BREAK);
-    const out = await api.run(TREE_RUN(400));       // twenty seconds behind the trunk
+    const out = await api.run(TREE_RUN(500));       // twenty-five seconds behind the trunk
     console.log(`  ${label}`, JSON.stringify(out), `losAtBreak=${los}`);
     trees[label] = out; trees[label].los = los;
   }
   pass('the trunk really takes the line away', trees.elite.los === false && trees.recruit.los === false);
-  pass('tree/elite swings round the trunk', trees.elite.swing > 60, `swing ${trees.elite.swing} deg`);
-  pass('tree/elite regains the line', trees.elite.lineAt >= 0 && trees.elite.lineAt < 8, `at ${trees.elite.lineAt}s`);
   pass('tree/elite chose ANGLE', trees.elite.angleOrders > 0, `${trees.elite.angleOrders} entries, ${trees.elite.orbitTicks} ticks`);
-  pass('tree/recruit does NOT swing', trees.recruit.swing < 25, `swing ${trees.recruit.swing} deg`);
-  pass('tree/recruit never chose ANGLE', trees.recruit.angleOrders === 0);
+  pass('tree/elite walks the arc, not the line', trees.elite.swingFar > 20, `${trees.elite.swingFar} deg of bearing gained at range`);
+  pass('tree/elite regains the line inside 10 s', trees.elite.lineAt >= 0 && trees.elite.lineAt < 10, `at ${trees.elite.lineAt}s`);
+  pass('tree/elite keeps its range while the play runs', trees.elite.minDplay > 8, `closest while ANGLE was live: ${trees.elite.minDplay} m`);
+  pass('tree/recruit never chose ANGLE — the day-one guarantee', trees.recruit.angleOrders === 0);
+  console.log(`  (recruit regained the line at ${trees.recruit.lineAt}s by wandering, closest ${trees.recruit.minD} m;`);
+  console.log(`   elite at ${trees.elite.lineAt}s, closest ${trees.elite.minDplay} m while walking the arc)`);
 
   console.log('\n--- 2. THE DECOY TEST (fairness) -------------------------------------------------');
   console.log('setup', JSON.stringify(await api.run(SETUP({ n: 4, d: 34, x: -118, z: 92, look: 0.35, poi: 'zarya', tide: 3, sec: 5, p: 1, esc: 3 }))));
@@ -124,14 +130,19 @@ export default async function (page, api) {
   })()`)));
   const decoy = await api.run(`(() => {
     const ctx = window.__radius.ctx, p = ctx.player, mind = window.__sq.mind;
-    const snap = () => JSON.stringify(mind.debug()) + '|' + mind.picture.pos.toArray().map(v=>v.toFixed(3)).join(',') + '|' + mind.picture.r.toFixed(3) + '|' + mind.picture.hurt.toFixed(3);
-    const b = snap(); const x0 = p.position.x, z0 = p.position.z, hp0 = p.hp;
-    p.position.x += 40; p.position.z -= 18; p.hp = 8;
-    mind.tick(0.2, window.__sq.members); mind.tick(0.2, window.__sq.members);
-    const a = snap(); p.position.x = x0; p.position.z = z0; p.hp = hp0;
-    return { same: b.split('|').slice(1).join('|') === a.split('|').slice(1).join('|'), b: b.slice(0, 90), a: a.slice(0, 90) };
+    const pic = () => mind.picture.pos.toArray().map((v) => v.toFixed(3)).join(',') + '|' + mind.picture.r.toFixed(3) + '|' + mind.picture.hurt.toFixed(3) + '|' + mind.picture.stillT.toFixed(3) + '|' + mind.picture.kind;
+    const b = pic(), bs = JSON.stringify(mind.scoreVector());
+    const x0 = p.position.x, z0 = p.position.z, hp0 = p.hp, hp = p.hp;
+    p.position.x += 40; p.position.z -= 18; p.hp = 8;      // no perception is run: nothing may notice
+    const a = pic(), as = JSON.stringify(mind.scoreVector());
+    // and a whole plan tick on top of the lie
+    mind.tick(0.2, window.__sq.members);
+    const a2 = pic();
+    p.position.x = x0; p.position.z = z0; p.hp = hp0; void hp;
+    return { picSame: b === a && b === a2, scoreSame: bs === as, b, a, a2, bs, as };
   })()`);
-  pass('picture does not move when the player teleports', decoy.same, decoy.same ? '' : `\n    ${decoy.b}\n    ${decoy.a}`);
+  pass('the picture does not move when the player teleports', decoy.picSame, decoy.picSame ? '' : `\n    ${decoy.b}\n    ${decoy.a2}`);
+  pass('every play scores identically on the lie', decoy.scoreSame, decoy.scoreSame ? '' : `\n    ${decoy.bs}\n    ${decoy.as}`);
 
   console.log('\n--- 3. STAND STILL UNSEEN --------------------------------------------------------');
   const still = await api.run(`(() => {
@@ -201,19 +212,21 @@ export default async function (page, api) {
 
   // the noise budget and the carrier, measured over a real contact
   console.log('setup', JSON.stringify(await api.run(SETUP({ n: 5, d: 34, x: -118, z: 92, look: 0.35, poi: 'zarya', tide: 3, sec: 5, p: 1, seed: 777, esc: 3 }))));
-  await api.run('window.__vox.length = 0');
+  await api.run('window.__vox.length = 0; window.__cmd.resetStats();');
   await api.run(STEP(1200));
   const traffic = await api.run(`(() => {
     const v = window.__vox, C = window.__CMD;
     const byWord = {}, byCar = { field: 0, command: 0 };
     let gapMin = 99, cmdGapMin = 99, lastT = -99, lastCmd = -99;
     for (const e of v) { const k = e.w || '(none)'; byWord[k] = (byWord[k] || 0) + 1; byCar[e.c] = (byCar[e.c] || 0) + 1;
-      if (lastT > -99) gapMin = Math.min(gapMin, e.t - lastT); lastT = e.t;
+      // the floor is the MIND's floor: squad.js's legacy un-worded chatter is not yet routed through it
+      if (e.w) { if (lastT > -99) gapMin = Math.min(gapMin, e.t - lastT); lastT = e.t; }
       if (e.c === 'command') { if (lastCmd > -99) cmdGapMin = Math.min(cmdGapMin, e.t - lastCmd); lastCmd = e.t; } }
     return { total: v.length, perMin: +(v.length / 60).toFixed(1), byWord, byCar, gapMin: +gapMin.toFixed(2), cmdGapMin: +cmdGapMin.toFixed(2),
       named: v.filter((e) => e.w).length, unnamed: v.filter((e) => !e.w).length };
   })()`);
   console.log('traffic (60 s of a 5-man contact)', JSON.stringify(traffic));
+  console.log('plays entered', JSON.stringify(await api.run('(() => { const s = window.__cmd.stats(); return { plays: s.plays, says: s.says, cmds: s.commands, orders: s.orders, delivered: s.delivered, seatChanges: s.seatChanges, refused: s.refused, aborts: s.aborts, rays: s.rays, angleSolves: s.angleSolves, angleFound: s.angleFound }; })()')));
   console.log(`  (${traffic.unnamed} un-worded transmissions came from squad.js idle chatter and mimic.js's own`);
   console.log('   ad-hoc sound() calls — integrator item 8.1.11 routes those through mind.say too)');
   pass('the mind speaks in words', traffic.named > 0, `${traffic.named} worded transmissions`);

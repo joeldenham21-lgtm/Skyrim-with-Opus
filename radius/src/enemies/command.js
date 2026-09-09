@@ -307,7 +307,7 @@ export function createCommand(ctx, deps = {}) {
   function makeSeat() {
     return {
       kind: '', solver: '', word: null, want: 'any', critical: 0, active: false,
-      man: null, sinceT: -1e9, armAt: 0, said: false, arc: 0, side: 1,
+      man: null, sinceT: -1e9, armAt: 0, said: false, arrived: false, arc: 0, side: 1,
       x: 0, z: 0, has: false, wp: new Float32Array(9), wpN: 0, wpI: 0, note: '',
     };
   }
@@ -547,6 +547,9 @@ export function createCommand(ctx, deps = {}) {
         n++; cx += m.position.x; cz += m.position.z;
         hurt += 1 - clamp01((m.hp || 0) / (m.maxHp || 1));
         const r = m.roundsLeft ? m.roundsLeft() : 30; rounds += r; if (r <= 0) dry++;
+        // A man two rounds from empty is not a base of fire. There is no universal reload lull to rush in this
+        // game; instead the squad rotates him out and TELLS you which gun has stopped.
+        m._low = r <= Math.max(2, (m.magCap || 30) * 0.2);
         gren += m.grenades | 0;
         smoke += (m.loadout && m.loadout.smokes) | 0;
         const kind = m.profile ? m.profile.kind : 'burst';
@@ -579,14 +582,52 @@ export function createCommand(ctx, deps = {}) {
     }
 
     // -----------------------------------------------------------------------------------------------
-    // §occluder — THE TREE. One ray, cached six seconds.
-    // From the man with the freshest belief, straight at where the squad thinks he is. If something is in the
-    // way, THAT is the thing he is hiding behind, and its size decides whether one man walks round it or the
-    // squad solves a firing position on the far side of it.
+    // §occluder — THE TREE. Usually no ray at all, cached six seconds.
+    // They lost the line. What is he behind? A man does not fire a ray to work out that there is a tree there:
+    // he can SEE the tree. So the first pass asks the collision grid what is standing within six metres of
+    // where they think he went and near the line from the base of fire to it — free, and it finds the trunk
+    // even though the last thing they actually saw was a metre to one side of it. Only when the grid has
+    // nothing (open ground, a terrain fold) does one budgeted ray go out. Its SIZE is the whole decision:
+    // a thin thing is walked around, a wall is solved for a firing position on the far side.
     // -----------------------------------------------------------------------------------------------
     function findOccluder(t) {
       if (picture.occluder && t - picture.occT < OCC_LIFE) return true;
       if (!picture.has) return false;
+      stats.angleSolves++;
+      // ---- the cheap way first, and it is the right way: ask the collision grid what is standing next to
+      // where he went. A man does not fire a ray to work out that there is a tree there; he can see the tree.
+      // Zero rays, a handful of arithmetic per collider in a 6 m circle.
+      const bx = ledgerCX, bz = ledgerCZ;
+      const dx = picture.pos.x - bx, dz = picture.pos.z - bz;
+      const L2 = dx * dx + dz * dz;
+      if (L2 > 1e-4 && ctx.world.query) {
+        let bestC = null, bestS = -1e9, ox = 0, oz = 0, orad = 1, otop = 0;
+        ctx.world.query(picture.pos.x, picture.pos.z, 6, (c) => {
+          if (!c || c.passable) return;
+          let cx, cz, r, top;
+          if (c.kind === 'cyl') { cx = c.x; cz = c.z; r = c.r || 0.5; top = c.y1; }
+          else if (c.min && c.max) { cx = (c.min.x + c.max.x) * 0.5; cz = (c.min.z + c.max.z) * 0.5; r = Math.min(c.max.x - c.min.x, c.max.z - c.min.z) * 0.5; top = c.max.y; }
+          else return;
+          if (top - picture.pos.y < 1.0) return;                  // it does not hide a man standing behind it
+          const tt = ((cx - bx) * dx + (cz - bz) * dz) / L2;
+          if (tt < 0.12) return;                                  // that is not his cover, it is theirs
+          if (tt > 1.35) return;                                  // it is well past him
+          const px = bx + dx * tt, pz = bz + dz * tt;
+          const off = Math.hypot(cx - px, cz - pz) - r;
+          if (off > 1.6) return;                                  // nowhere near the line
+          const s = -off * 2 + tt * 1.5;                          // on the line, and as close to him as possible
+          if (s > bestS) { bestS = s; bestC = c; ox = cx; oz = cz; orad = r; otop = top; }
+        });
+        if (bestC) {
+          picture.occluder = bestC; picture.occT = t;
+          picture.occX = ox; picture.occZ = oz; picture.occY = Math.min(otop, picture.pos.y + 1.4);
+          picture.occR = orad;
+          picture.occKind = orad < 1.2 ? 'thin' : orad < 4 ? 'short' : 'long';
+          stats.angleFound++;
+          return true;
+        }
+      }
+      // ---- nothing in the grid: terrain, or he is simply gone. One budgeted ray to be sure.
       const ms = members();
       let best = null, bt = -1e9;
       for (let i = 0; i < ms.length; i++) {
@@ -594,9 +635,8 @@ export function createCommand(ctx, deps = {}) {
         const lt = Math.max(m.lastSeenT ?? -1e9, m.lastVisT ?? -1e9);
         if (lt > bt) { bt = lt; best = m; }
       }
-      if (!best) return false;
-      if (!budget(ctx, 1)) return false;
-      stats.angleSolves++; stats.rays++;
+      if (!best || !budget(ctx, 1)) return false;
+      stats.rays++;
       if (best.eyePos) best.eyePos(_eye); else _eye.set(best.position.x, best.position.y + 1.6, best.position.z);
       _v.set(picture.pos.x, picture.pos.y + 1.4, picture.pos.z);
       _dir.copy(_v).sub(_eye);
@@ -702,7 +742,10 @@ export function createCommand(ctx, deps = {}) {
     }
     function geomFit(p, t) {
       switch (p.id) {
-        case 'HOLD': return (squad.fixing || 0) > 0 ? 1 : 0.35;
+        // Trading from where we stand is the right answer while somebody can actually SEE him. Once nobody
+        // can, standing there emptying magazines into a tree trunk is the exact behaviour this file exists to
+        // delete, so HOLD's case collapses and something else wins the scoring.
+        case 'HOLD': return picture.seers > 0 ? 1 : ((squad.fixing || 0) > 0 ? 0.50 : 0.25);
         case 'ANGLE': return (picture.occluder && t - picture.occT < OCC_LIFE
           && dist2d(picture.occX, picture.occZ, picture.pos.x, picture.pos.z) < 15 && picture.seers === 0) ? 1 : 0;
         case 'FLANK': {
@@ -742,12 +785,19 @@ export function createCommand(ctx, deps = {}) {
         case 'PUSH': return clamp01(ledger.rounds / (n * 12)) * (ledger.dry ? 0.4 : 1);
         case 'BAIT': return clamp01((n - 2) / 2) * clamp01(ledger.morale);
         case 'HOLD': return clamp01(ledger.rounds / (n * 8));
+        case 'ANGLE': return 0.9;                     // one man and a walk: it costs the squad almost nothing
+        case 'HUNT': return 0.7;
         default: return 0.6;
       }
     }
-    // how much of a moving seat's lane sits inside the belief cone. Three samples, no rays.
+    // How much of a moving seat's lane sits inside the belief cone. Three samples, no rays.
+    // Weighted by how recently anybody actually saw which way he was pointing: NOT knowing where he is looking
+    // is uncertainty, not a certainty that he is looking at you, and a squad paralysed by its own ignorance
+    // would never walk round anything — which is the bug this whole file exists to fix.
     function exposure(p) {
       if (p.id === 'HOLD' || p.id === 'HUNT') return 0;
+      const conf = clamp01(1 - (ctx.elapsed - picture.facingT) / 3.5);
+      if (conf <= 0.02) return 0.35;
       const side = sideBias();
       let seen = 0;
       for (let i = 0; i < 3; i++) {
@@ -755,7 +805,7 @@ export function createCommand(ctx, deps = {}) {
         const r = lerp(10, 22, i / 2);
         if (frustum(picture.pos.x + Math.cos(a) * r, picture.pos.z + Math.sin(a) * r, 50)) seen++;
       }
-      return seen / 3;
+      return (seen / 3) * conf + 0.35 * (1 - conf);
     }
     function momentum(t) {
       const frac = ledger.initial ? ledger.n / ledger.initial : 1;
@@ -805,6 +855,7 @@ export function createCommand(ctx, deps = {}) {
     function shouldAbort(t) {
       if (!play) return false;
       switch (play.id) {
+        case 'HOLD': return picture.seers === 0 && t - lastLineT > 2.5;
         case 'ANGLE': return picture.seers > 0 || t - picture.t > 12;
         case 'FLANK': return (squad.fixing || 0) === 0 && t - (squad.fixT ?? -1e9) > 3.5;
         case 'CUT': return t - picture.velT > 2.5;
@@ -826,7 +877,7 @@ export function createCommand(ctx, deps = {}) {
       if (seatN >= SEAT_MAX) return null;
       const s = seats[seatN++];
       s.kind = kind; s.solver = solver; s.want = want; s.critical = critical; s.word = word || null;
-      s.active = true; s.man = null; s.said = false; s.armAt = 1e9; s.has = false; s.wpN = 0; s.wpI = 0; s.note = '';
+      s.active = true; s.man = null; s.said = false; s.arrived = false; s.armAt = 1e9; s.has = false; s.wpN = 0; s.wpI = 0; s.note = '';
       return s;
     }
     function layout(p, n) {
@@ -894,7 +945,7 @@ export function createCommand(ctx, deps = {}) {
       const dA = m._dA != null ? m._dA : dist2d(m.position.x, m.position.z, picture.pos.x, picture.pos.z);
       let pos = 0;
       switch (seat.kind) {
-        case 'ANVIL': { const hold = m.profile ? m.profile.hold : [10, 40]; const want = (hold[0] + hold[1]) * 0.5; pos = 1 - clamp01(Math.abs(dA - want) / 40); break; }
+        case 'ANVIL': { const hold = m.profile ? m.profile.hold : [10, 40]; const want = (hold[0] + hold[1]) * 0.5; pos = 1 - clamp01(Math.abs(dA - want) / 40); if (m._low) pos -= 1.2; break; }
         case 'ANGLE': case 'HAMMER': case 'CUT': {
           const side = sideBias();
           const ma = Math.atan2(m.position.z - picture.pos.z, m.position.x - picture.pos.x);
@@ -941,7 +992,7 @@ export function createCommand(ctx, deps = {}) {
         pool[bi] = null;
         if (seat.man !== best) {
           const wasSeat = best._seat;
-          seat.man = best; seat.sinceT = t; seat.said = false;
+          seat.man = best; seat.sinceT = t; seat.said = false; seat.arrived = false;
           best._seat = seat.kind; best._seatT = t;
           stats.seatChanges++;
           // a manoeuvre seat is CALLED, then ARMED. Until then he keeps his head down and keeps shooting.
@@ -961,7 +1012,9 @@ export function createCommand(ctx, deps = {}) {
     function promote(t) {
       for (let i = 0; i < seatN; i++) {
         const s = seats[i];
-        if (!s.active || alive(s.man)) continue;
+        // only a seat whose man was IN it and has since died. An empty seat on a fresh layout is not a
+        // casualty, it is a seat waiting to be filled, and treating it as one degraded every play instantly.
+        if (!s.active || !s.man || s.man.alive) continue;
         s.man = null;
         let donor = null, di = -1;
         for (let k = seatN - 1; k >= 0; k--) {
@@ -1007,6 +1060,10 @@ export function createCommand(ctx, deps = {}) {
       }
       const disc = skillOf(m, 'seatDisc', 0.6);
       if (!forced && !chance(clamp01(0.35 + disc * 0.65))) return;    // a green man does not hold the seat he was given
+      // GET OFF THE ROCK. mimic.js's peek cycle owns a man's feet whenever he is standing at a cover point it
+      // likes, and it will happily keep him there for the whole play. A moving seat takes the rock away from
+      // him; the solver below hands him somewhere else to be.
+      if (MOVER[seat.kind]) { m.cover = null; m.coverGood = false; m.postureSet = false; m.posture = 'open'; m.exposed = 1; }
       o.job = seatJob(seat.kind);
       switch (seat.solver) {
         case 'orderHold': call('orderHold', m, o, seat.kind === 'ANVIL' && seat.critical >= 10); break;
@@ -1071,6 +1128,8 @@ export function createCommand(ctx, deps = {}) {
         // read says he comes out of. No rays: three walkable probes and he is walking.
         if (seat.wpN === 0 || seat.wpI >= seat.wpN) {
           const cx = picture.occX, cz = picture.occZ;
+          // CONSTANT radius to the occluder. He walks AROUND it; he does not walk AT it. Shrinking the radius
+          // here is exactly the failure the play exists to fix — a man closing on the last known position.
           const r = Math.max(4, dist2d(m.position.x, m.position.z, cx, cz));
           const a0 = Math.atan2(m.position.z - cz, m.position.x - cx);
           seat.wpN = 0;
@@ -1312,7 +1371,7 @@ export function createCommand(ctx, deps = {}) {
       // THE TREE. The occluder solve is ANGLE's precondition, so it runs BEFORE the play is scored: one ray
       // per squad per plan tick, cached six seconds, and only once they have actually lost the line.
       if (picture.seers > 0) lastLineT = t;
-      else if (picture.has && t - picture.t < 9 && t - lastLineT > 1.2) findOccluder(t);
+      else if (picture.has && (t - picture.t < 9 || (play && play.id === 'ANGLE')) && t - lastLineT > 1.2) findOccluder(t);
       if (!mergedZone && squad.inCombat) {
         mergedZone = true;
         const l = solvers.leader ? solvers.leader() : squad.leader;
@@ -1357,6 +1416,18 @@ export function createCommand(ctx, deps = {}) {
         if (!fresh) solved++;
       }
       solveCursor = (solveCursor + 1) % Math.max(1, seatN);
+      // ---- what the squad says about itself ----
+      for (let i = 0; i < seatN; i++) {
+        const s = seats[i]; const m = s.man;
+        if (!s.active || !alive(m) || !m.orders) continue;
+        // "set" — he is where he was sent. The manoeuvre worked, and you were told that it did.
+        if (MOVER[s.kind] && t >= s.armAt && !s.arrived && m.orders.hasTarget
+            && dist2d(m.position.x, m.position.z, m.orders.target.x, m.orders.target.z) < 2.2) { s.arrived = true; say('set', m, 0.9); }
+        // "changing" — that gun is out for two seconds, and you are told WHICH one
+        if (m._low && s.kind === 'ANVIL' && t - (m._saidLow || -1e9) > 8) { m._saidLow = t; say('changing', m, 0.9); }
+        // "covering" — that arc is about to get rounds
+        if (m.orders.hasSector && m.orders.sectorAt === t && t - (m._saidCov || -1e9) > 9) { m._saidCov = t; say('covering', m, 0.85); }
+      }
       // the ANGLE mover says the word one beat before he steps off, and only then
       for (let i = 0; i < seatN; i++) {
         const s = seats[i];
@@ -1408,6 +1479,18 @@ export function createCommand(ctx, deps = {}) {
       seatOf(m) { for (let i = 0; i < seatN; i++) if (seats[i].man === m) return seats[i]; return null; },
       activeSeats() { let n = 0; for (let i = 0; i < seatN; i++) if (seats[i].active && seats[i].man) n++; return n; },
       moverSeats() { let n = 0; for (let i = 0; i < seatN; i++) if (seats[i].active && seats[i].man && MOVER[seats[i].kind]) n++; return n; },
+      // every play's score with the tie-break jitter left out — the fairness test compares this vector before
+      // and after moving the true player, and anything that moves is reading ground truth
+      scoreVector() {
+        const t = ctx.elapsed, esc = (ctx.director && ctx.director.escalation) | 0, sk = squad.skill != null ? squad.skill : 0.5;
+        const out = {};
+        for (const p of PLAYS) {
+          if (!playAvailable(p, ledger.command, esc, ledger.n)) { out[p.id] = null; continue; }
+          out[p.id] = +(lerp(p.base[0], p.base[1], sk) + 1.0 * pictureQ(t) + 1.2 * geomFit(p, t)
+            + 0.8 * resFit(p) - 1.1 * exposure(p) + 0.7 * momentum(t)).toFixed(4);
+        }
+        return out;
+      },
       debug() {
         return {
           play: play ? play.id : null, tier: ledger.command, age: +(ctx.elapsed - playSince).toFixed(2),
