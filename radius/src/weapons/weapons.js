@@ -647,6 +647,7 @@ export function createWeapons(ctx) {
     get current() { return meleeHeld ? meleeView : view; },
     get adsBlend() { return adsBlend; }, get spreadDeg() { return spreadDeg; }, get state() { return state; }, get stage() { return stage; },
     get effects() { return fx; }, get bipod() { return bipodActive; }, get zoom() { return zoomNow(); },
+    get heat() { return heat; }, get recoilDebt() { return recPitch; }, get zero() { return zeroRange(); }, get aimBias() { return [biasX, biasY]; },
     // fov ratio for look sensitivity (1 at hip, 1/zoom through a scope)
     get lookScale() { const s = ctx.state.data.settings; const base = s.fov || 75; return lastFov > 0 ? lastFov / base : 1; },
     equipSlot,
@@ -692,6 +693,24 @@ export function createWeapons(ctx) {
       if (rec && !meleeHeld) { const still = inventory.weaponByUid(rec.uid); if (still !== rec) api.onInventoryChanged(); }
       const p = ctx.player, s = ctx.state.data.settings;
       cool = Math.max(0, cool - dt); busy = Math.max(0, busy - dt);
+      // ---- recoil recovery and heat ----
+      heat = Math.max(0, heat - dt * 0.055);
+      if (heat < 0.6) hotHinted = false;
+      recIdle += dt;
+      if (recIdle > 0.35) recShots = 0;
+      if (recPitch !== 0 || recYaw !== 0) {
+        // The muzzle comes back down the way it went up — but the moment the shooter moves the view himself
+        // that is his aim now, not the weapon's, so the debt is written off rather than fought.
+        if (!live() || (input.enabled && (Math.abs(input.dy) > 2.5 || Math.abs(input.dx) > 4))) { recPitch = 0; recYaw = 0; }
+        else if (recIdle > 0.09) {
+          const k = 1 - Math.exp(-7 * dt);
+          const dp = recPitch * k, dyw = recYaw * k;
+          p.kick(-dp, -dyw);
+          recPitch -= dp; recYaw -= dyw;
+          if (Math.abs(recPitch) < 2e-5) recPitch = 0;
+          if (Math.abs(recYaw) < 2e-5) recYaw = 0;
+        }
+      }
       // holster / switch completion
       if (pendingHolster && busy <= 0) { pendingHolster = false; const next = pendingSwitch, ns = pendingSlot, nm = api._nextMelee; pendingSwitch = null; pendingSlot = null; api._nextMelee = null; if (next) setCurrent(next, ns || slotOf(next)); else if (nm) setCurrent(null, 'melee', nm); else setCurrent(null); }
       // ---- input ----
@@ -750,6 +769,10 @@ export function createWeapons(ctx) {
       if (rec && rec.laserOn && fx && fx.laser) mult *= lerp(0.7, 1, adsBlend);
       if (bipodActive) mult *= fx.proneMoa;
       if (rec && !meleeHeld) { const a = AMMO[isBreak() ? rec.tube[0] : rec.chamber]; if (a && a.accuracy) mult *= a.accuracy; }
+      // a hot barrel walks its group; rounds cracking past make a man shoot worse whatever he is holding
+      if (heat > 0.5) mult *= 1 + 0.45 * (heat - 0.5);
+      const supp = ctx.ballistics?.suppression || 0;
+      if (supp > 0) mult *= 1 + 0.6 * supp;
       bloom = damp(bloom, 0, 4.5, dt);
       spreadDeg = base * mult + bloom;
       const px = Math.tan(spreadDeg * 0.5 * DEG) / Math.tan(fov * 0.5 * DEG) * (window.innerHeight * 0.5);
@@ -758,7 +781,7 @@ export function createWeapons(ctx) {
     },
   };
   ctx.events.on('inventoryChanged', () => api.onInventoryChanged());
-  ctx.events.on('gameStart', () => { userHolstered = false; pendingHolster = false; pendingSwitch = null; pendingSlot = null; api._nextMelee = null; adsTarget = 0; bloom = 0; cool = 0; burstLeft = 0; spent = 0; });
+  ctx.events.on('gameStart', () => { userHolstered = false; pendingHolster = false; pendingSwitch = null; pendingSlot = null; api._nextMelee = null; adsTarget = 0; bloom = 0; cool = 0; burstLeft = 0; spent = 0; recShots = 0; recIdle = 9; recPitch = 0; recYaw = 0; heat = 0; hotHinted = false; });
   api.onInventoryChanged();
   return api;
 }

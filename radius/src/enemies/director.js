@@ -53,6 +53,22 @@ export function createDirector(ctx) {
   let threatNear = 0, engaged = 0, heat = 0, alarm = 0, pressure = 0;
   // one fuzzy zone-level contact, shared by everything that can hear a radio
   const contact = { position: new THREE.Vector3(), t: -1e9, weight: 0, radius: 0, has: false };
+  // ---- the zone's memory of you (see MEM_CELL above) ----
+  const mem = new Map();          // key "gx,gz" -> { x, z, noise, blood, seen, t }
+  const poiMem = new Map();       // poi id -> { contacts, ang (bearing you last came in on), t, evidence }
+  let visit = null;               // the POI you are inside right now, and what it has on you so far
+  let memT = 0, escalation = 0, escT = 0, totalNoise = 0, totalBlood = 0;
+  const memKey = (x, z) => `${Math.floor(x / MEM_CELL)},${Math.floor(z / MEM_CELL)}`;
+  function memCell(x, z) {
+    const k = memKey(x, z);
+    let c = mem.get(k);
+    if (!c) {
+      if (mem.size >= MEM_MAX) { let worst = null, ws = Infinity; for (const [kk, cc] of mem) { const s = cc.noise + cc.blood + cc.seen; if (s < ws) { ws = s; worst = kk; } } if (worst) mem.delete(worst); }
+      c = { x: (Math.floor(x / MEM_CELL) + 0.5) * MEM_CELL, z: (Math.floor(z / MEM_CELL) + 0.5) * MEM_CELL, noise: 0, blood: 0, seen: 0, t: ctx.elapsed };
+      mem.set(k, c);
+    }
+    return c;
+  }
   const api = {
     get state() { return state; }, get stateT() { return stateT; }, get tension() { return tension; },
     get threatNear() { return threatNear; }, get engaged() { return engaged; }, get lastCombat() { return lastCombat; },
@@ -63,6 +79,35 @@ export function createDirector(ctx) {
     // 0..1 how much noise the player has made in the last minute or so
     get heat() { return heat; },
     get contact() { return contact.has ? contact : null; },
+    // 0..3: how far the zone has escalated its answer to you. 0 is a patrol; 3 is everything it has, and the
+    // things that are not people. population.js reads it to decide what it is allowed to put on the board.
+    get escalation() { return escalation; },
+    // ---- memory ----
+    // kind: 'noise' (a shot heard), 'blood' (one of theirs killed), 'seen' (one of theirs called you in).
+    // Nothing else writes here: the zone learns only what it could actually have registered.
+    noteActivity(pos, kind = 'noise', amount = 1) {
+      if (!pos) return;
+      const c = memCell(pos.x, pos.z);
+      c[kind] = (c[kind] || 0) + amount; c.t = ctx.elapsed;
+      if (kind === 'noise') totalNoise += amount; else if (kind === 'blood') totalBlood += amount;
+      if (visit) visit.evidence += kind === 'blood' ? 3 : kind === 'seen' ? 2 : 1;
+    },
+    // 0..1 how well the zone knows this patch of ground
+    memoryAt(x, z) { const c = mem.get(memKey(x, z)); return c ? clamp01((c.noise * 0.12 + c.seen * 0.3 + c.blood * 0.45)) : 0; },
+    // the places it knows best, hottest first: [{ x, z, heat, noise, blood, seen }]
+    hotspots(n = 6) {
+      const out = [];
+      for (const c of mem.values()) {
+        const heat = clamp01(c.noise * 0.12 + c.seen * 0.3 + c.blood * 0.45);
+        if (heat > 0.06) out.push({ x: c.x, z: c.z, heat, noise: c.noise, blood: c.blood, seen: c.seen, t: c.t });
+      }
+      out.sort((a, b) => b.heat - a.heat);
+      return out.slice(0, n);
+    },
+    // what it has on a place: how many times you have been in contact there, and the bearing you walk in on
+    poiRecord(id) { return poiMem.get(id) || null; },
+    memory() { return { cells: mem.size, pois: [...poiMem.entries()].map(([k, v]) => ({ poi: k, contacts: v.contacts, ang: +v.ang.toFixed(2) })), noise: +totalNoise.toFixed(1), blood: totalBlood, escalation }; },
+    forgetAll() { mem.clear(); poiMem.clear(); visit = null; totalNoise = 0; totalBlood = 0; escalation = 0; },
     // strength of recent gunfire heard at a position (0..1), decays over SHOT_MEM seconds.
     // A shot's reach is its `range` scaled by how loud the round was: suppressed fire barely travels.
     recentShotAt(pos, range = 120) {
