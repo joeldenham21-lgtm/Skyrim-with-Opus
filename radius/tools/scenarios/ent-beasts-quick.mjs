@@ -41,9 +41,13 @@ export default async function (page, api) {
     const ex = p.x, ez = p.z - 8;
     const e = r.spawn('slider', ex, ez, { wanderer: true });
     if (!e) return { ok: false };
-    e.aware = 1; e.setState('circle'); e.rise = 1; e.riseTarget = 1; e.moveSpeed = 3;
-    for (let i = 0; i < 40; i++) { c.elapsed += 0.05; try { e.update(0.05); } catch (err) { return { ok: false, err: String(err) }; }
+    e.aware = 1; e.setEngaged && e.setEngaged(true); e.setState('circle'); e.rise = 1; e.riseTarget = 1; e.moveSpeed = 3;
+    // rise has to be forced on BOTH sides of update(): the state machine can drop back to 'hidden' inside
+    // the tick and damp it away again before the pose is written
+    for (let i = 0; i < 40; i++) { c.elapsed += 0.05; e.rise = 1; e.riseTarget = 1; e.moveSpeed = 3; e.aware = 1;
+      try { e.update(0.05); } catch (err) { return { ok: false, err: String(err) }; }
       e.position.set(ex, e.position.y, ez); e.rise = 1; e.riseTarget = 1; e.moveSpeed = 3; }
+    e.rise = 1; e.animate(0.05, 3);
     e.update = () => {};
     window.__subject = { x: ex, z: ez, h: e.height || 1 };
     let tris = 0; e.root.traverse((o) => { if (o.isMesh && o.geometry) tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; });

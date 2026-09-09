@@ -121,11 +121,11 @@ const WR = {
   none: [0, 0, 0, 0],
   cloth: [0.90, 1.0, 1, 0],
   trous: [0.75, 1.0, 0, 0],
-  torn: [1.00, 0.9, 0, 0.40],          // the frayed edge of the split, faintly lit all down the spine
+  torn: [1.00, 0.9, 0, 0.26],          // the frayed edge of the split, faintly lit all down the spine
   resin: [0.30, 0.4, 0, 0],
   bone: [0.90, 0.6, 0, 0],
   hard: [1.00, 0.5, 0, 0],
-  gap: [0.00, 0.3, 0, 1],
+  gap: [0.00, 0.3, 0, 0.70],        // the crack between two pieces is meant to be faintly lit, not a lamp
   maw: [0.00, 0.0, 0, 1.7],            // the jaw interior: only ever seen when the jaw opens to screech
 };
 // The mimic is a cold olive uniform. This is the same uniform gone WARM: wet, brown-black, split open.
@@ -817,7 +817,7 @@ function sliderCompile(shader) {
         float sc = smoothstep(0.930, 0.972, vnoise(vec2(vCPos.z * 70.0 + uSeed, vCPos.x * 260.0 + vCPos.y * 170.0))) * vWear.x;
         diffuseColor.rgb = mix(diffuseColor.rgb, uBare, clamp(edge + sc * 0.75, 0.0, 0.85));
         // wet: the resin under the split catches the sky as a thin film, purple-green
-        diffuseColor.rgb += (vec3(0.045, 0.058, 0.055) + oil * 0.075) * fr * vSurf.w * 2.6;
+        diffuseColor.rgb += (vec3(0.045, 0.058, 0.055) + oil * 0.075) * fr * vSurf.w * 1.6;
         // it lives on its belly. Pale grit on what faces up, wet ground on what drags.
         float up = clamp(vCN.y, 0.0, 1.0);
         diffuseColor.rgb = mix(diffuseColor.rgb, uDust, up * up * 0.20 * uGrime * vWear.y * (0.35 + 0.65 * n1));
@@ -861,7 +861,7 @@ function makeSliderMaterial() {
     uDust: { value: new THREE.Color(0x8a8578) },     // pale grit on what faces the sky
     uMud: { value: new THREE.Color(0x2e2419) },      // wet ground on what drags
     uBare: { value: new THREE.Color(0x6a6152) },     // rubbed through to faded cloth
-    uEmber: { value: 0.40 }, uEmberCol: { value: new THREE.Color(0xb45a1e) },
+    uEmber: { value: 0.34 }, uEmberCol: { value: new THREE.Color(0xb45a1e) },
     uMaw: { value: 0 }, uMawCol: { value: new THREE.Color(0xc2551a) },
   };
   mat.onBeforeCompile = sliderCompile;
@@ -1417,7 +1417,7 @@ class Slider extends Enemy {
     const u = this.mu;
     u.uHit.value = this.flinch;
     // the joints leak more when it is hurt and in the beat before it comes at you
-    u.uEmber.value = 0.40 + this.flinch * 0.95 + (this.state === 'charge' || this.state === 'lunge' ? 0.35 : 0);
+    u.uEmber.value = 0.34 + this.flinch * 1.05 + (this.state === 'charge' || this.state === 'lunge' ? 0.45 : 0);
     // the jaw interior is the tell: dark until the jaw drops, then a mouthful of ember
     u.uMaw.value = this.jaw * this.jaw * 1.35;
     if (!this.mesh) return;

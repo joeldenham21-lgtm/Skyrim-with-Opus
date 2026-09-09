@@ -46,6 +46,7 @@ export default async function (page, api) {
     ${poke}
     for (let i = 0; i < 40; i++) {
       c.elapsed += 0.05;
+      ${poke}
       try { e.update(0.05); } catch (err) { return { ok: false, err: String(err) }; }
       e.position.set(ex, e.position.y, ez);
       ${poke}
@@ -82,7 +83,7 @@ export default async function (page, api) {
   if (r1.ok) { await shot('slider-flat-front', 2.6, 0, 0); await shot('slider-flat-side', 2.6, 0, 90); }
 
   // ---------------------------------------------------------------- slider, up on all fours
-  const UP = `e.setState('circle'); e.rise = 1; e.riseTarget = 1; e.moveSpeed = 3.0; e.aware = 1;`;
+  const UP = `e.setEngaged && e.setEngaged(true); e.setState('circle'); e.rise = 1; e.riseTarget = 1; e.moveSpeed = 3.0; e.aware = 1;`;
   let r2 = await api.run(settle('slider', { wanderer: true }, UP));
   report.push(Object.assign({ shot: 'slider-up' }, r2));
   if (r2.ok) {
