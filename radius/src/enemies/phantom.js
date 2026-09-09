@@ -122,11 +122,51 @@ class Phantom extends Enemy {
     const a = vb + off;
     return this.walkable(p.x + Math.cos(a) * this.ringR, p.z + Math.sin(a) * this.ringR, out);
   }
+  // A place to stand still and BE SEEN: out in front, far enough that you cannot close on it, with a clear
+  // line to you. The opposite of ringPoint, which hunts for the corner of your eye — this wants your eye
+  // directly, because the fear is not being stalked, it is looking at a thing that should not be there.
+  watchPoint(out) {
+    const p = this.player.position, vb = this.viewBearing();
+    let best = null, bs = -1e9;
+    for (let i = 0; i < 14; i++) {
+      const a = vb + rng.range(-34 * DEG, 34 * DEG);
+      const r = rng.range(26, 46);
+      const pt = this.walkable(p.x + Math.cos(a) * r, p.z + Math.sin(a) * r, _cand);
+      if (!pt) continue;
+      // it must be visible, or standing there achieves nothing
+      let score = this.seenByPlayer(pt.x, pt.y, pt.z, 40) ? 6 : -6;
+      score -= Math.abs(angleDelta(vb, a)) * 1.2;      // nearer the middle of the view is better
+      score += (r - 26) * 0.04;                        // and further away is better: it must stay unreachable
+      if (score > bs) { bs = score; best = out.copy(pt); }
+    }
+    return best;
+  }
   show(seconds) { this.reveal = Math.max(this.reveal, seconds); }
   screenPos(out) {
     _v.set(this.position.x, this.position.y + 1.3, this.position.z).project(this.ctx.camera);
     out.set(clamp(_v.x * 0.5 + 0.5, 0, 1), clamp(_v.y * 0.5 + 0.5, 0, 1), _v.z);
     return out;
+  }
+  // Take up a standing position and hold it. No sound: the hiss is what it does when it is working you.
+  beginWatch() {
+    if (!this.watchPoint(_cand)) { this.setState('circle'); this.circleT = rng.range(6, 12); this.hasTarget = false; return; }
+    this.position.copy(_cand); this.followGround(0);
+    this.setState('watch');
+    this.watchT = rng.range(7, 15);
+    this.hasTarget = false; this.grabbed = false;
+    this.show(0.35);          // just enough shimmer to be caught, not enough to be certain
+  }
+  // Leaving without the scream. vanish() announces itself; this does not, which is worse.
+  vanishQuiet() {
+    const p = this.player.position, vb = this.viewBearing();
+    for (let i = 0; i < 10; i++) {
+      const a = vb + Math.PI + rng.range(-1.4, 1.4);
+      const pt = this.walkable(p.x + Math.cos(a) * rng.range(24, 40), p.z + Math.sin(a) * rng.range(24, 40), _cand);
+      if (!pt || this.seenByPlayer(pt.x, pt.y, pt.z)) continue;
+      this.position.copy(pt); this.followGround(0); break;
+    }
+    this.vanishT = 0.45; this.reveal = 0;
+    this.setState('idle'); this.hasTarget = false;
   }
   // gone: twenty metres away, out of sight, and back on the ring
   vanish() {
@@ -208,7 +248,34 @@ class Phantom extends Enemy {
         // still, shimmering, until you are close enough to be worked
         this.perceive(dt, { fov: 220, maxDay: 55, hearing: 40, visGain: 3, hearGain: 2, decay: 0.05 });
         headYaw = trackYaw * 0.6 + Math.sin(t * 0.7) * 0.2;
-        if (this.engaged && !p.inBase && !p.dead) { this.setState('circle'); this.circleT = rng.range(7, 14); this.hasTarget = false; }
+        if (this.engaged && !p.inBase && !p.dead) {
+          // Not every encounter is an attack. An entity that always escalates is a mechanic you learn in an
+          // hour and stop fearing; one that usually just watches and leaves makes the time it DOES come
+          // unbearable, because you had no way to tell which this was.
+          this.intent = rng.chance(0.45) ? 'watch' : 'stalk';
+          this.watches = 0;
+          if (this.intent === 'watch' || rng.chance(0.35)) this.beginWatch();
+          else { this.setState('circle'); this.circleT = rng.range(7, 14); this.hasTarget = false; }
+        }
+        break;
+      }
+      case 'watch': {
+        // It stands. That is the whole behaviour, and it is the most frightening thing it does.
+        headYaw = trackYaw * 0.25;   // barely tracks: a thing looking at you does not need to turn its head
+        speed = 0;
+        this.faceToward(p.position.x, p.position.z, dt, 1.2);
+        if (p.dead || p.inBase) { this.setEngaged(false); this.setState('idle'); break; }
+        // Look straight at it and hold, and it is not there any more. Look away and back — same thing.
+        if (looked && this.lookedT > rng.range(1.4, 2.6)) { this.vanishQuiet(); break; }
+        if (!looked && this.stateT > 1.2 && rng.chance(dt * 0.6)) { this.vanishQuiet(); break; }
+        if (d < 18) { this.setState('circle'); this.circleT = rng.range(5, 9); this.hasTarget = false; break; }
+        if (this.stateT > this.watchT) {
+          this.watches++;
+          // a watcher moves and stands again, two or three times, and then it has gone
+          if (this.intent === 'watch' && this.watches >= rng.int(2, 3)) { this.setEngaged(false); this.vanishQuiet(); this.setState('idle'); this.aware = 0.2; }
+          else if (this.intent === 'stalk' && rng.chance(0.6)) { this.setState('circle'); this.circleT = rng.range(6, 12); this.hasTarget = false; }
+          else this.beginWatch();
+        }
         break;
       }
       case 'circle': {
