@@ -95,7 +95,7 @@ export function createAudio(ctxGame) {
         const p = ac.createPanner();
         p.panningModel = opts.hrtf ? 'HRTF' : 'equalpower'; p.distanceModel = 'inverse';
         p.refDistance = opts.ref ?? 2.5; p.maxDistance = opts.max ?? 250; p.rolloffFactor = opts.rolloff ?? 1.15;
-        api.setPannerPos(p, opts.pos);
+        api.setPannerPos(p, opts.pos, false);   // a fresh panner has never been anywhere: place it, do not ramp to it
         g.connect(p); p.connect(bus);
         if (opts.reverb !== false) { const rs = ac.createGain(); rs.gain.value = (opts.reverb ?? 1) * 0.6; p.connect(rs); rs.connect(reverbSend); }
         return { node: g, panner: p, bus };
@@ -104,9 +104,20 @@ export function createAudio(ctxGame) {
       if (opts.reverb) { const rs = ac.createGain(); rs.gain.value = opts.reverb * 0.6; g.connect(rs); rs.connect(reverbSend); }
       return { node: g, panner: null, bus };
     },
-    setPannerPos(p, pos) {
+    // glide=false places the source exactly, at once. A brand-new PannerNode sits at the world origin,
+    // so ramping it to where the sound actually is means that for the ~20 ms time constant the engine
+    // believes the source is however far the listener happens to stand from (0,0,0) — 284 m at Vanno.
+    // Through the inverse model that is a gain of 2.5 / (2.5 + 1.15 * 281.5), about 0.008, and a
+    // gunshot's entire transient lives inside that window: measured, the player's own shot reached the
+    // master bus at 0.10 against 0.88 for the same recipe played without a position. Every positional
+    // one-shot in the game was being gutted this way, worse the further you walked from the origin.
+    // Loops still glide, because there the ramp is what keeps a moving source from zippering.
+    setPannerPos(p, pos, glide = true) {
       const t = ac.currentTime;
-      if (p.positionX) { p.positionX.setTargetAtTime(pos.x, t, 0.02); p.positionY.setTargetAtTime(pos.y, t, 0.02); p.positionZ.setTargetAtTime(pos.z, t, 0.02); } else p.setPosition(pos.x, pos.y, pos.z);
+      if (p.positionX) {
+        if (glide) { p.positionX.setTargetAtTime(pos.x, t, 0.02); p.positionY.setTargetAtTime(pos.y, t, 0.02); p.positionZ.setTargetAtTime(pos.z, t, 0.02); }
+        else { p.positionX.setValueAtTime(pos.x, t); p.positionY.setValueAtTime(pos.y, t); p.positionZ.setValueAtTime(pos.z, t); }
+      } else p.setPosition(pos.x, pos.y, pos.z);
     },
     // one-shot. Generators: fn(audio, out, opts) -> optional { stop() } ; must schedule their own stop times.
     play(name, opts) {
