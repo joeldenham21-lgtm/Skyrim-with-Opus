@@ -235,7 +235,40 @@ export default async function (page, api) {
   pass('commands are spaced by the leader noiseGap', traffic.cmdGapMin >= 2.9 || traffic.byCar.command < 2, `min command gap ${traffic.cmdGapMin}s`);
   pass('commands ride a carrier of their own', traffic.byCar.command > 0, `${traffic.byCar.command} command / ${traffic.byCar.field} field`);
 
-  console.log('\n--- 7. THE GREP GATE -------------------------------------------------------------');
+  console.log('\n--- 7. DEGRADATION AND THE CORPSE CALL -------------------------------------------');
+  const rob = await api.run(`(() => {
+    const ctx = window.__radius.ctx, TH = ctx.THREE;
+    // a Mind handed NOTHING: no solvers at all. It must pick plays and fill seats without throwing, because
+    // the integrator will wire the facade one function at a time.
+    const cmd = window.__CMD.createCommand(ctx, {});
+    const fakeSquad = { id: 99, members: [], initial: 0, skill: 0.8, org: 1, morale: 1, shaken: 0, fixing: 0,
+      inCombat: true, leader: null, radioT: 0, assaultT: -1e9, assault: false };
+    const men = window.__list.slice(0, 3);
+    fakeSquad.members = men; fakeSquad.initial = men.length; fakeSquad.leader = men[0];
+    const mind = cmd.makeMind(fakeSquad, {});
+    mind.write(new TH.Vector3(men[0].position.x + 10, men[0].position.y, men[0].position.z + 10), ctx.elapsed, 0, 'seen', men[0]);
+    let err = null;
+    try { for (let i = 0; i < 200; i++) { ctx.elapsed += 0.05; mind.update(0.05); if (i % 5 === 0) mind.tick(0.25, men); } }
+    catch (e) { err = String(e && e.message || e); }
+    // and the corpse call: the word, and then the silence after it
+    window.__vox.length = 0;
+    const t0 = ctx.elapsed;
+    mind.observe('body', { x: men[0].position.x + 3, y: men[0].position.y, z: men[0].position.z, from: men[1] });
+    const said = window.__vox.map((v) => v.w);
+    let after = 0;
+    for (let i = 0; i < 60; i++) { ctx.elapsed += 0.05; mind.say('contact', men[1]); if (window.__vox.length > said.length) { after = +(ctx.elapsed - t0).toFixed(2); break; } }
+    return { err, play: mind.play ? mind.play.id : null, seats: mind.activeSeats(), said, silenceUntil: after,
+      belief: +Math.hypot(mind.picture.pos.x - (men[0].position.x + 3), mind.picture.pos.z - men[0].position.z).toFixed(1),
+      r: +mind.picture.r.toFixed(1) };
+  })()`);
+  console.log('robustness', JSON.stringify(rob));
+  pass('a Mind with no solvers at all does not throw', rob.err === null, rob.err || '');
+  pass('it still chooses a play and seats men', !!rob.play && rob.seats > 0, `${rob.play}, ${rob.seats} seats`);
+  pass('a corpse says "body"', rob.said.includes('body'), JSON.stringify(rob.said));
+  pass('and the picture goes to the SCENE, wide, not to the player', rob.r >= 8, `radius ${rob.r} m`);
+  pass('then the radio goes quiet for a beat', rob.silenceUntil === 0 || rob.silenceUntil > 2.4, `${rob.silenceUntil}s`);
+
+  console.log('\n--- 8. THE GREP GATE -------------------------------------------------------------');
   const src = readFileSync(resolve(root, 'src/enemies/command.js'), 'utf8');
   const code = src.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
   pass('no ctx.player anywhere in command.js', !/ctx\.player/.test(code), (code.match(/ctx\.player[^\s]*/g) || []).join(','));

@@ -86,14 +86,20 @@ export const RIG = `(() => {
     rays() { return ctx.world.__rays; },
     solids() { return ctx.world.__solid; },
 
+    // Nothing renders in these runs, so the camera's world matrix is never refreshed by three. Anything
+    // that asks "is the player looking at me" reads camera.matrixWorld, so we refresh it by hand.
+    sync() { P.update(0.016); P.rig.updateMatrixWorld(true); ctx.camera.updateMatrixWorld(true); },
     player(o = {}) {
-      if (o.x != null) { r.teleport(o.x, o.z, o.y == null ? null : o.y); P.update(0); }
+      if (o.x != null) { r.teleport(o.x, o.z, o.y == null ? null : o.y); }
       if (o.look != null) r.setLook(o.look, o.pitch == null ? -0.02 : o.pitch);
       if (o.torch !== undefined) ctx.state.data.flashlight.on = !!o.torch;
+      H.sync();
       return P.position;
     },
-    lookAt(x, z) { r.setLook(yawTo(P.position, x, z), -0.02); P.update(0); },
-    lookAway(x, z) { r.setLook(yawTo(P.position, x, z) + Math.PI, -0.02); P.update(0); },
+    lookAt(x, z) { r.setLook(yawTo(P.position, x, z), -0.02); H.sync(); },
+    lookAway(x, z) { r.setLook(yawTo(P.position, x, z) + Math.PI, -0.02); H.sync(); },
+    // what the mimic's own eyes say about being looked at, measured not assumed
+    seenBy(m, deg = 60) { return m.observedByPlayer(deg); },
 
     // A mimic that this module drives and nothing else does. enemies.update is never called, so every
     // observed behaviour below belongs to ambush.js.

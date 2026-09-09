@@ -446,9 +446,14 @@ export function createCommand(ctx, deps = {}) {
           read.trainN++; read.trainT = t;
           break;
         }
-        case 'body':       // a corpse found. The picture collapses toward where it happened, not toward him.
-          if (data) write(_v.set(data.x, data.y || 0, data.z), t, 9, 'inferred', null);
+        case 'body': {     // a corpse found. The picture collapses toward where it HAPPENED, not toward him.
+          if (!data) break;
+          write(_v.set(data.x, data.y || 0, data.z), t, 9, 'inferred', null);
+          // and then the radio goes quiet. `body` followed by two and a half seconds of nothing is the most
+          // frightening thing this file can do, and it costs one line.
+          if (say('body', data.from || null)) { lastSayT = t + 2.5; lastCmdT = Math.max(lastCmdT, t + 2.5); }
           break;
+        }
         case 'occluder':   // senses/kit noticed what he went behind, without a ray of ours
           if (data) { picture.occX = data.x; picture.occZ = data.z; picture.occY = data.y || 0; picture.occR = data.r || 1; picture.occKind = data.kind || 'thin'; picture.occluder = data.collider || true; picture.occT = t; }
           break;
@@ -478,7 +483,10 @@ export function createCommand(ctx, deps = {}) {
       const w = WORDS[word]; if (!w) return false;
       const t = ctx.elapsed;
       if (w.hold && t - (said[word] || -1e9) < w.hold) return false;
-      if (t - lastSayT < MIN_GAP) return false;
+      // Three words are never swallowed by the noise floor: man down, frag out, and breaking contact. If the
+      // squad is talking over its own grenade call the player has lost the beat of warning he is owed.
+      const urgent = w.hold === 0 || word === 'body';
+      if (!urgent && t - lastSayT < MIN_GAP) return false;
       const cmd = w.reg === 'command';
       if (cmd) {
         const l = solvers.leader ? solvers.leader() : squad.leader;
@@ -817,6 +825,15 @@ export function createCommand(ctx, deps = {}) {
       const dn = squad.deathsNear ? squad.deathsNear() : 0;
       return frac - 0.5 + picture.hurt * 0.6 - dn * 0.15;
     }
+    function commitOf() { const l = solvers.leader ? solvers.leader() : squad.leader; return skillOf(l, 'commitT', 2.0); }
+    // Commitment, and its ceiling. A play is worth holding — dithering is what reads as four men strafing —
+    // but a play held for a minute is a squad that has stopped thinking. The bonus is full for three
+    // commitment windows and gone by six, so a long play has to keep winning on merit.
+    function hysteresis(p, t, commitT) {
+      if (!play || p.id !== play.id) return 0;
+      const age = t - playSince;
+      return clamp01(1 - (age - commitT * 3) / (commitT * 3));
+    }
     function choosePlay(t, esc) {
       const l = solvers.leader ? solvers.leader() : squad.leader;
       const sk = squad.skill != null ? squad.skill : 0.5;
@@ -847,7 +864,7 @@ export function createCommand(ctx, deps = {}) {
           + 0.8 * resFit(p)
           - 1.1 * exposure(p)
           + 0.7 * momentum(t)
-          + 0.6 * (play && p.id === play.id ? 1 : 0)
+          + 0.6 * hysteresis(p, t, commitOf())
           + (rnd() - 0.5) * 0.16;
         if (s > bestS) { bestS = s; best = p; }
       }
@@ -1492,7 +1509,7 @@ export function createCommand(ctx, deps = {}) {
         for (const p of PLAYS) {
           if (!playAvailable(p, ledger.command, esc, ledger.n)) { out[p.id] = null; continue; }
           out[p.id] = +(lerp(p.base[0], p.base[1], sk) + 1.0 * pictureQ(t) + 1.2 * geomFit(p, t)
-            + 0.8 * resFit(p) - 1.1 * exposure(p) + 0.7 * momentum(t)).toFixed(4);
+            + 0.8 * resFit(p) - 1.1 * exposure(p) + 0.7 * momentum(t) + 0.6 * hysteresis(p, t, commitOf())).toFixed(4);
         }
         return out;
       },
