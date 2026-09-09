@@ -37,6 +37,16 @@ export const PRESSURE = {
 };
 const SHOT_MEM = 6;        // s a gunshot stays in the zone's ear
 
+// ---- what the zone remembers about you ----
+// A coarse grid over the map, written ONLY by things the zone could actually have registered: a shot somebody
+// heard, a body somebody will find, a sighting one of its own called in. Walk somewhere unseen and unheard and
+// you leave nothing behind. population.js reads this when it re-plans after a Tide, which is why the second
+// time you work a place it is not the same place: the patrol route runs through where you were last time, and
+// there is a group sitting on the way you came in.
+const MEM_CELL = 56;       // m; about a third of a POI
+const MEM_MAX = 96;        // cells kept, oldest-coldest dropped
+const MEM_DECAY = 1 / 900; // per second: a quarter of an hour of nothing and a place is cold again
+
 export function createDirector(ctx) {
   const shots = [];     // { pos, t, noise } recent gunshots (for hearing)
   let state = 'CALM', stateT = 0, tension = 0, calmGuard = 0, lastCombat = -1e9, lastShot = -1e9, unease = 0, uneaseTimer = 120 + Math.random() * 120;

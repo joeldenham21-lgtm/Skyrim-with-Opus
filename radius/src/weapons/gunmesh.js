@@ -354,7 +354,9 @@ export function finalize(geos) {
 }
 export function mesh(geos, mat, name) {
   const m = new THREE.Mesh(finalize(geos), mat);
-  m.castShadow = LOD !== 'hi'; m.receiveShadow = true; m.frustumCulled = LOD !== 'hi'; m.name = name || '';
+  // The viewmodel never receives world shadows: the sun's shadow map is metres per texel with a normal bias
+  // measured in tens of centimetres, so a 3 cm gun part samples it hundreds of texels away and bands into moire.
+  m.castShadow = LOD !== 'hi'; m.receiveShadow = LOD !== 'hi'; m.frustumCulled = LOD !== 'hi'; m.name = name || '';
   return m;
 }
 // a moving part. Geometries authored in gun space unless local=true; pivot p => mesh at p, geometry shifted by -p.
@@ -452,16 +454,17 @@ function swivel(P, M, x, y, z, R = 0.006) { P.add(M.gunmetal, at(ringX(R, 0.0013
 function buttplate(P, M, mat, uRear, v0, v1, w, thick = 0.008) { P.add(mat, side([[uRear, v0], [uRear + thick, v0 + 0.002], [uRear + thick, v1 - 0.002], [uRear, v1]], w, 0.0015, 4)); if (hi()) { P.addAll(M.gunmetal, screw(0, v1 - 0.012, -uRear + 0.0005, 0.0025, 'z')); P.addAll(M.gunmetal, screw(0, v0 + 0.012, -uRear + 0.0005, 0.0025, 'z')); } }
 // a Harris-style bipod folded under the fore-end: two legs with feet, a hinge block. Named 'bipod' node by the caller.
 export function bipodGeos(M, z, y, opts = {}) {
-  const { legLen = 0.19, spread = 0.02, folded = true } = opts;
+  const { legLen = 0.19, spread = 0.02, folded = true, back = false } = opts;
+  const d = back ? 1 : -1;                      // Russian MG bipods sit near the muzzle and fold rearward under the barrel
   const P = new Parts();
   P.add(M.painted, at(box(0.03, 0.016, 0.026), 0, y, z));                                     // hinge block
   if (hi()) { P.add(M.steel, pin(0, y, z, 0.003, 0.034)); P.add(M.painted, at(knurlZ(0.006, 0.006, 12), 0, y - 0.006, z + 0.016)); }
   for (const s of [-1, 1]) {
     const geos = [];
     const leg = cylZ(0.0045, 0.004, legLen, 8), inner = cylZ(0.0032, 0.003, legLen * 0.5, 8);
-    if (folded) { leg.translate(0, 0, -legLen / 2); inner.translate(0, 0, -legLen * 0.95); } else { leg.rotateX(-Math.PI / 2 + 0.12); leg.translate(0, -legLen / 2, 0); inner.rotateX(-Math.PI / 2 + 0.12); inner.translate(0, -legLen * 0.95, 0); }
+    if (folded) { leg.translate(0, 0, d * legLen / 2); inner.translate(0, 0, d * legLen * 0.95); } else { leg.rotateX(-Math.PI / 2 + 0.12); leg.translate(0, -legLen / 2, 0); inner.rotateX(-Math.PI / 2 + 0.12); inner.translate(0, -legLen * 0.95, 0); }
     geos.push(at(leg, s * spread, y - 0.004, z), at(inner, s * spread, y - 0.004, z));
-    geos.push(at(folded ? cylZ(0.006, 0.006, 0.012, 8) : cylY(0.006, 0.006, 0.012, 8), s * spread, y - 0.004 + (folded ? 0 : -legLen * 1.2), z + (folded ? -legLen * 1.2 : 0)));   // rubber foot
+    geos.push(at(folded ? cylZ(0.006, 0.006, 0.012, 8) : cylY(0.006, 0.006, 0.012, 8), s * spread, y - 0.004 + (folded ? 0 : -legLen * 1.2), z + (folded ? d * legLen * 1.2 : 0)));   // rubber foot
     P.addAll(M.painted, geos.slice(0, 2)); P.add(M.rubber, geos[2]);
   }
   return P;
@@ -470,60 +473,76 @@ export function bipodGeos(M, z, y, opts = {}) {
 // ---------------------------------------------------------------- Kalashnikov family
 // Shared receiver, fire control, gas system and furniture; the spec chooses barrel length, blocks, muzzle device, cover,
 // handguard, stock, grip and magazine. Bore at y = 0.05, receiver rear face at u = 0, front trunnion at u = 0.262.
+//
+// Lengths are cut from the real rifle, not guessed. An AKM is 880 mm over all: a 415 mm barrel of which ~65 mm sits
+// inside the front trunnion, so only ~350 mm shows past the 250 mm receiver, and the wooden butt reaches 270 mm behind
+// it (332 mm length of pull from a trigger 75 mm forward of the rear face). Landmarks that read at a glance: the
+// magazine well is at the mid-point of the whole rifle, the rear sight sits a little forward of it at ~60 %, and there
+// is a hand's width of bare barrel between the gas block and the front sight base. Every variant is that skeleton with
+// its own barrel station, muzzle device and furniture; check any change against buildGun's bounding box.
 const AK_SPECS = {
-  akm:    { barrelEnd: 0.737, gas: 0.52, fsb: 0.67, hg: [0.31, 0.525], hgKind: 'wood', cover: 'ribbed', muzzle: 'slant', stock: 'wood', grip: 'bakelite', mag: 'mag_ak762_30', sight: 'tangent', cal: 7.62 },
-  akms:   { barrelEnd: 0.737, gas: 0.52, fsb: 0.67, hg: [0.31, 0.525], hgKind: 'wood', cover: 'ribbed', muzzle: 'slant', stock: 'underfold', grip: 'bakelite', mag: 'mag_ak762_30', sight: 'tangent', cal: 7.62 },
-  ak74m:  { barrelEnd: 0.737, gas: 0.52, fsb: 0.67, hg: [0.31, 0.525], hgKind: 'black', cover: 'smooth', muzzle: 'ak74', stock: 'polyfold', grip: 'black', mag: 'mag_ak545_30', sight: 'tangent', cal: 5.45 },
-  aks74u: { barrelEnd: 0.47, gas: 0.43, fsb: null, hg: [0.31, 0.415], hgKind: 'wood', cover: 'hinged', muzzle: 'booster', stock: 'triangle', grip: 'bakelite', mag: 'mag_ak545_30', sight: 'cover', cal: 5.45 },
-  ak105:  { barrelEnd: 0.60, gas: 0.52, fsb: null, hg: [0.31, 0.5], hgKind: 'black', cover: 'smooth', muzzle: 'ak105', stock: 'polyfold', grip: 'black', mag: 'mag_ak545_30', sight: 'tangent', cal: 5.45 },
-  ak12:   { barrelEnd: 0.737, gas: 0.54, fsb: null, hg: [0.31, 0.525], hgKind: 'rail', cover: 'rail', muzzle: 'ak12', stock: 'telescope', grip: 'ergo', mag: 'mag_ak545_30', sight: 'rail', cal: 5.45 },
-  rpk74:  { barrelEnd: 0.92, gas: 0.62, fsb: 0.85, hg: [0.31, 0.62], hgKind: 'plum', cover: 'smooth', muzzle: 'rpk', stock: 'club', grip: 'plum', mag: 'mag_ak545_45', sight: 'tangent', cal: 5.45, heavy: true, bipod: 0.8 },
-  saiga:  { barrelEnd: 0.69, gas: 0.54, fsb: null, hg: [0.31, 0.53], hgKind: 'black', cover: 'smooth', muzzle: 'saiga', stock: 'polyfix', grip: 'black', mag: 'mag_saiga8', sight: 'tangent', cal: 12 },
-  vityaz: { barrelEnd: 0.50, gas: null, fsb: 0.47, hg: [0.31, 0.44], hgKind: 'black', cover: 'hinged', muzzle: 'cap', stock: 'polyfold', grip: 'black', mag: 'mag_vityaz30', sight: 'cover', cal: 9 },
-  bizon:  { barrelEnd: 0.48, gas: null, fsb: 0.455, hg: [0.31, 0.42], hgKind: 'bizon', cover: 'hinged', muzzle: 'cap', stock: 'triangle', grip: 'bakelite', mag: 'mag_bizon64', sight: 'cover', cal: 9 },
+  akm:    { barrelEnd: 0.598, gas: 0.445, fsb: 0.548, hg: [0.312, 0.434], hgKind: 'wood', cover: 'ribbed', muzzle: 'slant', stock: 'wood', grip: 'bakelite', mag: 'mag_ak762_30', sight: 'tangent', cal: 7.62 },
+  akms:   { barrelEnd: 0.598, gas: 0.445, fsb: 0.548, hg: [0.312, 0.434], hgKind: 'wood', cover: 'ribbed', muzzle: 'slant', stock: 'underfold', grip: 'bakelite', mag: 'mag_ak762_30', sight: 'tangent', cal: 7.62 },
+  ak74m:  { barrelEnd: 0.598, gas: 0.445, fsb: 0.548, hg: [0.312, 0.434], hgKind: 'black', cover: 'smooth', muzzle: 'ak74', stock: 'polyfold', grip: 'black', mag: 'mag_ak545_30', sight: 'tangent', cal: 5.45 },
+  aks74u: { barrelEnd: 0.405, gas: 0.348, fsb: null, hg: [0.312, 0.344], hgKind: 'wood', cover: 'hinged', muzzle: 'booster', stock: 'triangle', grip: 'bakelite', mag: 'mag_ak545_30', sight: 'cover', cal: 5.45 },
+  ak105:  { barrelEnd: 0.515, gas: 0.405, fsb: 0.468, hg: [0.312, 0.398], hgKind: 'black', cover: 'smooth', muzzle: 'ak105', stock: 'polyfold', grip: 'black', mag: 'mag_ak545_30', sight: 'tangent', cal: 5.45 },
+  ak12:   { barrelEnd: 0.60, gas: 0.47, fsb: null, hg: [0.312, 0.508], hgKind: 'rail', cover: 'rail', muzzle: 'ak12', stock: 'telescope', grip: 'ergo', mag: 'mag_ak545_30', sight: 'rail', cal: 5.45 },
+  rpk74:  { barrelEnd: 0.775, gas: 0.60, fsb: 0.722, hg: [0.312, 0.59], hgKind: 'plum', cover: 'smooth', muzzle: 'rpk', stock: 'club', grip: 'plum', mag: 'mag_ak545_45', sight: 'tangent', cal: 5.45, heavy: true, bipod: 0.70 },
+  saiga:  { barrelEnd: 0.62, gas: 0.53, fsb: null, hg: [0.312, 0.525], hgKind: 'black', cover: 'smooth', muzzle: 'saiga', stock: 'polyfix', grip: 'black', mag: 'mag_saiga8', sight: 'tangent', cal: 12 },
+  vityaz: { barrelEnd: 0.44, gas: null, fsb: 0.405, hg: [0.312, 0.385], hgKind: 'black', cover: 'hinged', muzzle: 'cap', stock: 'polyfold', grip: 'black', mag: 'mag_vityaz30', sight: 'cover', cal: 9 },
+  bizon:  { barrelEnd: 0.44, gas: null, fsb: 0.405, hg: [0.312, 0.385], hgKind: 'bizon', cover: 'hinged', muzzle: 'cap', stock: 'triangle', grip: 'bakelite', mag: 'mag_bizon64', sight: 'cover', cal: 9 },
 };
 function akStock(M, kind, g) {
   const P = new Parts();
-  let padU = -0.352, padV = [-0.096, 0.03], padW = 0.045;
+  let padU = -0.272, padV = [-0.097, 0.031], padW = 0.045;
   if (kind === 'wood' || kind === 'club') {
-    const belly = kind === 'club' ? -0.128 : -0.094;
-    P.add(M.laminate, side([[0.0, 0.043], [-0.34, 0.03], ['q', -0.352, 0.028, -0.352, 0.016], [-0.352, -0.085], ['q', -0.35, -0.096, -0.34, belly], kind === 'club' ? ['q', -0.2, -0.13, -0.16, -0.06] : [-0.2, -0.06], [-0.03, -0.008], [0.0, 0.0]], 0.042, 0.002));
-    buttplate(P, M, M.gunmetal, -0.36, -0.096, 0.03, 0.045);
-    swivel(P, M, -0.023, -0.03, 0.25);
+    // AKM: 264 mm of laminate behind the receiver — a 332 mm length of pull off a trigger 75 mm forward of the rear
+    // face. The comb drops 13 mm to the heel and the belly swells to a toe 130 mm below it; the RPK club is longer,
+    // deeper and hooks under at the toe for the support hand.
+    const long = kind === 'club';
+    const uEnd = long ? -0.292 : -0.264, toe = long ? -0.126 : -0.095;
+    P.add(M.laminate, side([
+      [0.0, 0.044], [-0.07, 0.040], [uEnd + 0.012, 0.031], ['q', uEnd, 0.029, uEnd, 0.018],
+      [uEnd, toe + 0.011], ['q', uEnd + 0.002, toe, uEnd + 0.012, toe + 0.001],
+      long ? ['q', -0.19, -0.128, -0.13, -0.052] : [-0.15, -0.058],
+      [-0.026, -0.008], [0.0, 0.0]], 0.042, 0.002));
+    buttplate(P, M, M.gunmetal, uEnd - 0.008, toe, 0.031, 0.045);
+    swivel(P, M, -0.023, -0.03, long ? 0.20 : 0.17);
     if (hi()) { P.addAll(M.gunmetal, screw(0.0215, 0.02, 0.012, 0.003, 'x')); P.addAll(M.gunmetal, screw(0.0215, -0.012, 0.032, 0.003, 'x')); }
-    padU = -0.36;
+    padU = uEnd - 0.008; padV = [toe, 0.031];
   } else if (kind === 'polyfold' || kind === 'polyfix') {
-    P.add(M.polymer, side([[0.0, 0.04], [-0.05, 0.036], [-0.33, 0.028], ['q', -0.345, 0.028, -0.345, 0.014], [-0.345, -0.08], ['q', -0.345, -0.09, -0.335, -0.09], [-0.22, -0.078], ['q', -0.1, -0.05, -0.04, -0.012], [0.0, 0.0]], 0.036, 0.002));
-    if (hi()) for (let i = 0; i < 6; i++) P.add(M.polymer, at(box(0.0375, 0.0035, 0.004), 0, 0.006 - i * 0.014, 0.2 + i * 0.012));   // moulded ribs on the sides
-    buttplate(P, M, M.rubber, -0.353, -0.09, 0.028, 0.038);
+    P.add(M.polymer, side([[0.0, 0.04], [-0.05, 0.037], [-0.248, 0.029], ['q', -0.262, 0.029, -0.262, 0.016], [-0.262, -0.078], ['q', -0.262, -0.088, -0.252, -0.088], [-0.17, -0.076], ['q', -0.08, -0.05, -0.036, -0.012], [0.0, 0.0]], 0.036, 0.002));
+    if (hi()) for (let i = 0; i < 5; i++) P.add(M.polymer, at(box(0.0375, 0.0035, 0.004), 0, 0.006 - i * 0.014, 0.15 + i * 0.012));   // moulded ribs on the sides
+    buttplate(P, M, M.rubber, -0.270, -0.088, 0.028, 0.038);
     if (kind === 'polyfold') { P.add(M.gunmetal, at(box(0.03, 0.05, 0.016), -0.004, 0.012, 0.005)); P.add(M.steel, pin(-0.019, 0.012, 0.005, 0.004, 0.006)); }   // hinge block and pin
-    swivel(P, M, -0.02, -0.02, 0.26); padU = -0.353; padV = [-0.09, 0.028]; padW = 0.038;
+    swivel(P, M, -0.02, -0.02, 0.19); padU = -0.270; padV = [-0.088, 0.028]; padW = 0.038;
   } else if (kind === 'triangle') {
     // AKS-74U skeleton: two stamped struts to a buttplate, a diagonal brace, hinge on the left rear of the receiver
-    const strut = (y0, y1) => at(box(0.008, 0.012, 0.33), -0.006, 0, 0.165, Math.atan2(y1 - y0, 0.33), 0, 0);
+    const L = 0.235;
+    const strut = (y0, y1) => at(box(0.008, 0.012, L), -0.006, 0, L / 2, Math.atan2(y1 - y0, L), 0, 0);
     const s1 = strut(0.028, 0.03); s1.translate(0, 0.03, 0); P.add(M.painted, s1);
-    const s2 = strut(-0.02, -0.09); s2.translate(0, -0.055, 0); P.add(M.painted, s2);
-    P.add(M.painted, at(box(0.008, 0.01, 0.2), -0.006, -0.02, 0.18, 0.55, 0, 0));           // brace
-    P.add(M.painted, side([[-0.325, 0.036], [-0.34, 0.032], ['q', -0.345, 0.0, -0.34, -0.09], [-0.325, -0.095], [-0.318, -0.04]], 0.03, 0.001));   // buttplate
+    const s2 = strut(-0.02, -0.076); s2.translate(0, -0.05, 0); P.add(M.painted, s2);
+    P.add(M.painted, at(box(0.008, 0.01, 0.145), -0.006, -0.018, 0.13, 0.55, 0, 0));           // brace
+    P.add(M.painted, side([[-0.232, 0.036], [-0.246, 0.032], ['q', -0.251, 0.0, -0.246, -0.082], [-0.232, -0.088], [-0.226, -0.036]], 0.03, 0.001));   // buttplate
     P.add(M.painted, at(box(0.02, 0.046, 0.02), -0.012, 0.006, 0.01));                        // hinge block
     P.add(M.steel, pin(-0.012, 0.006, 0.01, 0.0045, 0.024));
-    padU = -0.345; padV = [-0.095, 0.036]; padW = 0.03;
+    padU = -0.251; padV = [-0.088, 0.036]; padW = 0.03;
   } else if (kind === 'underfold') {
     // AKMS: two struts from the receiver bottom to a stamped shoulder piece
-    for (const s of [-1, 1]) P.add(M.painted, at(box(0.007, 0.014, 0.31), s * 0.014, -0.012, 0.16));
-    P.add(M.painted, side([[-0.31, 0.03], [-0.322, 0.024], ['q', -0.33, -0.03, -0.322, -0.078], [-0.31, -0.086], [-0.302, -0.03]], 0.046, 0.001));   // shoulder piece
-    P.add(M.painted, at(box(0.036, 0.008, 0.04), 0, -0.006, 0.31));
+    for (const s of [-1, 1]) P.add(M.painted, at(box(0.007, 0.014, 0.27), s * 0.014, -0.012, 0.145));
+    P.add(M.painted, side([[-0.272, 0.03], [-0.284, 0.024], ['q', -0.292, -0.03, -0.284, -0.076], [-0.272, -0.084], [-0.264, -0.03]], 0.046, 0.001));   // shoulder piece
+    P.add(M.painted, at(box(0.036, 0.008, 0.04), 0, -0.006, 0.272));
     P.add(M.steel, pin(0, -0.024, 0.012, 0.0045, 0.04)); P.add(M.painted, at(box(0.044, 0.02, 0.03), 0, -0.016, 0.012));  // hinge
-    padU = -0.33; padV = [-0.086, 0.03]; padW = 0.046;
+    padU = -0.292; padV = [-0.084, 0.03]; padW = 0.046;
   } else if (kind === 'telescope') {
     // AK-12: hinge, a square tube with locking notches, a sliding butt with an adjustable cheek riser
-    P.add(M.painted, at(box(0.026, 0.038, 0.24), 0, 0.014, 0.135));
-    if (hi()) for (let i = 0; i < 4; i++) P.add(M.bore, at(box(0.002, 0.006, 0.006), 0.0135, -0.002, 0.16 + i * 0.022));
-    P.add(M.polymer, side([[-0.24, 0.046], [-0.33, 0.04], ['q', -0.345, 0.04, -0.345, 0.024], [-0.345, -0.07], ['q', -0.345, -0.086, -0.33, -0.086], [-0.24, -0.02], [-0.22, 0.0]], 0.036, 0.002));   // butt
-    P.add(M.polymer, at(box(0.03, 0.012, 0.09), 0, 0.05, 0.29));                              // cheek riser
-    buttplate(P, M, M.rubber, -0.352, -0.086, 0.04, 0.038);
+    P.add(M.painted, at(box(0.026, 0.038, 0.19), 0, 0.014, 0.115));
+    if (hi()) for (let i = 0; i < 4; i++) P.add(M.bore, at(box(0.002, 0.006, 0.006), 0.0135, -0.002, 0.13 + i * 0.020));
+    P.add(M.polymer, side([[-0.185, 0.046], [-0.262, 0.04], ['q', -0.276, 0.04, -0.276, 0.024], [-0.276, -0.068], ['q', -0.276, -0.084, -0.262, -0.084], [-0.185, -0.02], [-0.168, 0.0]], 0.036, 0.002));   // butt
+    P.add(M.polymer, at(box(0.03, 0.012, 0.09), 0, 0.05, 0.225));                              // cheek riser
+    buttplate(P, M, M.rubber, -0.283, -0.084, 0.04, 0.038);
     P.add(M.gunmetal, at(box(0.032, 0.05, 0.02), 0, 0.012, 0.008)); P.add(M.steel, pin(-0.017, 0.012, 0.008, 0.004, 0.006));
-    padU = -0.352; padV = [-0.086, 0.04]; padW = 0.038;
+    padU = -0.283; padV = [-0.084, 0.04]; padW = 0.038;
   }
   P.named(g, 'stock');
   g.add(marker('mount_pad', 0, (padV[0] + padV[1]) / 2, -padU));
@@ -632,8 +651,9 @@ function buildAK(M, s, id) {
     if (hi()) { P.add(M.gunmetal, at(cylY(0.005, 0.005, 0.02, 8), 0, 0.066, -(s.gas + 0.015))); P.add(M.gunmetal, at(box(0.03, 0.006, 0.008), 0, 0.04, -(s.gas + 0.008))); }  // gas port boss, bayonet lug
     if (!s.fsb) frontSight(P, M, -(s.gas + 0.015), 0.086, { postH: 0.02, baseL: 0.028, baseH: 0.004 });   // combined block: sight on the gas block
     P.add(M.gunmetal, at(box(0.02, 0.006, 0.01), 0, 0.03, -(s.gas + 0.02)));                                                  // handguard retainer cam
-    if (s.gas < 0.5) P.add(M.gunmetal, at(cylZ(0.0025, 0.0025, 0.24, 6), 0, 0.037, -0.42));                                    // cleaning rod
-    else P.add(M.gunmetal, at(cylZ(0.0025, 0.0025, bEnd - 0.34, 6), 0, 0.037, -(0.32 + (bEnd - 0.34) / 2)));
+    // cleaning rod, under the barrel from the handguard ferrule to a hair short of the front station
+    const rodEnd = (s.fsb || s.gas) - 0.014, rodLen = Math.max(0.05, rodEnd - 0.30);
+    P.add(M.gunmetal, at(cylZ(0.0025, 0.0025, rodLen, 6), 0, 0.037, -(0.30 + rodLen / 2)));
   } else {
     // blowback: a block that only carries the handguard retainer and front sight
     P.add(M.gunmetal, rect(s.fsb - 0.015, s.fsb + 0.015, 0.036, 0.062, 0.026, 0.001, 0.003));
@@ -685,19 +705,19 @@ function buildAK(M, s, id) {
   g.add(marker('mount_dovetail', -wide / 2 - 0.0035, 0.033, -0.1));
   if (s.cover === 'rail') g.add(marker('mount_top', 0, 0.0785, -0.13));
   if (s.hgKind === 'rail') { g.add(marker('mount_under', 0, 0.0115, -(s.hg[0] + s.hg[1]) / 2)); g.add(marker('mount_side', -0.0272, 0.034, -(s.hg[0] + s.hg[1]) / 2)); }
-  if (s.bipod) { const bp = new THREE.Group(); bp.name = 'bipod'; bipodGeos(M, -s.bipod, 0.03, { legLen: 0.2, spread: 0.018 }).into(bp, 'bipod'); bp.userData.base = { p: bp.position.clone(), r: new THREE.Euler() }; g.add(bp); }
+  if (s.bipod) { const bp = new THREE.Group(); bp.name = 'bipod'; bipodGeos(M, -s.bipod, 0.03, { legLen: 0.2, spread: 0.018, back: true }).into(bp, 'bipod'); bp.userData.base = { p: bp.position.clone(), r: new THREE.Euler() }; g.add(bp); }
   P.into(g);
   // magazine node: swappable child, pivot at the feed lips
   let magNode;
   if (s.mag === 'mag_bizon64') { magNode = node('mag', 0, 0.026, -0.40); magNode.userData.travel = [0, -0.06, -0.2]; }
   else { magNode = node('mag', 0, 0.004, -0.15); magNode.userData.travel = [0, -0.2, -0.06]; }
   g.add(magNode);
-  const isShort = bEnd < 0.55;
+  const hgMid = (s.hg[0] + s.hg[1]) / 2;
   g.userData = {
     id, family: 'ak', sightY: rear.y, sightLine: { rear: [0, rear.y, rear.z], front: [0, tip, fsZ] },
     hip: { p: [0.13, -0.15, -0.2], r: [0.03, -0.1, 0.03] },
     ads: { p: [0.0, -rear.y - 0.008, 0.08], r: [0.012, 0, 0] },
-    grips: { right: GRIP_R([0.0, -0.05, -0.016], 'rifle'), left: GRIP_L([0, 0.024, isShort ? -0.37 : -0.42], 'foreend') },
+    grips: { right: GRIP_R([0.0, -0.05, -0.016], 'rifle'), left: GRIP_L([0, 0.024, -hgMid], 'foreend') },
     lowerRot: [0.45, 0.35, 0.25], magTravel: magNode.userData.travel, cycle: 'bolt', slideTravel: 0.11, ejectDir: [1, 0.5, 0.35],
     mounts: WEAPONS[id] ? WEAPONS[id].mounts : {}, defaultMag: s.mag,
   };
@@ -788,7 +808,7 @@ function buildAR(M, s, id) {
     Q.named(g, 'grip');
   }
   // ---- barrel, gas system, handguard
-  const bEnd = scar ? 0.62 : 0.637;
+  const bEnd = scar ? 0.58 : hk ? 0.52 : 0.51;
   P.add(M.barrel, at(latheZ([[0.012, 0], [0.012, 0.02], [0.0095, 0.024], [0.0095, 0.2], [0.0085, 0.24], [0.0085, bEnd - 0.2 - 0.02], [0.0075, bEnd - 0.2]]), 0, 0.05, -0.2));
   P.add(M.bore, at(cylZ(0.0035, 0.0035, 0.002, 10), 0, 0.05, -bEnd + 0.0009));
   let front, rear;
@@ -806,12 +826,12 @@ function buildAR(M, s, id) {
     if (hi()) { P.add(M.gunmetal, at(box(0.014, 0.008, 0.012), 0, 0.028, -0.47)); swivel(P, M, 0, 0.022, -0.478, 0.005); }
   } else if (hk) {
     // free-float quad rail, longer; flip-up front sight (deployed) on the rail; low-profile gas block inside
-    const h0 = 0.23, h1 = 0.5;
+    const h0 = 0.23, h1 = 0.46;
     P.add(M.painted, at(cylZ(0.021, 0.021, h1 - h0, 8), 0, 0.05, -(h0 + h1) / 2, 0, Math.PI / 8));
     for (const [rx, y, x] of [[0, 0.07, 0], [Math.PI, 0.03, 0], [Math.PI / 2, 0.05, -0.0195], [-Math.PI / 2, 0.05, 0.0195]]) { const r = railZ(h1 - h0 - 0.01, 0.0085, 0.021); if (rx === Math.PI / 2) r.rotateZ(Math.PI / 2); else if (rx === -Math.PI / 2) r.rotateZ(-Math.PI / 2); else if (rx) r.rotateX(rx); r.translate(x, y, -(h0 + h1) / 2); P.add(M.painted, r); }
-    if (hi()) for (let i = 0; i < 14; i++) for (const a of [Math.PI / 4, 3 * Math.PI / 4, 5 * Math.PI / 4, 7 * Math.PI / 4]) P.add(M.bore, at(box(0.006, 0.004, 0.012), Math.cos(a) * 0.02, 0.05 + Math.sin(a) * 0.02, -(h0 + 0.015 + i * 0.018), 0, 0, a - Math.PI / 2));
-    P.add(M.gunmetal, at(box(0.008, 0.026, 0.02), 0, 0.078 + 0.013, -0.49)); P.add(M.gunmetal, at(box(0.018, 0.004, 0.02), 0, 0.0805, -0.49));
-    front = 0.078 + 0.026; frontSight(P, M, -0.49, 0.0805, { postH: 0.02, baseH: 0.002, baseL: 0.018, baseW: 0.018, ears: 'wings' }); front = 0.0825 + 0.02;
+    if (hi()) for (let i = 0; i < 12; i++) for (const a of [Math.PI / 4, 3 * Math.PI / 4, 5 * Math.PI / 4, 7 * Math.PI / 4]) P.add(M.bore, at(box(0.006, 0.004, 0.012), Math.cos(a) * 0.02, 0.05 + Math.sin(a) * 0.02, -(h0 + 0.015 + i * 0.018), 0, 0, a - Math.PI / 2));
+    P.add(M.gunmetal, at(box(0.008, 0.026, 0.02), 0, 0.078 + 0.013, -0.45)); P.add(M.gunmetal, at(box(0.018, 0.004, 0.02), 0, 0.0805, -0.45));
+    front = 0.078 + 0.026; frontSight(P, M, -0.45, 0.0805, { postH: 0.02, baseH: 0.002, baseL: 0.018, baseW: 0.018, ears: 'wings' }); front = 0.0825 + 0.02;
   } else {
     // SCAR: folding front sight (deployed) on the rail at the front, gas regulator knob
     P.add(M.gunmetal, at(box(0.006, 0.024, 0.016), 0, 0.0985, -0.47)); P.add(M.gunmetal, at(box(0.018, 0.004, 0.016), 0, 0.0885, -0.47));
@@ -840,15 +860,15 @@ function buildAR(M, s, id) {
   g.add(marker('muzzle', 0, 0.05, -bEnd - 0.058));
   g.add(marker('mount_top', 0, railTop + 0.0085, -0.1));
   if (scar) { g.add(marker('mount_under', 0, 0.0215, -0.37)); g.add(marker('mount_side', -0.027, 0.05, -0.38)); }
-  else if (hk) { g.add(marker('mount_under', 0, 0.0215, -0.4)); g.add(marker('mount_side', -0.028, 0.05, -0.4)); }
+  else if (hk) { g.add(marker('mount_under', 0, 0.0215, -0.37)); g.add(marker('mount_side', -0.028, 0.05, -0.37)); }
   else { g.add(marker('mount_under', 0, 0.0225, -0.35)); g.add(marker('mount_side', -0.0275, 0.05, -0.35)); }
   P.into(g);
   const magNode = node('mag', 0, -0.004, -0.125); magNode.userData.travel = [0, -0.2, -0.02]; g.add(magNode);
   g.userData = {
-    id, family: 'ar', sightY: rear.y, sightLine: { rear: [0, rear.y, rear.z], front: [0, front, scar ? -0.47 : hk ? -0.49 : -0.462] },
+    id, family: 'ar', sightY: rear.y, sightLine: { rear: [0, rear.y, rear.z], front: [0, front, scar ? -0.47 : hk ? -0.45 : -0.462] },
     hip: { p: [0.13, -0.15, -0.2], r: [0.03, -0.1, 0.03] },
     ads: { p: [0.0, -rear.y - 0.008, 0.06], r: [0.012, 0, 0] },
-    grips: { right: GRIP_R([0.0, -0.05, -0.012], 'rifle'), left: GRIP_L([0, 0.026, -0.36], 'foreend') },
+    grips: { right: GRIP_R([0.0, -0.05, -0.012], 'rifle'), left: GRIP_L([0, 0.026, scar ? -0.36 : -0.33], 'foreend') },
     lowerRot: [0.45, 0.35, 0.25], magTravel: [0, -0.2, -0.02], cycle: 'bolt', slideTravel: 0.08, ejectDir: [1, 0.5, 0.35],
     mounts: WEAPONS[id] ? WEAPONS[id].mounts : {}, defaultMag: 'mag_stanag30',
   };
@@ -1224,11 +1244,11 @@ function buildSKS(M, id) {
   const P = new Parts();
   // stock: full length to the front band, with the upper handguard over the gas tube
   P.add(M.woodDark, side([
-    [-0.36, 0.05], ['q', -0.26, 0.056, -0.16, 0.036], ['q', -0.06, 0.022, 0.0, 0.016], [0.22, 0.014], [0.55, 0.018], ['q', 0.565, 0.018, 0.565, 0.006], [0.55, -0.006], [0.25, -0.022], [0.2, -0.028], [0.0, -0.03],
-    ['q', -0.05, -0.036, -0.09, -0.06], ['q', -0.2, -0.084, -0.36, -0.1], ['q', -0.37, -0.1, -0.37, -0.086], [-0.37, 0.04],
+    [-0.282, 0.052], ['q', -0.205, 0.058, -0.125, 0.038], ['q', -0.05, 0.022, 0.0, 0.016], [0.22, 0.014], [0.55, 0.018], ['q', 0.565, 0.018, 0.565, 0.006], [0.55, -0.006], [0.25, -0.022], [0.2, -0.028], [0.0, -0.03],
+    ['q', -0.04, -0.036, -0.072, -0.058], ['q', -0.16, -0.082, -0.282, -0.098], ['q', -0.292, -0.098, -0.292, -0.084], [-0.292, 0.042],
   ], 0.044, 0.0025));
   P.add(M.woodDark, side([[0.28, 0.062], [0.5, 0.062], ['q', 0.51, 0.062, 0.51, 0.072], ['q', 0.505, 0.082, 0.49, 0.082], [0.29, 0.082], ['q', 0.28, 0.082, 0.28, 0.072]], 0.03, 0.0018));
-  buttplate(P, M, M.gunmetal, -0.376, -0.1, 0.05, 0.046);
+  buttplate(P, M, M.gunmetal, -0.298, -0.098, 0.052, 0.046);
   if (hi()) { P.add(M.woodDark, at(box(0.046, 0.004, 0.06), 0, 0.006, -0.36)); }                                    // finger groove ridge
   // milled receiver with the bolt carrier channel, the cover, the tangent sight
   P.add(M.frame, side([[0.0, 0.016], [0.22, 0.016], [0.22, 0.072], [0.2, 0.074], [0.02, 0.074], [0.0, 0.07]], 0.036, 0.0015));
@@ -1246,7 +1266,7 @@ function buildSKS(M, id) {
   // bayonet: hinge at the muzzle block, blade folded back under the barrel
   P.add(M.gunmetal, at(box(0.014, 0.012, 0.02), 0, 0.028, -0.7)); if (hi()) P.add(M.steel, pin(0, 0.028, -0.7, 0.003, 0.018));
   P.add(M.steel, at(latheZ([[0.005, 0], [0.005, 0.24], [0.002, 0.3], [0.0, 0.31]], 8), 0, 0.02, -0.39, 0, Math.PI));
-  swivel(P, M, -0.023, -0.03, 0.26); swivel(P, M, -0.02, 0.012, -0.55);
+  swivel(P, M, -0.023, -0.032, 0.20); swivel(P, M, -0.02, 0.012, -0.55);
   // trigger group with the guard and the safety; fixed magazine with its floor plate latch
   P.add(M.gunmetal, guardU(0.02, 0.1, -0.03, 0.028, 0.004, 0.012));
   P.add(M.gunmetal, at(box(0.004, 0.014, 0.02), 0.008, -0.036, -0.02));                                             // safety lever inside the guard
@@ -1258,12 +1278,12 @@ function buildSKS(M, id) {
   const mag = node('mag', 0, -0.03, -0.19);
   const magP = new Parts(); magP.add(M.gunmetal, side([[0.0, 0.0], [0.07, 0.0], [0.08, -0.05], ['q', 0.06, -0.062, 0.03, -0.06], [-0.01, -0.052]], 0.026, 0.0012)); if (hi()) magP.add(M.gunmetal, at(box(0.02, 0.006, 0.006), 0, -0.052, 0.012)); magP.into(mag, 'fixedmag');
   mag.userData.fixed = true; g.add(mag);
-  g.add(marker('muzzle', 0, 0.05, -0.743)); g.add(marker('eject', 0.02, 0.07, -0.12)); g.add(marker('mount_dovetail', -0.0215, 0.04, -0.1)); g.add(marker('mount_pad', 0, -0.025, 0.376));
+  g.add(marker('muzzle', 0, 0.05, -0.743)); g.add(marker('eject', 0.02, 0.07, -0.12)); g.add(marker('mount_dovetail', -0.0215, 0.04, -0.1)); g.add(marker('mount_pad', 0, -0.023, 0.298));
   g.userData = {
     id, family: 'rifle', sightY: rear.y, sightLine: { rear: [0, rear.y, rear.z], front: [0, tip, -0.715] },
     hip: { p: [0.14, -0.16, -0.18], r: [0.03, -0.1, 0.04] }, ads: { p: [0, -rear.y - 0.008, 0.08], r: [0.008, 0, 0] },
     grips: { right: GRIP_R_RIFLE_WRIST([0, -0.03, 0.07]), left: GRIP_L([0, 0.004, -0.4], 'foreend') },
-    lowerRot: [0.45, 0.35, 0.25], magTravel: [0, -0.01, 0], cycle: 'bolt', slideTravel: 0.09, ejectDir: [1, 0.6, 0.3], mounts: WEAPONS[id].mounts, defaultMag: 'mag_sks10', padSpec: { v: [-0.1, 0.05], w: 0.046 },
+    lowerRot: [0.45, 0.35, 0.25], magTravel: [0, -0.01, 0], cycle: 'bolt', slideTravel: 0.09, ejectDir: [1, 0.6, 0.3], mounts: WEAPONS[id].mounts, defaultMag: 'mag_sks10', padSpec: { v: [-0.098, 0.052], w: 0.046 },
   };
   return g;
 }
@@ -1356,38 +1376,43 @@ function buildTOZ(M, id) {
   P.add(M.frame, side([[0.0, -0.022], [0.092, -0.022], [0.092, 0.036], ['q', 0.06, 0.04, 0.02, 0.036], [0.0, 0.034]], 0.042, 0.002));   // action body
   if (hi()) { P.add(M.gunmetal, at(box(0.012, 0.006, 0.01), 0, 0.02, 0.016)); P.add(M.steel, pin(0, 0.0, -0.02, 0.003, 0.045)); P.add(M.steel, pin(0, -0.012, -0.07, 0.003, 0.045)); }   // safety slide, pins
   P.add(M.gunmetal, guardU(0.004, 0.1, -0.022, 0.034, 0.004, 0.012));
-  P.add(M.woodChecker, side([[0.0, 0.03], [-0.36, 0.024], ['q', -0.372, 0.022, -0.372, 0.01], [-0.372, -0.092], ['q', -0.37, -0.104, -0.358, -0.102], [-0.16, -0.086], ['q', -0.08, -0.084, -0.056, -0.06], [-0.02, -0.03], [0.0, -0.022]], 0.046, 0.0025));   // stock
-  P.add(M.rubber, rect(-0.384, -0.372, -0.104, 0.024, 0.048, 0.0015, 0.004));
-  swivel(P, M, 0, -0.098, 0.28); swivel(P, M, 0, -0.026, -0.4);
+  P.add(M.woodChecker, side([[0.0, 0.03], [-0.338, 0.024], ['q', -0.350, 0.022, -0.350, 0.01], [-0.350, -0.090], ['q', -0.348, -0.102, -0.336, -0.100], [-0.15, -0.084], ['q', -0.075, -0.082, -0.052, -0.058], [-0.02, -0.03], [0.0, -0.022]], 0.046, 0.0025));   // stock
+  P.add(M.rubber, rect(-0.362, -0.350, -0.102, 0.024, 0.048, 0.0015, 0.004));
+  swivel(P, M, 0, -0.096, 0.26); swivel(P, M, 0, -0.026, -0.39);
   P.into(g);
   // top lever
   g.add(part('lever', [rect(-0.03, 0.02, 0.034, 0.04, 0.008, 0.0006), at(box(0.02, 0.005, 0.014), 0, 0.037, 0.03)], M.gunmetal, [0, 0.036, -0.02]));
   // barrels group: pivots at the hinge in front of the action
   const H = [0, -0.012, -0.092];
   const bg = [
-    at(boredZ(0.0105, 0.0075, 0.71), 0, 0.023, -0.092 - 0.71),
-    at(boredZ(0.0105, 0.0075, 0.71), 0, 0.0, -0.092 - 0.71),
+    at(boredZ(0.0105, 0.0075, 0.71), 0, 0.023, -0.092),                     // latheZ already runs 0 .. -len: the
+    at(boredZ(0.0105, 0.0075, 0.71), 0, 0.0, -0.092),                       // breech sits at the hinge, crown at -0.802
     at(box(0.006, 0.024, 0.7), 0, 0.0115, -0.092 - 0.35),                   // side rib joining them
     at(box(0.008, 0.004, 0.66), 0, 0.034, -0.092 - 0.36),                   // ventilated top rib
     at(cylZ(0.016, 0.016, 0.04, 14), 0, 0.012, -0.112),                     // monobloc
-    at(cylZ(0.0025, 0.0025, 0.004, 6), 0, 0.04, -0.795),                    // front bead
+    at(sphere(0.0028, 8), 0, 0.0355, -0.788),                               // front bead on the top rib
   ];
   if (hi()) for (let i = 0; i < 9; i++) bg.push(at(box(0.008, 0.004, 0.004), 0, 0.03, -0.16 - i * 0.07));   // rib posts
   const barrels = part('barrels', bg, M.barrel, H);
   barrels.add(part('bores', [at(cylZ(0.0075, 0.0075, 0.002, 12), 0, 0.023, -0.79), at(cylZ(0.0075, 0.0075, 0.002, 12), 0, 0.0, -0.79)], M.bore, H));
-  const fe = [side([[0.12, -0.036], [0.36, -0.03], ['q', 0.38, -0.028, 0.372, -0.012], [0.36, -0.008], [0.12, -0.01]], 0.04, 0.002)];
-  if (hi()) fe.push(at(box(0.042, 0.006, 0.012), 0, -0.024, -0.2));   // forend latch
+  // beavertail fore-end: wraps the lower barrel from the knuckle forward, deepest under the hand, rounded at the tip
+  const fe = [side([
+    [0.10, 0.006], [0.10, -0.014], [0.17, -0.037], [0.30, -0.045],
+    ['q', 0.394, -0.045, 0.400, -0.028], ['q', 0.404, -0.010, 0.390, -0.004],
+    [0.30, 0.004], [0.17, 0.006],
+  ], 0.046, 0.0025)];
+  if (hi()) { fe.push(at(box(0.030, 0.007, 0.026), 0, -0.038, -0.355)); fe.push(at(box(0.044, 0.005, 0.10), 0, -0.030, -0.24)); }   // Anson latch, palm swell
   barrels.add(part('foreend', fe, M.woodChecker, H));
   for (const c of barrels.children) sub(c);
   g.add(barrels);
   g.add(part('trigger', [side([[0.04, -0.026], [0.047, -0.026], ['q', 0.05, -0.036, 0.046, -0.044], [0.04, -0.042]], 0.005, 0.0008)], M.gunmetal, [0, -0.026, -0.043]));
   g.add(part('trigger2', [side([[0.058, -0.026], [0.065, -0.026], ['q', 0.068, -0.036, 0.064, -0.044], [0.058, -0.042]], 0.005, 0.0008)], M.gunmetal, [0, -0.026, -0.061]));
-  g.add(marker('muzzle', 0, 0.012, -0.806)); g.add(marker('eject', 0.0, 0.03, -0.1)); g.add(marker('mount_pad', 0, -0.04, 0.384));
+  g.add(marker('muzzle', 0, 0.012, -0.810)); g.add(marker('eject', 0.0, 0.03, -0.1)); g.add(marker('mount_pad', 0, -0.039, 0.362));
   g.userData = {
     id, family: 'break', sightY: 0.042, sightLine: { rear: [0, 0.04, -0.1], front: [0, 0.042, -0.795] },
     hip: { p: [0.14, -0.16, -0.2], r: [0.03, -0.1, 0.04] }, ads: { p: [0.0, -0.048, 0.06], r: [0.006, 0, 0] },
-    grips: { right: GRIP_R_RIFLE_WRIST([0.0, -0.036, 0.05]), left: GRIP_L([0, -0.02, -0.33], 'foreend') },
-    lowerRot: [0.45, 0.35, 0.25], cycle: 'none', breakAngle: -0.55, ejectDir: [0.3, 1, 0.9], mounts: WEAPONS[id].mounts, defaultMag: null, padSpec: { v: [-0.104, 0.024], w: 0.048 },
+    grips: { right: GRIP_R_RIFLE_WRIST([0.0, -0.036, 0.05]), left: GRIP_L([0, -0.024, -0.26], 'foreend') },
+    lowerRot: [0.45, 0.35, 0.25], cycle: 'none', breakAngle: -0.55, ejectDir: [0.3, 1, 0.9], mounts: WEAPONS[id].mounts, defaultMag: null, padSpec: { v: [-0.102, 0.024], w: 0.048 },
   };
   return g;
 }
@@ -1535,21 +1560,21 @@ function buildSVD(M, id) {
   ejectionPort(P, M, 0.0168, 0.03, 0.05, 0.1, 0.17);
   const rear = rearTangent(P, M, 0.26, 0.31, 0.046, { w: 0.028, blockH: 0.026, leafL: 0.06 });
   // long thin barrel, gas block with the regulator, gas tube, front sight, slotted flash hider
-  P.add(M.barrel, at(latheZ([[0.012, 0], [0.012, 0.05], [0.0095, 0.06], [0.0095, 0.24], [0.0085, 0.26], [0.0075, 0.62]]), 0, 0.05, -0.26));
-  P.add(M.bore, at(cylZ(0.0038, 0.0038, 0.002, 10), 0, 0.05, -0.8791));
-  P.add(M.gunmetal, at(cylZ(0.0065, 0.0065, 0.2, 12), 0, 0.074, -0.4));
-  P.add(M.gunmetal, rect(0.5, 0.53, 0.036, 0.086, 0.026, 0.001, 0.003)); if (hi()) P.add(M.gunmetal, at(knurlZ(0.006, 0.008, 10), 0, 0.09, -0.515, Math.PI / 2));
-  const tip = frontSight(P, M, -0.85, 0.04, { postH: 0.03, baseH: 0.024, baseL: 0.03, baseW: 0.026, ears: 'wings' });
-  P.add(M.gunmetal, at(latheZ([[0.0075, 0], [0.011, 0.004], [0.011, 0.085], [0.0095, 0.09], [0.005, 0.09], [0.005, 0.088]]), 0, 0.05, -0.88));
-  if (hi()) for (let i = 0; i < 5; i++) P.add(M.bore, at(box(0.0025, 0.03, 0.05), 0, 0.05, -0.93, 0, 0, i * Math.PI / 5));
-  P.add(M.gunmetal, at(cylZ(0.0025, 0.0025, 0.4, 6), 0, 0.037, -0.5));                                               // cleaning rod
+  P.add(M.barrel, at(latheZ([[0.012, 0], [0.012, 0.05], [0.0095, 0.06], [0.0095, 0.24], [0.0085, 0.26], [0.0075, 0.54]]), 0, 0.05, -0.26));
+  P.add(M.bore, at(cylZ(0.0038, 0.0038, 0.002, 10), 0, 0.05, -0.7991));
+  P.add(M.gunmetal, at(cylZ(0.0065, 0.0065, 0.16, 12), 0, 0.074, -0.38));
+  P.add(M.gunmetal, rect(0.46, 0.49, 0.036, 0.086, 0.026, 0.001, 0.003)); if (hi()) P.add(M.gunmetal, at(knurlZ(0.006, 0.008, 10), 0, 0.09, -0.475, Math.PI / 2));
+  const tip = frontSight(P, M, -0.77, 0.04, { postH: 0.03, baseH: 0.024, baseL: 0.03, baseW: 0.026, ears: 'wings' });
+  P.add(M.gunmetal, at(latheZ([[0.0075, 0], [0.011, 0.004], [0.011, 0.085], [0.0095, 0.09], [0.005, 0.09], [0.005, 0.088]]), 0, 0.05, -0.80));
+  if (hi()) for (let i = 0; i < 5; i++) P.add(M.bore, at(box(0.0025, 0.03, 0.05), 0, 0.05, -0.85, 0, 0, i * Math.PI / 5));
+  P.add(M.gunmetal, at(cylZ(0.0025, 0.0025, 0.36, 6), 0, 0.037, -0.48));                                             // cleaning rod
   // laminate handguard halves with the vent slots; front ferrule
   {
     const Q = new Parts();
-    Q.add(M.laminate, side([[0.29, 0.024], [0.5, 0.024], ['q', 0.51, 0.024, 0.51, 0.036], [0.5, 0.046], [0.29, 0.046]], 0.046, 0.002));
-    Q.add(M.laminate, side([[0.29, 0.062], [0.5, 0.062], [0.5, 0.086], ['q', 0.5, 0.092, 0.49, 0.092], [0.3, 0.092], ['q', 0.29, 0.092, 0.29, 0.086]], 0.03, 0.0015));
-    if (hi()) for (let i = 0; i < 6; i++) { Q.add(M.bore, at(box(0.0475, 0.005, 0.014), 0, 0.035, -(0.31 + i * 0.03))); Q.add(M.bore, at(box(0.0315, 0.004, 0.014), 0, 0.077, -(0.31 + i * 0.03))); }
-    Q.add(M.gunmetal, rect(0.28, 0.29, 0.02, 0.05, 0.048, 0.001)); Q.add(M.gunmetal, rect(0.51, 0.52, 0.02, 0.05, 0.046, 0.001));
+    Q.add(M.laminate, side([[0.29, 0.024], [0.46, 0.024], ['q', 0.47, 0.024, 0.47, 0.036], [0.46, 0.046], [0.29, 0.046]], 0.046, 0.002));
+    Q.add(M.laminate, side([[0.29, 0.062], [0.46, 0.062], [0.46, 0.086], ['q', 0.46, 0.092, 0.45, 0.092], [0.3, 0.092], ['q', 0.29, 0.092, 0.29, 0.086]], 0.03, 0.0015));
+    if (hi()) for (let i = 0; i < 5; i++) { Q.add(M.bore, at(box(0.0475, 0.005, 0.014), 0, 0.035, -(0.31 + i * 0.03))); Q.add(M.bore, at(box(0.0315, 0.004, 0.014), 0, 0.077, -(0.31 + i * 0.03))); }
+    Q.add(M.gunmetal, rect(0.28, 0.29, 0.02, 0.05, 0.048, 0.001)); Q.add(M.gunmetal, rect(0.47, 0.48, 0.02, 0.05, 0.046, 0.001));
     Q.named(g, 'handguard');
   }
   // skeleton laminate stock with the thumbhole, cheek pad and the buttplate
@@ -1566,16 +1591,16 @@ function buildSVD(M, id) {
   g.add(part('magrelease', [side([[0.12, 0.004], [0.15, 0.004], [0.148, -0.008], [0.132, -0.016], [0.12, -0.012]], 0.008, 0.0008)], M.gunmetal, [0, 0.004, -0.135]));
   const sel = part('selector', [at(side([[0.0, -0.004], [0.06, -0.003], [0.062, 0.003], [0.0, 0.006]], 0.003, 0.0005), 0.0185, 0.04, -0.05), at(cylX(0.0045, 0.0045, 0.004, 10), 0.0185, 0.04, -0.05)], M.gunmetal, [0, 0.04, -0.05]);
   sel.userData.angles = { safe: 0.32, semi: -0.3 }; g.add(sel);
-  swivel(P, M, -0.02, 0.02, 0.005); swivel(P, M, -0.02, 0.04, -0.52);
+  swivel(P, M, -0.02, 0.02, 0.005); swivel(P, M, -0.02, 0.04, -0.46);
   P.into(g);
   g.add(part('bolt', [at(box(0.014, 0.012, 0.04), 0.018, 0.045, -0.12), at(side([[0.0, -0.005], [0.018, -0.005], [0.022, 0.0], [0.018, 0.007], [0.0, 0.007]], 0.01, 0.001), 0.026, 0.045, -0.12)], M.bolt, [0, 0.045, -0.12]));
   g.add(part('trigger', [side([[0.08, 0.002], [0.088, 0.002], ['q', 0.092, -0.012, 0.086, -0.02], [0.079, -0.018]], 0.006, 0.0008)], M.gunmetal, [0, 0.002, -0.084]));
   const mag = node('mag', 0, 0.006, -0.17); g.add(mag);
-  g.add(marker('muzzle', 0, 0.05, -0.972)); g.add(marker('eject', 0.018, 0.05, -0.13)); g.add(marker('mount_dovetail', -0.0205, 0.03, -0.12)); g.add(marker('mount_pad', 0, -0.028, 0.358));
+  g.add(marker('muzzle', 0, 0.05, -0.892)); g.add(marker('eject', 0.018, 0.05, -0.13)); g.add(marker('mount_dovetail', -0.0205, 0.03, -0.12)); g.add(marker('mount_pad', 0, -0.028, 0.358));
   g.userData = {
-    id, family: 'svd', sightY: rear.y, sightLine: { rear: [0, rear.y, rear.z], front: [0, tip, -0.85] },
+    id, family: 'svd', sightY: rear.y, sightLine: { rear: [0, rear.y, rear.z], front: [0, tip, -0.77] },
     hip: { p: [0.14, -0.16, -0.16], r: [0.03, -0.1, 0.04] }, ads: { p: [0.0, -rear.y - 0.008, 0.1], r: [0.008, 0, 0] },
-    grips: { right: GRIP_R([0.0, -0.06, -0.02], 'rifle'), left: GRIP_L([0, 0.024, -0.4], 'foreend') },
+    grips: { right: GRIP_R([0.0, -0.06, -0.02], 'rifle'), left: GRIP_L([0, 0.024, -0.375], 'foreend') },
     lowerRot: [0.45, 0.35, 0.25], magTravel: [0, -0.18, -0.05], cycle: 'bolt', slideTravel: 0.1, ejectDir: [1, 0.5, 0.35], mounts: WEAPONS[id].mounts, defaultMag: 'mag_svd10', padSpec: { v: [-0.1, 0.044], w: 0.038 },
   };
   return g;
@@ -1587,40 +1612,40 @@ function buildSV98(M, id) {
   const P = new Parts();
   // laminated thumbhole stock with the adjustable cheek piece and butt; long fore-end with the bipod mount and a rail
   P.add(M.laminate, sideHole(
-    [[0.62, 0.02], ['q', 0.635, 0.02, 0.635, 0.006], [0.62, -0.01], [0.3, -0.016], [0.2, -0.02], [0.14, -0.06], [0.08, -0.064], [0.06, -0.02], [0.04, -0.02], [0.03, -0.1], ['q', 0.01, -0.112, -0.005, -0.098], [-0.05, -0.03], [-0.16, -0.05], ['q', -0.32, -0.08, -0.38, -0.086], ['q', -0.39, -0.086, -0.39, -0.072], [-0.39, 0.036], ['q', -0.39, 0.05, -0.38, 0.05], [-0.2, 0.05], [-0.06, 0.05], [-0.02, 0.028], [0.0, 0.024], [0.2, 0.024], [0.3, 0.02]],
-    [[[-0.11, 0.0], [-0.3, 0.012], [-0.3, -0.04], [-0.2, -0.04]]], 0.046, 0.0025));
-  P.add(M.polymer, at(box(0.042, 0.02, 0.12), 0, 0.058, 0.17)); if (hi()) { P.add(M.steel, at(cylY(0.004, 0.004, 0.02, 8), 0.014, 0.036, 0.13)); P.add(M.steel, at(cylY(0.004, 0.004, 0.02, 8), 0.014, 0.036, 0.21)); }   // cheek piece on posts
-  P.add(M.rubber, rect(-0.404, -0.39, -0.086, 0.05, 0.046, 0.0015, 0.004));
-  P.add(M.painted, at(railZ(0.1, 0.007), 0, -0.016, -0.5, Math.PI));                                                    // under rail
+    [[0.545, 0.02], ['q', 0.560, 0.02, 0.560, 0.006], [0.545, -0.01], [0.3, -0.016], [0.2, -0.02], [0.14, -0.06], [0.08, -0.064], [0.06, -0.02], [0.04, -0.02], [0.03, -0.1], ['q', 0.01, -0.112, -0.005, -0.098], [-0.05, -0.03], [-0.14, -0.048], ['q', -0.28, -0.078, -0.33, -0.084], ['q', -0.34, -0.084, -0.34, -0.070], [-0.34, 0.036], ['q', -0.34, 0.05, -0.33, 0.05], [-0.18, 0.05], [-0.06, 0.05], [-0.02, 0.028], [0.0, 0.024], [0.2, 0.024], [0.3, 0.02]],
+    [[[-0.10, 0.0], [-0.26, 0.012], [-0.26, -0.04], [-0.18, -0.04]]], 0.046, 0.0025));
+  P.add(M.polymer, at(box(0.042, 0.02, 0.11), 0, 0.058, 0.155)); if (hi()) { P.add(M.steel, at(cylY(0.004, 0.004, 0.02, 8), 0.014, 0.036, 0.12)); P.add(M.steel, at(cylY(0.004, 0.004, 0.02, 8), 0.014, 0.036, 0.19)); }   // cheek piece on posts
+  P.add(M.rubber, rect(-0.354, -0.34, -0.084, 0.05, 0.046, 0.0015, 0.004));
+  P.add(M.painted, at(railZ(0.1, 0.007), 0, -0.016, -0.44, Math.PI));                                                   // under rail
   // cylindrical receiver with the top rail, bolt on the right, magazine well
   P.add(M.frame, at(cylZ(0.019, 0.019, 0.21, 14), 0, 0.045, -0.105));
   P.add(M.painted, at(box(0.03, 0.014, 0.2), 0, 0.066, -0.1)); P.add(M.painted, at(railZ(0.19, 0.0085), 0, 0.073, -0.1));
   ejectionPort(P, M, 0.0175, 0.04, 0.056, 0.05, 0.12);
   P.add(M.frame, side([[0.1, -0.02], [0.19, -0.02], [0.19, 0.01], [0.1, 0.01]], 0.03, 0.0012));
   // heavy fluted barrel with the muzzle brake; back-up irons on the rail
-  P.add(M.barrel, at(latheZ([[0.017, 0], [0.017, 0.03], [0.014, 0.05], [0.013, 0.64], [0.0125, 0.65]]), 0, 0.045, -0.21));
-  if (hi()) for (let i = 0; i < 6; i++) P.add(M.bore, at(box(0.0025, 0.003, 0.45), Math.cos(i * 1.047) * 0.0135, 0.045 + Math.sin(i * 1.047) * 0.0135, -0.55, 0, 0, i * 1.047));
-  P.add(M.gunmetal, at(latheZ([[0.0125, 0], [0.016, 0.004], [0.016, 0.08], [0.013, 0.09], [0.006, 0.09], [0.006, 0.087]]), 0, 0.045, -0.86));
-  if (hi()) for (let i = 0; i < 3; i++) { P.add(M.bore, at(box(0.04, 0.008, 0.012), 0, 0.045, -0.88 - i * 0.02)); }
-  P.add(M.bore, at(cylZ(0.0038, 0.0038, 0.002, 10), 0, 0.045, -0.9491));
+  P.add(M.barrel, at(latheZ([[0.017, 0], [0.017, 0.03], [0.014, 0.05], [0.013, 0.54], [0.0125, 0.55]]), 0, 0.045, -0.21));
+  if (hi()) for (let i = 0; i < 6; i++) P.add(M.bore, at(box(0.0025, 0.003, 0.38), Math.cos(i * 1.047) * 0.0135, 0.045 + Math.sin(i * 1.047) * 0.0135, -0.51, 0, 0, i * 1.047));
+  P.add(M.gunmetal, at(latheZ([[0.0125, 0], [0.016, 0.004], [0.016, 0.08], [0.013, 0.09], [0.006, 0.09], [0.006, 0.087]]), 0, 0.045, -0.76));
+  if (hi()) for (let i = 0; i < 3; i++) { P.add(M.bore, at(box(0.04, 0.008, 0.012), 0, 0.045, -0.78 - i * 0.02)); }
+  P.add(M.bore, at(cylZ(0.0038, 0.0038, 0.002, 10), 0, 0.045, -0.8491));
   P.add(M.gunmetal, at(box(0.018, 0.004, 0.02), 0, 0.0835, -0.05)); P.add(M.gunmetal, at(box(0.016, 0.018, 0.0025), 0, 0.094, -0.056)); P.add(M.bore, at(cylZ(0.0022, 0.0022, 0.0035, 8), 0, 0.097, -0.056));
-  const tip = frontSight(P, M, -0.84, 0.058, { postH: 0.03, baseH: 0.006, baseL: 0.02, baseW: 0.02, ears: 'wings' });
+  const tip = frontSight(P, M, -0.74, 0.058, { postH: 0.03, baseH: 0.006, baseL: 0.02, baseW: 0.02, ears: 'wings' });
   P.add(M.gunmetal, guardU(0.02, 0.09, -0.02, 0.028, 0.004, 0.012));
   if (hi()) { P.add(M.gunmetal, at(box(0.006, 0.01, 0.014), 0.0195, 0.03, 0.006)); P.add(M.gunmetal, at(box(0.02, 0.006, 0.012), 0, -0.024, -0.098)); }   // safety, mag release
-  swivel(P, M, -0.024, -0.03, 0.3); swivel(P, M, -0.024, -0.008, -0.56);
+  swivel(P, M, -0.024, -0.03, 0.26); swivel(P, M, -0.024, -0.008, -0.50);
   P.into(g);
   const B = [0, 0.045, -0.06];
   const boltGeos = [at(cylZ(0.0095, 0.0095, 0.11, 12), 0, 0.045, -0.07), at(cylX(0.005, 0.0045, 0.03, 8), 0.028, 0.03, -0.06, 0, 0, -0.9), at(sphere(0.009, 10), 0.046, 0.016, -0.06), at(cylZ(0.008, 0.007, 0.02, 10), 0, 0.045, 0.0)];
   g.add(part('bolt', boltGeos, M.bolt, B));
   g.add(part('trigger', [side([[0.04, -0.024], [0.048, -0.024], ['q', 0.052, -0.036, 0.046, -0.044], [0.039, -0.042]], 0.006, 0.0008)], M.gunmetal, [0, -0.024, -0.044]));
-  const bp = new THREE.Group(); bp.name = 'bipod'; bipodGeos(M, -0.55, -0.026, { legLen: 0.2, spread: 0.02 }).into(bp, 'bipod'); bp.userData.base = { p: bp.position.clone(), r: new THREE.Euler() }; g.add(bp);
+  const bp = new THREE.Group(); bp.name = 'bipod'; bipodGeos(M, -0.50, -0.026, { legLen: 0.19, spread: 0.02 }).into(bp, 'bipod'); bp.userData.base = { p: bp.position.clone(), r: new THREE.Euler() }; g.add(bp);
   const mag = node('mag', 0, -0.02, -0.145); g.add(mag);
-  g.add(marker('muzzle', 0, 0.045, -0.952)); g.add(marker('eject', 0.019, 0.05, -0.09)); g.add(marker('mount_top', 0, 0.0815, -0.1)); g.add(marker('mount_muzzle', 0, 0.045, -0.86)); g.add(marker('mount_under', 0, -0.023, -0.5)); g.add(marker('mount_pad', 0, -0.018, 0.404));
+  g.add(marker('muzzle', 0, 0.045, -0.852)); g.add(marker('eject', 0.019, 0.05, -0.09)); g.add(marker('mount_top', 0, 0.0815, -0.1)); g.add(marker('mount_muzzle', 0, 0.045, -0.76)); g.add(marker('mount_under', 0, -0.023, -0.44)); g.add(marker('mount_pad', 0, -0.017, 0.354));
   g.userData = {
-    id, family: 'bolt', sightY: 0.097, sightLine: { rear: [0, 0.097, -0.056], front: [0, tip, -0.84] },
+    id, family: 'bolt', sightY: 0.097, sightLine: { rear: [0, 0.097, -0.056], front: [0, tip, -0.74] },
     hip: { p: [0.14, -0.16, -0.16], r: [0.03, -0.1, 0.04] }, ads: { p: [0.0, -0.105, 0.1], r: [0.006, 0, 0] },
-    grips: { right: GRIP_R([0.0, -0.06, -0.01], 'rifle'), left: GRIP_L([0, -0.006, -0.42], 'foreend') },
-    lowerRot: [0.45, 0.35, 0.25], magTravel: [0, -0.14, -0.02], cycle: 'mosin', boltTravel: 0.09, ejectDir: [1, 0.7, 0.2], mounts: WEAPONS[id].mounts, defaultMag: 'mag_sv98_10', padSpec: { v: [-0.086, 0.05], w: 0.046 },
+    grips: { right: GRIP_R([0.0, -0.06, -0.01], 'rifle'), left: GRIP_L([0, -0.006, -0.38], 'foreend') },
+    lowerRot: [0.45, 0.35, 0.25], magTravel: [0, -0.14, -0.02], cycle: 'mosin', boltTravel: 0.09, ejectDir: [1, 0.7, 0.2], mounts: WEAPONS[id].mounts, defaultMag: 'mag_sv98_10', padSpec: { v: [-0.084, 0.05], w: 0.046 },
   };
   return g;
 }
@@ -1644,15 +1669,15 @@ function buildPKM(M, id) {
   // feed opening on the left with the belt entering; the belt box hangs under the receiver
   P.add(M.bore, at(box(0.0012, 0.02, 0.05), -0.0202, 0.035, -0.16));
   // barrel: quick-change with the carrying handle; gas tube below; front sight; slotted flash hider
-  P.add(M.barrel, at(latheZ([[0.016, 0], [0.016, 0.06], [0.013, 0.08], [0.012, 0.6], [0.011, 0.645]]), 0, 0.05, -0.3));
-  P.add(M.gunmetal, at(latheZ([[0.011, 0], [0.014, 0.004], [0.014, 0.05], [0.012, 0.06], [0.005, 0.06], [0.005, 0.058]]), 0, 0.05, -0.945));
-  if (hi()) for (let i = 0; i < 4; i++) P.add(M.bore, at(box(0.0025, 0.036, 0.03), 0, 0.05, -0.975, 0, 0, i * Math.PI / 4));
-  P.add(M.bore, at(cylZ(0.0038, 0.0038, 0.002, 10), 0, 0.05, -1.0041));
-  P.add(M.gunmetal, at(cylZ(0.011, 0.011, 0.36, 12), 0, 0.02, -0.5));                                                   // gas tube under the barrel
-  P.add(M.gunmetal, rect(0.66, 0.7, 0.008, 0.062, 0.03, 0.001, 0.003));                                                 // gas block
-  const tip = frontSight(P, M, -0.9, 0.061, { postH: 0.028, baseH: 0.012, baseL: 0.028, baseW: 0.026, ears: 'wings' });
+  P.add(M.barrel, at(latheZ([[0.016, 0], [0.016, 0.06], [0.013, 0.08], [0.012, 0.50], [0.011, 0.545]]), 0, 0.05, -0.3));
+  P.add(M.gunmetal, at(latheZ([[0.011, 0], [0.014, 0.004], [0.014, 0.05], [0.012, 0.06], [0.005, 0.06], [0.005, 0.058]]), 0, 0.05, -0.845));
+  if (hi()) for (let i = 0; i < 4; i++) P.add(M.bore, at(box(0.0025, 0.036, 0.03), 0, 0.05, -0.875, 0, 0, i * Math.PI / 4));
+  P.add(M.bore, at(cylZ(0.0038, 0.0038, 0.002, 10), 0, 0.05, -0.9041));
+  P.add(M.gunmetal, at(cylZ(0.011, 0.011, 0.30, 12), 0, 0.02, -0.47));                                                  // gas tube under the barrel
+  P.add(M.gunmetal, rect(0.60, 0.64, 0.008, 0.062, 0.03, 0.001, 0.003));                                                // gas block
+  const tip = frontSight(P, M, -0.80, 0.061, { postH: 0.028, baseH: 0.012, baseL: 0.028, baseW: 0.026, ears: 'wings' });
   // carrying handle on the barrel, folded to the right
-  P.add(M.gunmetal, at(box(0.03, 0.016, 0.02), 0, 0.068, -0.4)); P.add(M.bakelitePlain, at(box(0.06, 0.018, 0.024), 0.05, 0.078, -0.4)); P.add(M.gunmetal, at(box(0.02, 0.008, 0.012), 0.025, 0.076, -0.4));
+  P.add(M.gunmetal, at(box(0.03, 0.016, 0.02), 0, 0.068, -0.38)); P.add(M.bakelitePlain, at(box(0.06, 0.018, 0.024), 0.05, 0.078, -0.38)); P.add(M.gunmetal, at(box(0.02, 0.008, 0.012), 0.025, 0.076, -0.38));
   // pistol grip, trigger guard, safety, charging handle on the right
   P.add(M.bakelite, side([[0.03, 0.0], [0.05, -0.004], [0.02, -0.096], ['q', 0.004, -0.104, -0.006, -0.09], [-0.02, -0.004], [0.0, 0.0]], 0.032, 0.0022));
   P.add(M.gunmetal, guardU(0.04, 0.13, -0.002, 0.032, 0.004, 0.014));
@@ -1667,22 +1692,22 @@ function buildPKM(M, id) {
     if (hi()) Q.add(M.gunmetal, at(box(0.006, 0.05, 0.12), 0, -0.03, 0.26));                                           // folded shoulder rest
     Q.named(g, 'stock');
   }
-  swivel(P, M, -0.022, -0.02, 0.03); swivel(P, M, -0.02, 0.045, -0.65);
+  swivel(P, M, -0.022, -0.02, 0.03); swivel(P, M, -0.02, 0.045, -0.58);
   P.into(g);
   g.add(part('bolt', [at(box(0.014, 0.012, 0.03), 0.024, 0.025, -0.12), at(side([[0.0, -0.005], [0.024, -0.005], [0.028, 0.0], [0.024, 0.008], [0.0, 0.008]], 0.012, 0.001), 0.034, 0.025, -0.12)], M.bolt, [0, 0.025, -0.12]));
   g.add(part('trigger', [side([[0.076, -0.006], [0.084, -0.006], ['q', 0.088, -0.02, 0.082, -0.028], [0.075, -0.026]], 0.006, 0.0008)], M.gunmetal, [0, -0.006, -0.08]));
-  const bp = new THREE.Group(); bp.name = 'bipod'; bipodGeos(M, -0.68, 0.006, { legLen: 0.3, spread: 0.022 }).into(bp, 'bipod'); bp.userData.base = { p: bp.position.clone(), r: new THREE.Euler() }; g.add(bp);
+  const bp = new THREE.Group(); bp.name = 'bipod'; bipodGeos(M, -0.62, 0.006, { legLen: 0.26, spread: 0.022, back: true }).into(bp, 'bipod'); bp.userData.base = { p: bp.position.clone(), r: new THREE.Euler() }; g.add(bp);
   // belt: a run of links with rounds coming out of the box into the feed tray (named so weapons.js can shorten it)
   const belt = node('belt', -0.03, 0.03, -0.16);
   const bl = new Parts();
   for (let i = 0; i < 8; i++) { const y = -i * 0.012; bl.add(M.brass, at(cylX(0.006, 0.0045, 0.05, 8), -0.02, y, 0)); bl.add(M.gunmetal, at(box(0.014, 0.012, 0.014), -0.02, y, 0)); }
   bl.into(belt, 'belt'); g.add(belt);
   const mag = node('mag', -0.02, 0.0, -0.16); g.add(mag);
-  g.add(marker('muzzle', 0, 0.05, -1.008)); g.add(marker('eject', 0.022, 0.03, -0.13)); g.add(marker('mount_dovetail', -0.0235, 0.03, -0.12)); g.add(marker('mount_pad', 0, -0.028, 0.336));
+  g.add(marker('muzzle', 0, 0.05, -0.908)); g.add(marker('eject', 0.022, 0.03, -0.13)); g.add(marker('mount_dovetail', -0.0235, 0.03, -0.12)); g.add(marker('mount_pad', 0, -0.028, 0.336));
   g.userData = {
-    id, family: 'mg', sightY: rear.y, sightLine: { rear: [0, rear.y, rear.z], front: [0, tip, -0.9] },
+    id, family: 'mg', sightY: rear.y, sightLine: { rear: [0, rear.y, rear.z], front: [0, tip, -0.80] },
     hip: { p: [0.14, -0.16, -0.14], r: [0.03, -0.1, 0.04] }, ads: { p: [0.0, -rear.y - 0.008, 0.1], r: [0.008, 0, 0] },
-    grips: { right: GRIP_R([0.0, -0.05, -0.016], 'rifle'), left: GRIP_L([0, 0.0, -0.36], 'foreend') },
+    grips: { right: GRIP_R([0.0, -0.05, -0.016], 'rifle'), left: GRIP_L([0, 0.0, -0.40], 'foreend') },
     lowerRot: [0.45, 0.35, 0.25], magTravel: [0, -0.18, 0.0], cycle: 'bolt', slideTravel: 0.12, ejectDir: [1, 0.3, 0.35], mounts: WEAPONS[id].mounts, defaultMag: 'mag_pkm100', padSpec: { v: [-0.096, 0.04], w: 0.036 },
   };
   return g;
@@ -1770,7 +1795,7 @@ export function buildGun(id, opts = {}) {
   if (!g.userData.grips) g.userData.grips = {};
   const magId = inst ? (inst.mag ? inst.mag.id : null) : (g.userData.defaultMag || (def && def.defaultMag) || null);
   LOD = lod; try { setMagazine(g, magId); applyAttachments(g, inst); } finally { LOD = prev; }
-  g.traverse((o) => { if (o.isMesh) { o.castShadow = lod !== 'hi'; o.receiveShadow = true; o.frustumCulled = lod !== 'hi'; } });
+  g.traverse((o) => { if (o.isMesh) { o.castShadow = lod !== 'hi'; o.receiveShadow = lod !== 'hi'; o.frustumCulled = lod !== 'hi'; } });
   if (lod === 'hi') hookGlovePose(g);
   return g;
 }
@@ -1864,7 +1889,7 @@ function buildHand(M, mirror) {
   if (hi()) { cuff.push(skinGeo(at(box(0.004, 0.012, 0.016), 0.034, 0.004, 0.05), 0)); seam.push(skinGeo(at(ringZ(0.0365, 0.0009, 0, Math.PI * 2, 14, 4), 0, 0.004, 0.05), 0)); }
   const skeleton = new THREE.Skeleton(bones);
   const make = (geos, mat, name) => {
-    const m = new THREE.SkinnedMesh(finalize(geos), mat); m.name = name; m.castShadow = false; m.receiveShadow = true; m.frustumCulled = false;
+    const m = new THREE.SkinnedMesh(finalize(geos), mat); m.name = name; m.castShadow = false; m.receiveShadow = false; m.frustumCulled = false;
     return m;
   };
   const gm = make(glove, M.glove, 'glove'); gm.add(root); gm.bind(skeleton);
@@ -1924,3 +1949,7 @@ export function casingGeometry() {
   const c = toCreasedNormals(g, 50 * DEG); c.computeBoundingSphere();
   return c;
 }
+
+// Dev hook for the smoke harness's model gallery (tools/scenarios/weapons-studio.mjs): builds a gun in isolation so
+// its silhouette can be judged against a flat sky. Costs one property on the global object; nothing in game reads it.
+if (typeof globalThis !== 'undefined') globalThis.__gunmesh = { buildGun, BUILD_IDS, setMagazine, applyAttachments, matKit };

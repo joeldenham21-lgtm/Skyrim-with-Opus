@@ -19,11 +19,33 @@ import { classRank } from './loadout.js';
 import { def } from '../data/index.js';
 
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _dir = new THREE.Vector3(), _eye = new THREE.Vector3(), _n = new THREE.Vector3(), _cam = new THREE.Vector3(0, 0, -1);
+const _lane = new THREE.Vector3(), _from = new THREE.Vector3();
 const REINFORCE_AFTER = 30, REINFORCE_R = 160, GRENADE_CD = 40, CONVERGE_R = 120;
 const AMBUSH_MAX = 110, BREAK_MORALE = 0.3, SPRING_R = 18, CELL = 20;
+const RADIO_R = 170;          // m a handset reaches; past it a man is on his own until somebody walks to him
 // the mimic only understands these order roles; `job` below is the squad's own vocabulary
 const JOB_ROLE = { point: 'base', support: 'base', flanker: 'flank', overwatch: 'watch', bound: 'flank', shaken: 'flank', ambush: 'ambush', regroup: 'regroup', breakoff: 'regroup', idle: 'idle' };
 const cand = [], candS = [];   // scratch: top-N cover candidates, reused
+
+// =====================================================================================================
+// THE RADIO WORDS.
+// A squad's information moves through exactly one channel, and the channel makes a noise. Every call below
+// is a handset keyed at its own rate: the player hears a different chirp before a bound, before a flank and
+// before a grenade, and after two contacts he knows which one he is hearing. Nothing in this file moves
+// knowledge between two mimics without one of these playing first — that is the fairness rule, stated as code.
+// =====================================================================================================
+export const CALLS = {
+  contact:  { rate: 1.12, gain: 0.95, max: 110 },   // I have him
+  update:   { rate: 0.98, gain: 0.75, max: 95 },    // he has moved
+  heard:    { rate: 0.86, gain: 0.62, max: 85 },    // something over there
+  moving:   { rate: 1.22, gain: 0.85, max: 100 },   // I am crossing — cover me
+  set:      { rate: 1.04, gain: 0.70, max: 90 },    // I am in position
+  flanking: { rate: 1.34, gain: 0.92, max: 105 },   // going round
+  grenade:  { rate: 1.48, gain: 1.00, max: 130 },   // frag out
+  down:     { rate: 1.28, gain: 1.00, max: 125 },   // man down
+  falling:  { rate: 1.38, gain: 1.00, max: 125 },   // breaking contact
+  hold:     { rate: 0.94, gain: 0.55, max: 80 },    // nobody move
+};
 
 // play the first registered name from a list (v2 sounds land in parallel; older names stay as fallbacks)
 export function playAny(ctx, names, opts) {
@@ -62,6 +84,33 @@ export function createSquads(ctx) {
     if (!inFrustum(x, y + 0.9, z, halfAngleDeg)) return false;
     return ctx.world.lineOfSight(ctx.player.eye, _v2.set(x, y + 0.9, z)) || ctx.world.lineOfSight(ctx.player.eye, _v2.set(x, y + 1.6, z));
   }
+  // ---- the ground they refuse ----
+  // They live here. An electric field or a gravity well is not a hazard they walk into and learn about: it is
+  // a fence, and one they will happily put between themselves and you. Nothing they plan — a bound, a flank,
+  // a firing position, a line of retreat — is ever allowed to cross one.
+  function anomalyAt(x, z, pad = 2.0) {
+    const list = ctx.anomalies && ctx.anomalies.list; if (!list || !list.length) return null;
+    for (let i = 0; i < list.length; i++) {
+      const a = list[i]; if (!a || !a.position) continue;
+      const r = (a.radius || 6) + pad;
+      if (Math.abs(a.position.x - x) > r || Math.abs(a.position.z - z) > r) continue;
+      if (Math.hypot(a.position.x - x, a.position.z - z) < r) return a;
+    }
+    return null;
+  }
+  // does the straight line a->b pass through one? (closest approach of a segment to a circle centre)
+  function anomalyOnLine(ax, az, bx, bz, pad = 1.6) {
+    const list = ctx.anomalies && ctx.anomalies.list; if (!list || !list.length) return null;
+    const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz;
+    for (let i = 0; i < list.length; i++) {
+      const a = list[i]; if (!a || !a.position) continue;
+      const r = (a.radius || 6) + pad;
+      let t = l2 > 1e-6 ? ((a.position.x - ax) * dx + (a.position.z - az) * dz) / l2 : 0;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      if (Math.hypot(ax + dx * t - a.position.x, az + dz * t - a.position.z) < r) return a;
+    }
+    return null;
+  }
   function walkable(x, z, out) {
     const w = ctx.world;
     if (Math.abs(x) > w.half - 6 || Math.abs(z) > w.half - 6) return null;
@@ -69,6 +118,7 @@ export function createSquads(ctx) {
     const y = w.groundHeight(x, z, w.getHeight(x, z) + 2).y;
     if (w.pointInSolid(x, y + 0.6, z)) return null;
     if (w.isInBase(_v3.set(x, y, z))) return null;
+    if (anomalyAt(x, z)) return null;
     return out.set(x, y, z);
   }
 
@@ -107,6 +157,7 @@ export function createSquads(ctx) {
           const c = cell[i];
           const dm = Math.hypot(c.x - from.x, c.z - from.z); if (dm > maxD) continue;
           const s = score(c, dm); if (s === null || s === -Infinity) continue;
+          if (anomalyAt(c.x, c.z)) continue;   // a firing position inside a field is not a firing position
           if (cand.length < 4) { let j = cand.length; cand.push(c); candS.push(s); while (j > 0 && candS[j - 1] < s) { cand[j] = cand[j - 1]; candS[j] = candS[j - 1]; cand[j - 1] = c; candS[j - 1] = s; j--; } }
           else if (s > candS[3]) { let j = 3; cand[3] = c; candS[3] = s; while (j > 0 && candS[j - 1] < s) { const tc = cand[j - 1], ts = candS[j - 1]; cand[j - 1] = c; candS[j - 1] = s; cand[j] = tc; candS[j] = ts; j--; } }
         }
@@ -139,6 +190,16 @@ export function createSquads(ctx) {
       // patrol route (population.js hands one over)
       this.route = null; this.routeI = 0; this.routeDir = 1; this.routeHold = 0; this.legT = 0; this.patrolT = rng.range(0, 0.6); this.file = [];
       this.breakT = 0; this.coolT = 0; this.sightT = 0; this.posCursor = 0;
+      // ---- v4: the squad as a unit ----
+      this.knownR = 0;                 // metres the shared picture may be wrong by; grows with its age
+      this.contactKind = 'none';       // none | seen (somebody has eyes on) | told (a call) | heard (gunfire)
+      this.org = 1;                    // organisation: 1 with a leader giving orders, a quarter of that without
+      this.fixing = 0;                 // men of the base element with a live line onto the called position
+      this.fixT = -1e9;                // when the base last actually put rounds down
+      this.flankSide = rng() < 0.5 ? 1 : -1; this.flankT = -1e9; this.flankSet = false; this.flankers = 0;
+      this.bounds = 0; this.boundsRefused = 0; this.fragOrders = 0;   // read by tools/scenarios/ai-*.mjs
+      this.lastSay = null; this.saidT = -1e9; this.holdCallT = -1e9;
+      this.sectorT = 0;
       for (const m of members) this.add(m);
       this.initial = this.members.length;
       this.electLeader();
@@ -147,7 +208,9 @@ export function createSquads(ctx) {
       if (!m || this.members.includes(m)) return;
       if (m.squad && m.squad !== this) m.squad.remove(m);
       m.squad = this; this.members.push(m); this.initial = Math.max(this.initial, this.members.length);
-      if (!m.orders) m.orders = { role: 'idle', job: 'idle', target: new THREE.Vector3(), hasTarget: false, fire: false, hold: false, at: false, side: 0, element: 0, mv: 0, arrivedT: 0, flankAng: 0 };
+      if (!m.orders) m.orders = { role: 'idle', job: 'idle', target: new THREE.Vector3(), hasTarget: false, fire: false, hold: false, at: false, side: 0, element: 0, mv: 0, arrivedT: 0, flankAng: 0,
+        sector: new THREE.Vector3(), hasSector: false, covering: null, frag: 0, saidMove: 0 };
+      else if (!m.orders.sector) { m.orders.sector = new THREE.Vector3(); m.orders.hasSector = false; m.orders.covering = null; m.orders.frag = 0; m.orders.saidMove = 0; }
       this.file.length = 0;
       if (!this.leaderRef) this.electLeader();
     }
@@ -171,44 +234,71 @@ export function createSquads(ctx) {
       return this.file;
     }
 
+    // ---- the radio ----
+    // One place where a squad makes a noise on purpose. Everything the squad decides that the player could
+    // reasonably be given a chance to react to goes through here FIRST, a beat before it happens.
+    say(kind, from, mult = 1) {
+      const c = CALLS[kind] || CALLS.update;
+      const m = from && from.alive ? from : this.members.find((x) => x.alive && !x.stalker);
+      if (!m || m.stalker) return false;
+      this.lastSay = kind; this.saidT = ctx.elapsed;
+      m.sound('mimic_radio', { gain: c.gain * mult, max: c.max, rate: c.rate * (0.98 + rng() * 0.04) });
+      this.radioT = Math.max(this.radioT, 1.4);
+      return true;
+    }
+
     // ---- shared knowledge ----
-    know(pos, t) { if (t <= this.lastKnownT) return; this.lastKnown.copy(pos); this.lastKnownT = t; this.hasKnown = true; }
+    // `r` is how wide the guess is. A sighting is 0; a call relayed across the squad widens as it travels and
+    // keeps widening as it ages, which is what turns an assault into a sweep.
+    know(pos, t, r = 0) { if (t <= this.lastKnownT) return; this.lastKnown.copy(pos); this.lastKnownT = t; this.hasKnown = true; this.knownR = r; }
+    // how wrong the shared picture is right now (metres). Read by assignJobs to spread the sectors out.
+    spread() { return this.eyesOn ? 0 : Math.min(26, this.knownR + Math.max(0, ctx.elapsed - this.lastKnownT) * 0.8); }
     // A sighting is called in, not broadcast. The caller keys the radio (a delay), the squad's shared picture
     // updates, and each other man hears it after a delay of his own — farther away is later, and at low
     // standing some of them miss the first call entirely and get it on the repeat.
-    report(pos, kind, from) {
+    report(pos, kind, from, radius = 0) {
       const t = ctx.elapsed, sk = this.skill;
       const gate = kind === 'contact' ? 1.2 : kind === 'update' ? 2.6 : 2.0;
       if (t < this.callT + gate) return false;
       this.callT = t;
       const base = (kind === 'contact' ? 0.7 : 0.45) * lerp(1.4, 0.55, sk);
       const shared = new THREE.Vector3(pos.x, pos.y, pos.z);
-      this.pending.push({ m: null, pos: shared, at: t + base, level: 1, slot: 0 });
-      let i = 1;
+      this.pending.push({ m: null, pos: shared, at: t + base, level: 1, slot: 0, r: radius });
+      let i = 1, heard = 0;
       for (const m of this.members) {
         if (!m.alive || m === from) continue;
         const d = from ? m.position.distanceTo(from.position) : 25;
+        // a handset is not telepathy: past its reach a man simply does not get the call, and the squad
+        // manoeuvres without him until somebody walks close enough to tell him.
+        if (d > RADIO_R) continue;
         let delay = base + 0.3 + d * lerp(0.022, 0.008, sk) + rng.range(0, 0.5);
         if (rng() > lerp(0.7, 0.97, sk)) delay += rng.range(1.5, 3.5);   // missed the first call
-        this.pending.push({ m, pos: shared, at: t + delay, level: kind === 'contact' ? 0.65 : 0.5, slot: i++ });
+        // a grid reference read off a map over a radio is worth less than what the caller saw
+        const rr = radius + (kind === 'contact' ? 1.5 : 3) + d * 0.02;
+        this.pending.push({ m, pos: shared, at: t + delay, level: kind === 'contact' ? 0.65 : 0.5, slot: i++, r: rr });
+        heard++;
       }
-      if (from && !from.stalker) from.sound('mimic_radio', { gain: 0.8, max: 90, rate: kind === 'contact' ? 1.12 : 0.98 });
-      this.radioT = Math.max(this.radioT, 1.6);
+      // the call itself: the noise the player can hear, made before anything happens because of it
+      this.say(kind === 'contact' ? 'contact' : kind === 'update' ? 'update' : 'heard', from || null);
+      this.contactKind = kind === 'contact' ? (from ? 'seen' : 'told') : kind === 'update' ? 'told' : 'heard';
+      this.heardBy = heard;
       return true;
     }
-    // a delivered call puts a man onto a *sector* of the called position, not onto the position itself
+    // A delivered call puts a man onto a SECTOR of the called position, not onto the position itself, and the
+    // sector is as wide as the call was vague: a squad told "somewhere by the barn" fans out across the barn.
     deliver(t) {
       for (let i = this.pending.length - 1; i >= 0; i--) {
         const r = this.pending[i];
         if (r.at > t) continue;
         this.pending.splice(i, 1);
-        if (!r.m) { this.know(r.pos, t); if (this.state === 'idle') this.enterAlert(); continue; }
+        if (!r.m) { this.know(r.pos, t, r.r || 0); if (this.state === 'idle') this.enterAlert(); continue; }
         const m = r.m; if (!m.alive || m.stunned > 0) continue;
         if (m.aware < r.level) m.aware = r.level;
         if (!m.lastSeenPlayer) m.lastSeenPlayer = new THREE.Vector3();
-        const a = r.slot * 2.3999632 + this.id * 0.7, rad = 3.5 + (r.slot % 3) * 3.5;
+        const a = r.slot * 2.3999632 + this.id * 0.7, rad = 3.5 + (r.slot % 3) * 3.5 + (r.r || 0) * 0.8;
         if (!walkable(r.pos.x + Math.cos(a) * rad, r.pos.z + Math.sin(a) * rad, _v)) _v.copy(r.pos);
         m.lastSeenPlayer.copy(_v); m.lastSeenT = t;   // >= lastKnownT, so his own sector wins over the squad's point
+        if (m.beliefR != null) m.beliefR = Math.max(m.beliefR, rad * 0.5);
       }
     }
     // kept for seeker.js and anything else that wants the squad pointed at a place
@@ -218,24 +308,28 @@ export function createSquads(ctx) {
       if (kind === 'spotted') { this.report(ctx.player.position, 'contact', m); if (!this.inCombat) this.enterCombat(); }
       else if (kind === 'hit') {
         // shot at from somewhere he was not looking: he calls in a direction, not a grid reference
-        if (m && m.aware < 0.6) { const j = 6 + rng() * 6; _v.set(ctx.player.position.x + rng.range(-j, j), ctx.player.position.y, ctx.player.position.z + rng.range(-j, j)); this.report(_v, 'contact', m); }
+        if (m && m.aware < 0.6) { const j = 6 + rng() * 6; _v.set(ctx.player.position.x + rng.range(-j, j), ctx.player.position.y, ctx.player.position.z + rng.range(-j, j)); this.report(_v, 'contact', m, j); }
         else this.report(ctx.player.position, 'contact', m);
         if (!this.inCombat) this.enterCombat();
         this.morale = Math.max(0, this.morale - 0.03);
       } else if (kind === 'killed') this.onKilled(m, t);
     }
     onKilled(m, t) {
-      if (!this.inCombat) { this.report(m.position, 'call', null); this.enterAlert(); }   // they know where he fell
+      if (!this.inCombat) { this.report(m.position, 'call', null, 8); this.enterAlert(); }   // they know where he fell
       this.morale = Math.max(0, this.morale - 0.2);
+      // a man goes down and somebody says so — you hear it, and you hear what it costs them
+      this.say('down', this.members.find((x) => x.alive && x !== m) || null);
       if (m === this.leaderRef) {
-        // the man giving the orders is gone: nobody flanks, nobody bounds, everyone gets behind something
+        // The man giving the orders is gone. Nobody flanks, nobody bounds, everyone gets behind something,
+        // and the squad stays disorganised until somebody else has the picture: `org` is what the rest of
+        // this file multiplies its plans by, so killing the leader visibly costs them a manoeuvre.
         this.leaderRef = null;
         this.shaken = lerp(9, 3.5, this.skill);
+        this.org = 0.2;
         this.morale = Math.max(0, this.morale - 0.2);
-        this.bounding = false;
+        this.bounding = false; this.flankSet = false; this.flankT = -1e9;
         for (const x of this.members) if (x.alive && x !== m) { x.cooldown = Math.max(x.cooldown || 0, rng.range(0.4, 1.1)); }   // a beat of hesitation
-        const c = this.members.find((x) => x.alive && x !== m);
-        if (c) c.sound('mimic_radio', { gain: 0.95, max: 110, rate: 1.28 });
+        this.say('hold', this.members.find((x) => x.alive && x !== m) || null, 1.1);
       }
       this.roleT = 0; this.file.length = 0;
     }
@@ -247,9 +341,10 @@ export function createSquads(ctx) {
     standDown(hard = false) {
       this.state = 'idle'; this.combatT = 0; this.reinforceCalled = false; this.regrouped = false;
       this.bounding = false; this.shaken = 0; this.pending.length = 0;
+      this.flankSet = false; this.flankT = -1e9; this.fixing = 0; this.contactKind = 'none'; this.knownR = 0;
       for (const m of this.members) {
         const o = m.orders;
-        if (o) { o.role = 'idle'; o.job = 'idle'; o.hasTarget = false; o.fire = false; o.hold = false; o.at = false; o.side = 0; o.element = 0; o.mv = 0; }
+        if (o) { o.role = 'idle'; o.job = 'idle'; o.hasTarget = false; o.fire = false; o.hold = false; o.at = false; o.side = 0; o.element = 0; o.mv = 0; o.hasSector = false; o.covering = null; o.frag = 0; o.saidMove = 0; }
         if (!m.alive) continue;
         if (hard) { m.aware = Math.min(m.aware, 0.22); m.engaged = false; m.target = null; if (m.state === 'engage' || m.state === 'search') m.setState('patrol'); }
       }
@@ -276,15 +371,35 @@ export function createSquads(ctx) {
       this.shaken = Math.max(0, this.shaken - dt);
       this.coolT = Math.max(0, this.coolT - dt);
       this.grenadeT = Math.max(0, this.grenadeT - dt);
+      // organisation: with somebody running it a squad manoeuvres, without one it hugs cover. It comes back
+      // over ten to twenty seconds as the next man takes the picture up — never instantly.
+      const hadLeader = !!this.leader;
       if (!this.leader && alive > 0) this.electLeader();
+      this.org = clamp01(this.org + dt * (this.leader ? (hadLeader ? 0.5 : 0.075) : -0.4));
       this.deliver(t);
       if (this.state === 'idle' && stale) this.standDown();   // orders never outlive the fight
 
       // eyes on: the shared picture is refreshed on a radio rhythm, so it always trails the truth a little
       if (this.eyesOn) {
         this.knowT -= dt;
-        if (this.knowT <= 0) { this.knowT = lerp(1.5, 0.5, this.skill); this.know(seer.lastSeenPlayer, t); }
+        if (this.knowT <= 0) { this.knowT = lerp(1.5, 0.5, this.skill); this.know(seer.lastSeenPlayer, t, 0); this.contactKind = 'seen'; }
         if (!this.inCombat) this.enterCombat();
+      } else if (this.contactKind === 'seen' && t - this.lastKnownT > 2.5) this.contactKind = 'told';
+      // Who is fixing him. A flank only means anything if the base is shooting: this counts the men of the
+      // base element who actually have a line onto the called position right now, and when it hits zero the
+      // flanking element stops walking and gets down, because nothing is holding the player's head down.
+      this.sectorT -= dt;
+      if (this.sectorT <= 0) {
+        this.sectorT = 0.5;
+        let fix = 0;
+        for (const m of this.members) {
+          if (!m.alive || !m.orders) continue;
+          if (m.orders.job !== 'point' && m.orders.job !== 'support') continue;
+          if (!m.orders.fire) continue;
+          if (t - (m.losT ?? -1e9) < 2.5 || t - (m.lastVisT ?? -1e9) < 2.5) fix++;
+        }
+        this.fixing = fix;
+        if (fix > 0) this.fixT = t;
       }
       // a man who has a fresh sighting and has not called it in yet calls it in
       if (this.inCombat || this.state === 'alert') {
@@ -301,7 +416,8 @@ export function createSquads(ctx) {
         if (s > 0.05) {
           const d = this.centroid.distanceTo(p.position), j = d * lerp(0.1, 0.03, this.skill);
           _v.set(p.position.x + rng.range(-j, j), p.position.y, p.position.z + rng.range(-j, j));
-          this.report(_v, 'call', null);
+          this.report(_v, 'call', null, j);
+          this.contactKind = 'heard';
           if (this.state === 'idle') this.enterAlert();
         }
       }
@@ -339,7 +455,35 @@ export function createSquads(ctx) {
         // a man who has reached his cover is down and firing again; he does not wait for the next order
         for (const m of this.members) {
           const o = m.orders; if (!o || !m.alive) continue;
-          if (!o.hasTarget && o.element === this.movingElement && (o.job === 'point' || o.job === 'support')) { o.role = 'base'; o.fire = true; o.hold = true; }
+          if (!o.hasTarget && o.element === this.movingElement && (o.job === 'point' || o.job === 'support')) {
+            o.role = 'base'; o.fire = true; o.hold = true;
+            if (o.saidMove === 1) { o.saidMove = 0; this.say('set', m, 0.8); }
+          }
+        }
+      }
+      // ---- the grenade the squad decides on, not the man ----
+      // You are in a hole they cannot shoot into. Walking in after you is how they lose two men, so they do
+      // the other thing: the leader picks whoever is best placed and posts one in. The order is a call on the
+      // radio and the throw is a second behind it, so the frag is always something you were told about first.
+      if (this.state === 'combat' && this.grenadeT <= 0 && this.org > 0.5 && this.leader && this.shaken <= 0 && !p.dead && !p.inBase) {
+        const held = api.playerHoldT;
+        const stuck = this.fixing === 0 && t - this.lastKnownT < 9 && this.hasKnown;
+        if (held > lerp(9, 4, this.skill) && (stuck || (this.combatT > 12 && this.morale < 0.8))) {
+          let best = null, bs = -1;
+          for (const m of this.members) {
+            if (!m.alive || m.grenades <= 0 || m.stalker || m.stunned > 0 || !m.orders) continue;
+            if (m.orders.frag > t) { best = null; break; }
+            const dd = m.position.distanceTo(this.aim);
+            if (dd < 7 || dd > 28) continue;
+            const s = 30 - Math.abs(dd - 16) - (m.orders.job === 'flanker' ? 12 : 0);
+            if (s > bs) { bs = s; best = m; }
+          }
+          if (best) {
+            best.orders.frag = t + 1.05;               // the mimic reads this and pulls the pin when it passes
+            this.grenadeT = GRENADE_CD * lerp(1.1, 0.55, this.skill);
+            this.fragOrders++;
+            this.say('grenade', best);
+          }
         }
       }
 
@@ -403,6 +547,9 @@ export function createSquads(ctx) {
         if (inFrustum(c.x, c.y + 0.9, c.z, 60)) return null;
         let s = dp * 0.5 - dm * 0.15;
         if (this.poi) s += (1 - clamp01(Math.hypot(c.x - this.poi.x, c.z - this.poi.z) / (this.poi.r + 30))) * 30 * sk;
+        // A field between them and you is a wall you have to walk round and they do not. They know where the
+        // fields are; whether you do is your problem.
+        if (anomalyOnLine(A.x, A.z, c.x, c.z, 3)) s += 45 * sk;
         return s;
       }, false, 1.2, this.aimEye);
       if (c) this.retreat.copy(c);
@@ -423,15 +570,19 @@ export function createSquads(ctx) {
       _dir.set(this.centroid.x - A.x, 0, this.centroid.z - A.z);
       if (_dir.lengthSq() < 0.1) _dir.set(rng.range(-1, 1), 0, rng.range(-1, 1));
       _dir.normalize();
+      // a line of retreat with a field across it is worth two more men: try those first
       let got = false;
-      for (const r of [80, 62, 45, 30]) {
-        const a = Math.atan2(_dir.z, _dir.x) + rng.range(-0.5, 0.5);
-        if (walkable(this.centroid.x + Math.cos(a) * r, this.centroid.z + Math.sin(a) * r, this.retreat)) { got = true; break; }
+      for (let pass = 0; pass < 2 && !got; pass++) {
+        for (const r of [80, 62, 45, 30]) {
+          const a = Math.atan2(_dir.z, _dir.x) + rng.range(-0.6, 0.6);
+          const rx = this.centroid.x + Math.cos(a) * r, rz = this.centroid.z + Math.sin(a) * r;
+          if (pass === 0 && !anomalyOnLine(A.x, A.z, rx, rz, 3)) continue;
+          if (walkable(rx, rz, this.retreat)) { got = true; break; }
+        }
       }
       if (!got) this.retreat.copy(this.centroid).addScaledVector(_dir, 25);
       this.spreadOnto(this.retreat, 'breakoff', 4);
-      const m = this.members.find((x) => x.alive);
-      if (m) m.sound('mimic_radio', { gain: 0.95, max: 120, rate: 1.3 });
+      this.say('falling', this.members.find((x) => x.alive) || null);
     }
     breakoffTick(dt, alive) {
       this.breakT += dt;
@@ -495,9 +646,16 @@ export function createSquads(ctx) {
       let hasPoint = false; for (const j of jobs.values()) if (j === 'point') hasPoint = true;
       if (!hasPoint && free.length) { jobs.set(free.shift(), 'point'); hasPoint = true; }   // nearest man takes point
       if (n >= 4 && free.length) jobs.set(free.pop(), 'overwatch');              // farthest hangs back and watches
-      // flankers: a squad that can spare men sends them round, and sends more as the zone gets deeper
-      const wantFlank = n <= 2 ? 0 : Math.min(free.length - 1, sk > 0.55 ? 2 : sk > 0.15 ? 1 : 0);
+      // ---- the flanking ELEMENT ----
+      // Two men going round on opposite bearings are two men walking into two different fights. One side is
+      // chosen for the element and kept for the whole contact; both walk the same arc, and neither of them
+      // steps off until the base is actually shooting (see `fixed` below). A squad without a leader does not
+      // send anybody anywhere.
+      const t = ctx.elapsed;
+      const wantFlank = n <= 2 || this.org < 0.45 ? 0 : Math.min(free.length - 1, sk > 0.55 && this.org > 0.75 ? 2 : sk > 0.15 ? 1 : 0);
+      if (wantFlank > 0 && t - this.flankT > 30) { this.flankSide = rng() < 0.5 ? 1 : -1; this.flankT = t; this.flankSet = false; }
       for (let i = 0; i < wantFlank; i++) jobs.set(free.pop(), 'flanker');
+      this.flankers = wantFlank;
       for (const m of free) jobs.set(m, 'support');
       if (n === 1) jobs.set(members[0], 'point');
 
@@ -506,13 +664,19 @@ export function createSquads(ctx) {
       const movers = [];
       for (const [m, j] of jobs) if (j === 'point' || j === 'support') movers.push(m);
       const gap = this.centroid.distanceTo(A);
-      const wantBound = movers.length >= 2 && sk >= 0.18 && gap > 20 && this.morale > 0.45;
-      this.groups = movers.length >= 3 ? 3 : 2;
+      const wantBound = movers.length >= 2 && sk >= 0.18 && gap > 20 && this.morale > 0.45 && this.org > 0.5;
+      this.groups = 2;   // two elements: one crosses, one covers. Three elements is nobody covering anybody.
       if (wantBound && !this.bounding) { this.bounding = true; this.boundT = lerp(6.5, 3.5, sk); this.movingElement = 0; }
       else if (!wantBound) this.bounding = false;
+      // the men nearest the contact hold; the ones behind them come up. Split by distance, not by list order.
       if (this.bounding) { this.movingElement %= this.groups; for (let i = 0; i < movers.length; i++) movers[i].orders.element = i % this.groups; }
 
-      let flankSide = rng() < 0.5 ? 1 : -1;
+      // sectors are handed out fresh each plan: a man only holds an arc while somebody is actually crossing it
+      for (const m of members) if (m.orders) { m.orders.hasSector = false; m.orders.covering = null; }
+      // the base has to be shooting before anybody walks. `fixT` is the last time a man of the base element
+      // had a live line on the called position.
+      const fixed = this.fixing > 0 || t - this.fixT < 3.5;
+
       // Picking a firing position is a handful of line-of-sight rays; doing it for five men at once is a
       // visible hitch on a handset. Two men are repositioned a tick, round robin — plus anyone whose job
       // has just changed and anyone whose turn it is to move. The rest keep the orders they have, which is
@@ -526,19 +690,57 @@ export function createSquads(ctx) {
         const line = job === 'point' || job === 'support';
         const mv = this.bounding && line ? (o.element === this.movingElement ? 1 : 2) : 0;
         const was = o.mv | 0; o.mv = mv;
-        if (mv === 2 && was === 1) { o.role = 'base'; o.fire = true; o.hold = true; continue; }
+        if (mv === 2 && was === 1) { o.role = 'base'; o.fire = true; o.hold = true; if (o.saidMove === 1) { o.saidMove = 0; this.say('set', m, 0.8); } continue; }
         const changed = prev !== job || (mv === 1 && was !== 1);
         const turn = seat++ === cursor % members.length;
         if (!changed && !turn && o.hasTarget) continue;
         if (!changed && budget-- <= 0) continue;
         if (job === 'flanker') {
-          if (prev !== 'flanker' || o.side === 0) { o.side = flankSide; flankSide = -flankSide; o.arrivedT = 0; }
+          if (prev !== 'flanker') { o.arrivedT = 0; o.saidMove = 0; }
+          o.side = this.flankSide;
+          if (!fixed && !o.at) { o.role = 'base'; o.fire = true; o.hold = true; o.hasTarget = false; continue; }   // nothing pinning him: stay put and shoot
           this.orderFlank(m, o);
+          if (o.hasTarget && !o.at && o.saidMove !== 2) { o.saidMove = 2; this.say('flanking', m); }
         } else if (job === 'overwatch') this.orderOverwatch(m, o);
-        else if (mv === 1) this.orderAdvance(m, o);
-        else this.orderHold(m, o, job === 'point');
+        else if (mv === 1) {
+          this.orderAdvance(m, o);
+          // A bound nobody can cover is not a bound, it is a man running across a road on his own. A green
+          // squad does it anyway; anything above that stays where it is and keeps shooting until it can be
+          // covered — which is why a good squad advances in rushes and a bad one dies in the open.
+          if (this.coverBound(m, o) || sk < 0.25) {
+            if (o.hasTarget && o.saidMove !== 1) { o.saidMove = 1; this.say('moving', m, 0.85); }
+          } else {
+            this.boundsRefused++;
+            o.role = 'base'; o.fire = true; o.hold = true; o.hasTarget = false; o.mv = 2; o.saidMove = 0;
+          }
+        } else this.orderHold(m, o, job === 'point');
       }
       this.posCursor = (cursor + 1) % Math.max(1, members.length);
+    }
+
+    // Is the ground this man is about to cross covered by somebody? Finds a stationary member with a line onto
+    // the middle of the lane, hands HIM that arc as a sector (so he faces it, and puts rounds down it when he
+    // cannot see the player), and returns whether the bound may go ahead. Three rays at most.
+    coverBound(mover, o) {
+      if (!o.hasTarget) return false;
+      const w = ctx.world;
+      _lane.set((mover.position.x + o.target.x) * 0.5, 0, (mover.position.z + o.target.z) * 0.5);
+      _lane.y = w.groundHeight(_lane.x, _lane.z, mover.position.y + 3).y + 1.1;
+      let tried = 0;
+      for (const c of this.members) {
+        if (!c.alive || c === mover || !c.orders) continue;
+        const j = c.orders.job;
+        if (j !== 'point' && j !== 'support' && j !== 'overwatch') continue;
+        if (c.orders.mv === 1) continue;                      // he is crossing too; he covers nobody
+        if (c.position.distanceTo(_lane) > 80) continue;
+        if (tried++ >= 3) break;
+        if (!w.lineOfSight(_from.set(c.position.x, c.position.y + 1.5, c.position.z), _lane)) continue;
+        o.covering = c;
+        c.orders.sector.copy(_lane); c.orders.hasSector = true;
+        this.bounds++;
+        return true;
+      }
+      return false;
     }
 
     // base of fire: cover with a line of sight onto the called position, at the band this man's gun likes
@@ -568,6 +770,7 @@ export function createSquads(ctx) {
         if (dm < 2) return null;
         const dp = Math.hypot(c.x - A.x, c.z - A.z);
         if (dp > dA - 4 || dp < 7) return null;
+        if (anomalyOnLine(m.position.x, m.position.z, c.x, c.z)) return null;   // not through the field
         return -Math.abs(dp - want) * 0.14 - dm * 0.05;
       }, null);
       if (c) { o.target.copy(c); o.hasTarget = true; if (!m.cover) m.cover = new THREE.Vector3(); m.cover.copy(c); return; }
@@ -610,16 +813,19 @@ export function createSquads(ctx) {
       const ma = Math.atan2(m.position.z - A.z, m.position.x - A.x);
       const dA = angleDelta(ma, ta);
       o.flankAng = ta;
-      const there = Math.abs(dA) < 24 * DEG && m._dA < 28 && m._dA > 5;
+      const there = Math.abs(dA) < 26 * DEG && m._dA < 30 && m._dA > 5;
       if (there) {
-        o.role = 'flank'; o.fire = true; o.hold = true; o.at = true;
+        // On the arc. He is a flanker in position from this moment, whether or not he shuffles a few metres
+        // onto a better rock — `at` is what the squad counts, and what says the manoeuvre worked.
+        o.role = 'flank'; o.fire = true; o.hold = true;
+        if (!o.at) { o.at = true; o.arrivedT = ctx.elapsed; this.flankSet = true; this.say('set', m, 0.9); }
         if (m.cover && m.position.distanceTo(m.cover) < 2) { o.target.copy(m.cover); o.hasTarget = true; return; }
         const c = bestCover(m.position, 13, (c, dm) => {
           const dp = Math.hypot(c.x - A.x, c.z - A.z); if (dp < 5 || dp > 28) return null;
           const ca = Math.atan2(c.z - A.z, c.x - A.x);
           return -Math.abs(angleDelta(ca, ta)) * 4 - dm * 0.1;
         }, true, 1.5, this.aimEye);
-        if (c) { o.target.copy(c); o.hasTarget = true; if (!m.cover) m.cover = new THREE.Vector3(); m.cover.copy(c); o.at = false; }
+        if (c) { o.target.copy(c); o.hasTarget = true; if (!m.cover) m.cover = new THREE.Vector3(); m.cover.copy(c); }
         else o.hasTarget = false;
         return;
       }
@@ -632,6 +838,7 @@ export function createSquads(ctx) {
         const gain = Math.abs(dA) - Math.abs(angleDelta(ca, ta));
         if (gain < 6 * DEG && Math.abs(dp - ringD) >= Math.abs(m._dA - ringD) - 1) return null;
         if (inFrustum(c.x, c.y + 0.9, c.z, 50)) return null;    // the whole chain stays out of the player's view
+        if (anomalyOnLine(m.position.x, m.position.z, c.x, c.z)) return null;
         return gain * 5 - Math.abs(dp - ringD) * 0.1 - dm * 0.05;
       }, null);
       if (c) { o.target.copy(c); o.hasTarget = true; return; }
@@ -791,6 +998,8 @@ export function createSquads(ctx) {
       const s = m.squad;
       if (!s) return (m.grenadeCool || 0) <= 0;
       if (s.state === 'ambush' || s.state === 'breakoff' || s.shaken > 0) return false;
+      // an order from the squad outranks the cooldown it just set for itself
+      if (m.orders && m.orders.frag > 0 && ctx.elapsed >= m.orders.frag && ctx.elapsed < m.orders.frag + 8) return true;
       return s.grenadeT <= 0;
     },
     throwGrenade(m, from, target, grenadeId) {

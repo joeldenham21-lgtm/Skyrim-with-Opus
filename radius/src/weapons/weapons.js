@@ -8,7 +8,7 @@ import * as gunmesh from './gunmesh.js';
 import { WEAPONS, AMMO, MAGAZINES, CALIBERS, def as defOf, defaultAmmo } from '../data/index.js';
 import { weaponEffects } from '../player/inventory.js';
 import { buildMeleeMesh } from '../player/hands.js';
-import { clamp, clamp01, damp, lerp, easeInOut, DEG } from '../core/math.js';
+import { clamp, clamp01, damp, lerp, easeInOut, DEG, TAU } from '../core/math.js';
 
 const ADS_FOV_K = 58 / 75;                 // iron sights: 75 -> 58
 const CASINGS = 24;
@@ -17,6 +17,19 @@ const RANGE_BY_CLS = { pistol: 50, smg: 80, rifle: 200, shotgun: 25, sniper: 400
 const HOLD_OPEN = new Set(['pm', 'aps', 'tt', 'glock', 'm9', 'm1911', 'ar', 'sks', 'svd', 'sv98']);   // families whose action locks back on empty
 const SHOT_FALLBACK = { pistol: ['shot_pm', 1], smg: ['shot_pm', 1.12], rifle: ['shot_akm', 1], shotgun: ['shot_toz', 1], sniper: ['shot_mosin', 1], mg: ['shot_akm', 0.92] };
 const MODE_LABEL = { semi: 'SEMI', auto: 'AUTO', burst: 'BURST', bolt: 'BOLT', pump: 'PUMP', break: 'BREAK' };
+// Sight zero by class: where the round is set to cross the line of sight. An optic moves it out.
+const ZERO_BY_CLS = { pistol: 25, smg: 50, shotgun: 20, rifle: 100, mg: 150, sniper: 200 };
+// How much of the muzzle climb the shooter gets back for free once the string ends. The rest is his to correct.
+const RECOVER = 0.78;
+// Stoppages are not all the same job. A fouled gun stovepipes, a worn bolt fails to feed, and the two
+// together give you the one that costs you the magazine.
+const JAM_KIND = {
+  stovepipe: { t: 1.0, label: 'STOVEPIPE', hint: 'Spent case caught in the port. Clear it (R).' },
+  feed: { t: 1.7, label: 'FAILURE TO FEED', hint: 'The round did not chamber. Rack the action (R).' },
+  double: { t: 2.6, label: 'DOUBLE FEED', hint: 'Two rounds on the feed ramp. Strip it and clear it (R) — you will lose them.' },
+};
+const hash1 = (n) => { let x = Math.imul(n | 0, 374761393) + 668265263; x = Math.imul(x ^ (x >>> 13), 1274126177); return ((x ^ (x >>> 16)) >>> 0) / 4294967296; };
+const seedOf = (str) => { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
 const KIND_LABEL = { fmj: 'FMJ', hp: 'HP', ap: 'AP', sub: 'SUB', tracer: 'TR', buck: 'BUCK', slug: 'SLUG', flechette: 'FLECH' };
 // per calibre: [diameter, length, r, g, b]  (Soviet rifle cases are lacquered steel, shotgun hulls red plastic)
 const CASE = {
@@ -40,6 +53,10 @@ export function createWeapons(ctx) {
   let pendingSwitch = null, pendingSlot = null, pendingHolster = false, userHolstered = false;
   let pendingMag = null, reloadK = 1, shellsToLoad = 0, spent = 0, loadTarget = null, burstLeft = 0;
   let scopeShown = false, nvgSet = false, bipodActive = false, lastStatus = '';
+  // recoil pattern state: where in the string we are, and how much climb is still owed back
+  let recShots = 0, recIdle = 9, recPitch = 0, recYaw = 0;
+  // barrel heat (0 cold .. >1 glowing) and the fixed zero error this particular weapon has worn in
+  let heat = 0, biasX = 0, biasY = 0, hotHinted = false;
 
   // ---- ejected casings: one instanced mesh, pooled ----
   const casingMesh = new THREE.InstancedMesh(gunmesh.casingGeometry(), gunmesh.materials().brass, CASINGS);
@@ -166,7 +183,7 @@ export function createWeapons(ctx) {
     const typeId = isBreak() ? w.tube[0] : (w.chamber || w.mag?.ammo || w.tube?.[0] || pref);
     const type = `${ammoLabel(typeId)} · ${MODE_LABEL[mode()] || ''}`;
     let extra = '';
-    if (w.jammed && stage !== 'unjam') extra = '<div class="jam">JAMMED</div>';
+    if (w.jammed && stage !== 'unjam') extra = `<div class="jam">${(JAM_KIND[w.jamKind] || { label: 'JAMMED' }).label}</div>`;
     else if (stage === 'unjam') extra = '<div class="state">clearing</div>';
     else if (state === 'loading') extra = '<div class="state">loading magazine</div>';
     else if (state === 'reloading' || state === 'breaking') extra = '<div class="state">reloading</div>';
@@ -182,7 +199,22 @@ export function createWeapons(ctx) {
     const html = parts.join('<br>');
     if (html !== lastStatus) { lastStatus = html; hud.setStatusExtra(html, 'weapons'); }
   }
-  function recomputeFx() { fx = rec ? weaponEffects(rec) : null; }
+  function recomputeFx() { fx = rec ? weaponEffects(rec) : null; recomputeBias(); }
+  // Where this particular weapon actually shoots. A worn barrel and a fouled bore do not spray at random:
+  // they walk the group off centre, and they always walk it the same way for the same gun, so a shooter who
+  // knows his rifle can hold off — and a new one out of the crate is honest again.
+  function recomputeBias() {
+    if (!rec) { biasX = biasY = 0; return; }
+    const s = seedOf(String(rec.uid || rec.id));
+    const off = (1 - clamp01((rec.parts?.barrel ?? 100) / 100)) * 0.0024 + (rec.dirt || 0) * 0.0009;
+    biasX = (hash1(s) * 2 - 1) * off; biasY = (hash1(s + 11) * 2 - 1) * off;
+  }
+  // The sight is set to cross the bore at this range. Irons stay close; glass reaches out.
+  function zeroRange() {
+    const d = def(); if (!d) return undefined;
+    const base = ZERO_BY_CLS[d.cls] ?? 60, z = fx ? fx.zoom : 1;
+    return z >= 3.5 ? Math.max(base, 250) : z >= 2 ? Math.max(base, 150) : base;
+  }
   function setLock() {
     if (!rec || !def()) { hands.setSlideLock(false); return; }
     hands.setSlideLock(holdsOpen() && !rec.chamber && !isInternal() && (!rec.mag || rec.mag.rounds === 0));
@@ -208,6 +240,7 @@ export function createWeapons(ctx) {
     meleeInst = meleeGear || null; meleeView = meleeInst ? makeMeleeView(meleeInst) : null; meleeHeld = !!meleeInst; quickReturn = null;
     recomputeFx();
     state = rec && rec.jammed ? 'jammed' : 'idle'; stage = null; timer = 0; burstLeft = 0; zoomHigh = true;
+    recShots = 0; recIdle = 9; recPitch = 0; recYaw = 0; heat = 0; hotHinted = false;
     mesh = rec ? meshFor(rec) : meleeInst ? meleeMeshFor(meleeInst.id) : null; meshSig = rec ? signature(rec) : null;
     hands.setWeaponMesh(mesh);
     if (mesh) { hands.playAnim('draw', 0.35); busy = 0.35; audio.play('weapon_draw', { gain: 0.6, rate: meleeInst ? 1.2 : 1 }); setLock(); applyLights(); syncSelector(); }
@@ -255,10 +288,17 @@ export function createWeapons(ctx) {
   function dryFire() { audio.play('dry_click', { gain: 0.7 }); hands.playAnim('dry', 0.12); cool = 0.25; refresh(true); }
   function misfire() { audio.play('dry_click', { gain: 0.8, rate: 0.85 }); hands.playAnim('dry', 0.14); cool = 0.4; hud.hint('Misfire. The round stays in the chamber.', 2200); refresh(true); }
   function jam() {
-    rec.jammed = true; state = 'jammed'; stage = null; timer = 0; burstLeft = 0;
-    audio.play('jam', { gain: 0.9 }); hands.playAnim('jam', 0.3);
+    const w = rec, dirt = w.dirt || 0, bolt = clamp01((w.parts?.bolt ?? 100) / 100), roll = Math.random();
+    // fouling throws cases badly, a worn bolt will not pick the next round up, and a gun with both
+    // eventually stacks two rounds on the ramp — the stoppage that costs you the magazine.
+    const kind = dirt > 0.6 && bolt < 0.6 && roll < 0.4 ? 'double' : bolt < 0.75 && roll < 0.55 ? 'feed' : 'stovepipe';
+    w.jammed = true; w.jamKind = kind;
+    state = 'jammed'; stage = null; timer = 0; burstLeft = 0;
+    audio.play('jam', { gain: 0.9, rate: kind === 'double' ? 0.85 : 1 }); hands.playAnim('jam', 0.3);
     ctx.events.emit('weaponJammed', view); refresh(true);
-    const f = ctx.state.data.flags; if (!f.jamHint) { f.jamHint = true; hud.hint('Committee advisory: a fouled action stops. Clear it (R). Strip and clean at the workbench.', 6000); }
+    const f = ctx.state.data.flags;
+    if (!f.jamHint) { f.jamHint = true; hud.hint('Committee advisory: a fouled action stops. Clear it (R). Strip and clean at the workbench.', 6000); }
+    else hud.hint(JAM_KIND[kind].hint, 3200);
   }
   function tryFire(edge) {
     if (meleeHeld) { if (edge) stab(); return; }
@@ -268,7 +308,10 @@ export function createWeapons(ctx) {
     const w = rec;
     if (!loaded()) { if (edge) { dryFire(); if ((isPump() || isBolt()) && roundsIn() > 0) hud.hint('Chamber empty. Cycle the action (R).', 2000); } return; }
     if (w.parts.frame < 30 && Math.random() < 0.05) { misfire(); return; }
-    const bolt = clamp01(w.parts.bolt / 100), jamP = 0.18 * w.dirt * w.dirt * w.dirt + 0.12 * (1 - bolt) * (1 - bolt);
+    const bolt = clamp01(w.parts.bolt / 100);
+    // fouling, a worn bolt, and a barrel too hot to touch. weaponEffects.jam is the bench's own figure.
+    const hot = Math.max(0, heat - 0.6);
+    const jamP = (0.18 * w.dirt * w.dirt * w.dirt + 0.12 * (1 - bolt) * (1 - bolt) + 0.10 * hot * hot) * (fx ? fx.jam : 1);
     if (Math.random() < jamP) { jam(); return; }
     fire();
   }
@@ -282,7 +325,15 @@ export function createWeapons(ctx) {
     if (pellets > 1) spread = (a.spread || 7) * lerp(1, 0.85, adsBlend) * (fx.moa > 1 ? Math.sqrt(fx.moa) : 1) + spreadDeg * 0.3;
     const range = d.range || RANGE_BY_CLS[d.cls] || 100;
     const noise = (a.noise || 1) * fx.noise;
-    ctx.ballistics.shoot(_o, _d, { ammo: a, damage: a.damage * (0.85 + 0.15 * clamp01(w.parts.barrel / 100)), range, spreadDeg: spread, pellets, tracer: !!a.tracer || d.cls === 'mg', cls: d.cls, source: 'player', kind: 'bullet', shooter: p, tracerFrom: _m, noise });
+    // A shot-out bore leaks gas past the round: less velocity at the muzzle, which the projectile model
+    // turns into less reach, more drop and less penetration by itself.
+    const barrel01 = clamp01(w.parts.barrel / 100);
+    const muzzleVelocity = (a.speed || 340) * (0.90 + 0.10 * barrel01) * (suppressed() ? 0.97 : 1);
+    ctx.ballistics.shoot(_o, _d, {
+      ammo: a, damage: a.damage * (0.85 + 0.15 * barrel01) * (fx.damage ?? 1), range, spreadDeg: spread, pellets,
+      tracer: !!a.tracer || d.cls === 'mg', cls: d.cls, source: 'player', kind: 'bullet', shooter: p,
+      tracerFrom: _m, noise, muzzleVelocity, zeroRange: zeroRange(), aimBias: [biasX, biasY], what: d.name,
+    });
     // consume the chambered round, then feed the next one from the magazine or the tube (auto-loaders)
     if (isBreak()) { w.tube.shift(); spent++; }
     else {
@@ -296,11 +347,21 @@ export function createWeapons(ctx) {
     const wear = d.wear * (a.kind === 'ap' ? 1.3 : 1) * fx.wear;
     w.parts.barrel = Math.max(0, w.parts.barrel - wear * 0.5); w.parts.bolt = Math.max(0, w.parts.bolt - wear * 0.35); w.parts.frame = Math.max(0, w.parts.frame - wear * 0.15);
     w.dirt = Math.min(1, w.dirt + 0.012 * (suppressed() ? 1.5 : 1) * (d.cal === '12ga' ? 1.4 : 1));
-    // recoil: pitch up with a little random yaw; steadier when aiming, crouched, braked or on the bipod
+    // heat: a barrel that has just had a magazine through it is a different barrel
+    heat = Math.min(1.6, heat + (d.cls === 'mg' ? 0.016 : 0.030) * (d.cal === '12ga' ? 1.3 : 1));
+    if (heat > 1 && !hotHinted) { hotHinted = true; hud.hint('The barrel is too hot to hold. Let it cool or it will stop.', 3200); }
+    // Recoil is a pattern, not a coin toss. The first round of a string throws the muzzle hardest, the climb
+    // flattens as the shooter loads into the weapon, and the horizontal walk is a fixed signature of this
+    // weapon design — the same AKM always pulls the same way, so the pattern can be learned and fought.
     const steady = lerp(1, 0.8, adsBlend) * (p.crouched ? 0.85 : 1) * fx.recoil * (bipodActive ? fx.proneRecoil : 1) * (ctx.damage?.steadyMul ?? 1) ** 0.5;
-    const pitch = d.recoil[0] * 0.012 * (0.85 + Math.random() * 0.3) * steady;
-    const yaw = d.recoil[1] * 0.0065 * (Math.random() - 0.5) * 2 * steady;
+    const seed = seedOf(d.id);
+    const n = recShots;
+    const rise = 0.62 + 0.78 / (1 + n * 0.30);
+    const walk = Math.sin(n * 0.55 + hash1(seed) * TAU) * 0.7 + Math.sin(n * 0.21 + hash1(seed + 7) * TAU) * 0.55;
+    const pitch = d.recoil[0] * 0.012 * (0.88 + Math.random() * 0.24) * rise * steady;
+    const yaw = d.recoil[1] * 0.0075 * (walk * 0.8 + (Math.random() - 0.5) * 0.55) * steady;
     p.kick(pitch, yaw); hands.kick(pitch, yaw);
+    recPitch += pitch * RECOVER; recYaw += yaw * RECOVER; recShots++; recIdle = 0;
     const auto = mode() === 'auto' || mode() === 'burst';
     bloom = Math.min(d.moa * 3, bloom + d.moa * (auto ? 0.42 : 0.7) * fx.recoil);
     if (fx.flash >= 0.3) ctx.vfx.muzzleFlash(_m, _d, fx.flash);
@@ -311,7 +372,7 @@ export function createWeapons(ctx) {
     ctx.director.notify('shot', { pos: _m, noise });
     ctx.state.data.stats.shots++;
     ctx.events.emit('weaponFired', view);
-    cool = 60 / d.rpm;
+    cool = 60 / Math.max(30, d.rpm * (fx.rpm ?? 1));
     if (isBolt()) { state = 'bolt'; timer = cycleTime(); stageDur = timer; cycleT = 0; cycleStep = 0; hands.playAnim('bolt', timer); audio.play('bolt_open', { gain: 0.7 }); }
     else if (isPump()) { state = 'pump'; timer = cycleTime(); stageDur = timer; cycleT = 0; cycleStep = 0; hands.playAnim('pump', timer); }
     else if (isBreak()) hands.playAnim('dry', 0.1);
@@ -337,7 +398,7 @@ export function createWeapons(ctx) {
   function reload() {
     if (meleeHeld || !rec || busy > 0) return;
     const w = rec;
-    if (state === 'jammed' && !stage) { state = 'jammed'; setStage('unjam', 1.2, 'unjam', 'unjam'); return; }
+    if (state === 'jammed' && !stage) { state = 'jammed'; setStage('unjam', (JAM_KIND[w.jamKind] || JAM_KIND.stovepipe).t, 'unjam', 'unjam'); return; }
     if (state !== 'idle') return;
     if (isBreak()) return breakReload();
     if (isTube()) return tubeReload();
@@ -473,7 +534,11 @@ export function createWeapons(ctx) {
         break;
       }
       case 'breakClose': finish(); break;
-      case 'unjam': w.jammed = false; w.dirt = Math.max(0, w.dirt - 0.05); finish(); break;
+      case 'unjam': {
+        // clearing a double feed means stripping the magazine: the chambered round and the one behind it are gone
+        if (w.jamKind === 'double') { w.chamber = null; if (w.mag && w.mag.rounds > 0) { w.mag.rounds--; if (!w.mag.rounds) w.mag.ammo = null; } }
+        w.jammed = false; w.jamKind = null; w.dirt = Math.max(0, w.dirt - 0.05); finish(); break;
+      }
       // T: loose rounds into a magazine
       case 'loadStart': setStage('loadRound', 0.6, null, 'loadRound'); break;
       case 'loadRound': {

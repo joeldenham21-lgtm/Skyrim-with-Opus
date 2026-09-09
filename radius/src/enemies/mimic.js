@@ -46,7 +46,7 @@ const _dir = new THREE.Vector3(), _right = new THREE.Vector3(), _upv = new THREE
 const _pole = new THREE.Vector3(), _axis = new THREE.Vector3(), _upper = new THREE.Vector3(), _elbow = new THREE.Vector3(), _fore = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _so = new THREE.Vector3(), _sd = new THREE.Vector3(), _sp = new THREE.Vector3(), _n = new THREE.Vector3();
-const _bel = new THREE.Vector3(), _aim = new THREE.Vector3(), _post = new THREE.Vector3();
+const _bel = new THREE.Vector3(), _aim = new THREE.Vector3(), _post = new THREE.Vector3(), _look = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 const _e = new THREE.Euler();
 const DOWN = new THREE.Vector3(0, -1, 0);
@@ -655,6 +655,21 @@ function playerHold(ctx) {
   HOLD.last = now; HOLD.t = now - HOLD.since;
   return HOLD.t;
 }
+// ---- the fields ----
+// A mimic has walked past these things every day of its life. It does not path into one, it does not take a
+// firing position inside one, and steering pushes it out of the edge of one — which means an anomaly is a wall
+// to them as well as to you, and a wall you can use: nothing following you goes through a gravity well.
+// Returns the anomaly whose radius (plus pad) contains the point, or null.
+export function anomalyNear(ctx, x, z, pad = 2) {
+  const list = ctx.anomalies && ctx.anomalies.list; if (!list || !list.length) return null;
+  for (let i = 0; i < list.length; i++) {
+    const a = list[i]; if (!a || !a.position) continue;
+    const r = (a.radius || 6) + pad;
+    if (Math.abs(a.position.x - x) > r || Math.abs(a.position.z - z) > r) continue;
+    if (Math.hypot(a.position.x - x, a.position.z - z) < r) return a;
+  }
+  return null;
+}
 // scratch for cover scoring; module-level so a pick allocates nothing
 const CAND = []; for (let i = 0; i < 8; i++) CAND.push({ c: null, s: 0 });
 let candN = 0;
@@ -737,6 +752,7 @@ class Mimic extends Enemy {
     this.shareT = -1e9; this.litT = -1e9; this.tacReloadT = 0;
     this.detour = new THREE.Vector3(); this.detourT = 0; this.stuckT = 0; this.nodeT = 0;
     this._mvTarget = new THREE.Vector3(); this._mvWanted = false;
+    this.lookPt = new THREE.Vector3(); this.lookValid = false;   // where it is actually looking (never through a wall)
     this.setState(this.stalker ? 'stalk' : opts.idle ? 'idle' : 'watch');
     this.waitT = rng.range(5, 16); this.lookT = rng.range(1, 3);
     this.root.position.copy(this.position); this.root.rotation.y = this.yaw; this.root.updateMatrixWorld(true);
@@ -983,6 +999,7 @@ class Mimic extends Enemy {
     const y = w.groundHeight(x, z, w.getHeight(x, z) + 2).y;
     if (w.pointInSolid(x, y + 0.6, z)) return null;
     if (w.isInBase(_v2.set(x, y, z))) return null;
+    if (anomalyNear(this.ctx, x, z, 2.2)) return null;   // it lives here; it does not walk into the fields
     return out.set(x, y, z);
   }
   pickPatrolPoint() {
@@ -1006,7 +1023,17 @@ class Mimic extends Enemy {
     const dist = Math.hypot(target.x - this.position.x, target.z - this.position.z);
     if (dist > 2.5) { this._mvWanted = true; this._mvTarget.copy(target); }
     if (this.detourT > 0 && dist > 3) { super.moveToward(this.detour, speed, dt, opts); return dist; }
-    return super.moveToward(target, speed, dt, opts);
+    const rem = super.moveToward(target, speed, dt, opts);
+    // hard guarantee, whatever the steering did: it does not end a step inside a field. If avoidance has
+    // pushed it into the edge of one, it is pushed straight back out along the radius.
+    const a = anomalyNear(this.ctx, this.position.x, this.position.z, 1.2);
+    if (a) {
+      const dx = this.position.x - a.position.x, dz = this.position.z - a.position.z;
+      const dl = Math.hypot(dx, dz) || 1, r = (a.radius || 6) + 1.2;
+      this.position.x = a.position.x + (dx / dl) * r; this.position.z = a.position.z + (dz / dl) * r;
+      this.stuckT = 1.2;   // and it counts as being stopped, so it looks for a way round rather than pressing on
+    }
+    return rem;
   }
   stuckTick(dt, moved) {
     const target = this._mvWanted ? this._mvTarget : null;
@@ -1057,6 +1084,7 @@ class Mimic extends Enemy {
       const c = cps[i];
       const dm = Math.hypot(c.x - this.position.x, c.z - this.position.z); if (dm > near || dm < 1.2) continue;
       const dp = Math.hypot(c.x - p.x, c.z - p.z); if (dp < lo || dp > hi) continue;
+      if (anomalyNear(ctx, c.x, c.z, 2.2)) continue;
       if (this.cover && !opts.force && Math.hypot(c.x - this.cover.x, c.z - this.cover.z) < 2) continue;
       const ang = Math.abs(angleDelta(curA, Math.atan2(c.z - p.z, c.x - p.x)));
       let s = -Math.abs(dp - mid) * 0.12 - dm * 0.06;
@@ -1312,8 +1340,13 @@ class Mimic extends Enemy {
   // it CANNOT see you, it knows which hole you went into, and you have been sitting in it. Willingness and the
   // patience it needs before it bothers are both on the curve; a recruit almost never throws.
   canThrowGrenade(d) {
-    const s = this.skill, ctx = this.ctx;
+    const s = this.skill, ctx = this.ctx, o = this.orders;
     if (this.grenades <= 0 || this.stunned > 0 || this.stalker) return false;
+    // the squad has told him to post one in (squad.js). The call went out a second ago; he does not re-decide.
+    if (o && o.frag > 0 && this.time >= o.frag) {
+      if (this.time > o.frag + 8 || d < 5 || d > 34 || !this.lastSeenPlayer || this.time - this.lastSeenT > 12) { o.frag = 0; return false; }
+      return true;
+    }
     if (d < 6 || d > 28) return false;
     const sq = ctx.squads;
     if (sq && !sq.canThrow(this)) return false;
@@ -1329,6 +1362,7 @@ class Mimic extends Enemy {
   }
   beginGrenade() {
     this.grenadeT = 0; this.burstLeft = 0; this.aiming = false;
+    if (this.orders) this.orders.frag = 0;
     const at = this.time - this.lastVisT < 1 ? this.player.position : (this.lastSeenPlayer || this.player.position);
     this.grenadeTarget.copy(at).add(_v.set(rng.range(-1.5, 1.5), 0, rng.range(-1.5, 1.5)));
     playAny(this.ctx, ['grenade_pin', 'click'], { pos: this.position, hrtf: true, gain: 0.8, max: 40, rate: 0.8 });
@@ -1443,8 +1477,21 @@ class Mimic extends Enemy {
     if (this.beliefR > 6) return false;
     return rng.chance(s.suppress * 0.6);
   }
-  beginSuppress() {
-    this.suppressPos.copy(this.lastSeenPlayer);
+  // Covering fire. The squad has given this man an ARC — the ground a friend is crossing — and he cannot see
+  // the player. He puts rounds into the arc rather than watching his mate run across it. It costs him real
+  // rounds out of a real magazine, so only a squad with somebody running it spends them this way.
+  wantCover(vis) {
+    const o = this.orders;
+    if (!o || !o.hasSector || this.dry || this.stalker) return false;
+    if (this.profile.kind === 'sniper' || this.profile.kind === 'shotgun') return false;
+    if (vis > 0.02 || this.time - this.lastVisT < 0.7) return false;
+    if (this.roundsLeft() < Math.max(3, this.magCap * 0.3)) return false;
+    const d = Math.hypot(o.sector.x - this.position.x, o.sector.z - this.position.z);
+    if (d > this.profile.max * 0.9 || d < 3) return false;
+    return rng.chance(clamp01(0.3 + this.skill.suppress * 0.7));
+  }
+  beginSuppress(at) {
+    this.suppressPos.copy(at || this.lastSeenPlayer);
     this.suppressPos.y += 1.1;
     this.suppressLeft = Math.max(2, Math.round(rng.int(this.profile.burst[0], this.profile.burst[1]) * this.skill.burst));
     this.suppressT = 0; this.burstN = 0; this.rollBias();
@@ -1466,6 +1513,7 @@ class Mimic extends Enemy {
     for (let i = 0; i < cps.length; i++) {
       const c = cps[i];
       const dp = Math.hypot(c.x - ls.x, c.z - ls.z); if (dp > spread + 9 || dp < 2) continue;
+      if (anomalyNear(this.ctx, c.x, c.z, 2.2)) continue;
       const a = Math.abs(angleDelta(base, Math.atan2(c.z - ls.z, c.x - ls.x)));
       candPush(c, -dp * 0.1 - a * 0.35);
     }
@@ -1487,6 +1535,7 @@ class Mimic extends Enemy {
       const c = cps[i];
       const dm = Math.hypot(c.x - this.position.x, c.z - this.position.z); if (dm > 30) continue;
       const dp = Math.hypot(c.x - ls.x, c.z - ls.z); if (dp < 8 || dp > 45) continue;
+      if (anomalyNear(ctx, c.x, c.z, 2.2)) continue;
       candPush(c, -dm * 0.08 - Math.abs(dp - 22) * 0.06);
     }
     if (!candN) return false;
@@ -1684,7 +1733,19 @@ class Mimic extends Enemy {
         }
         if (this.coverGood && atCover) { crouch = (1 - this.exposed) * (this.coverCrouch ? 0.95 : 0.5); aim = 0.35 + 0.65 * this.exposed; }
         else if (atCover && this.moveSpeed < 0.3 && this.profile.kind !== 'shotgun') crouch = 0.6;
-        this.faceToward(p.position.x, p.position.z, dt, 9);
+        // ---- where it is looking ----
+        // Not at you. At you IF it can see you; at the arc the squad gave it while a friend crosses; otherwise
+        // at the place it last believed you were. A mimic that tracks your feet through a barn wall is the
+        // single most obvious tell that an enemy is cheating, and this is where that stops.
+        const seeing = vis > 0.02 || t - this.lastVisT < 1.0;
+        const ord = this.orders;
+        if (seeing) this.lookPt.set(p.position.x, p.eye.y - 0.25, p.position.z);
+        else if (ord && ord.hasSector && this.suppressLeft > 0) this.lookPt.set(ord.sector.x, ord.sector.y + 0.2, ord.sector.z);
+        else if (this.lastSeenPlayer) this.lookPt.set(this.lastSeenPlayer.x, this.lastSeenPlayer.y + 1.4, this.lastSeenPlayer.z);
+        else if (ord && ord.hasSector) this.lookPt.set(ord.sector.x, ord.sector.y + 0.2, ord.sector.z);
+        else this.lookPt.set(p.position.x, p.eye.y - 0.25, p.position.z);
+        this.lookValid = true;
+        this.faceToward(this.lookPt.x, this.lookPt.z, dt, seeing ? 9 : 4.5);
         // ---- is it allowed to act? base and arrived flankers are; watchers and moving flankers only when pressed ----
         let mayAct = true;
         if (role === 'flank') mayAct = this.orders.fire || d < 12 || this.hitsSince > 0;
@@ -1694,8 +1755,8 @@ class Mimic extends Enemy {
         else if (this.soloRole === 'flank' && t - this.soloRoleT < 12 && this.moveSpeed > 1.2 && d > 18) mayAct = this.hitsSince > 0;
         let mayFire = mayAct && postureOk && !this.dry;
         if (this.profile.kind === 'mg' && !atCover && this.moveSpeed > 0.5) mayFire = false;
-        aimPitch = Math.atan2(p.eye.y - 0.25 - (this.position.y + 1.5), Math.max(1, d));
-        aimYaw = this.faceAngleTo(p.position.x, p.position.z);
+        aimPitch = Math.atan2(this.lookPt.y - (this.position.y + 1.5), Math.max(1, Math.hypot(this.lookPt.x - this.position.x, this.lookPt.z - this.position.z)));
+        aimYaw = this.faceAngleTo(this.lookPt.x, this.lookPt.z);
         if (ambush && mayFire) { this.orders.role = 'base'; this.squad.state = 'combat'; this.squad.radioT = 0.2; }
         // the between-burst clock runs even while it is down behind the cover: that is what it is waiting on
         if (this.burstLeft === 0 && this.suppressLeft === 0 && this.cycleT <= 0) this.cooldown -= dt;
@@ -1744,6 +1805,7 @@ class Mimic extends Enemy {
                 this.burstLeft = Math.max(1, Math.round(rng.int(this.profile.burst[0], this.profile.burst[1]) * s.burst));
                 this.burstN = 0; this.shotT = 0; this.rollBias();
               } else if (this.wantSuppress(d, vis)) this.beginSuppress();
+              else if (this.wantCover(vis)) this.beginSuppress(this.orders.sector);
             }
           }
         }
@@ -1840,7 +1902,12 @@ class Mimic extends Enemy {
         break;
       }
     }
-    if (track || (this.aware > 0.5 && d < 40)) { headYaw = this.faceAngleTo(p.position.x, p.position.z); headPitch = Math.atan2(p.eye.y - (this.position.y + 1.65), Math.max(1, d)); }
+    if (track || (this.aware > 0.5 && d < 40)) {
+      const L = this.lookValid ? this.lookPt : _look.set(p.position.x, p.eye.y, p.position.z);
+      headYaw = this.faceAngleTo(L.x, L.z);
+      headPitch = Math.atan2(L.y - (this.position.y + 1.65), Math.max(1, Math.hypot(L.x - this.position.x, L.z - this.position.z)));
+    }
+    this.lookValid = false;
     const mv0 = Math.hypot(this.position.x - prevX, this.position.z - prevZ);
     this.stuckTick(dt, mv0);
     this.trySkip(dt);
