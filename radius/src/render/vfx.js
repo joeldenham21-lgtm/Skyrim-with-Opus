@@ -100,6 +100,7 @@ export function createVfx(ctx) {
   let flashT = 0;
 
   const v = new THREE.Vector3();
+  const _up = new THREE.Vector3(0, 1, 0);
   const api = {
     sparks, dust, flashTex,
     get now() { return now; },
@@ -121,18 +122,109 @@ export function createVfx(ctx) {
         dust.emit(pos.x, pos.y, pos.z, v.x, v.y, v.z, color[0] * sh, color[1] * sh, color[2] * sh, 0.7 + rnd() * 0.8, size * (0.8 + rnd() * 0.8), 0.6, 1, now);
       }
     },
-    // impact by surface type: 'metal' | 'concrete' | 'wood' | 'mud' | 'grass' | 'flesh' | 'ash' | 'glass'
+    // Heavy matter thrown off a hit: chips, clods, splinters, droplets. These go into the DUST pool, which is
+    // normally blended, but with kind 0 so they fly ballistically and shrink instead of billowing and slowing —
+    // the smoky kind is for what hangs in the air, this is for what lands.
+    debris(pos, normal, n, color, speed = 4, size = 0.05, spread = 0.8, gravity = 12, life = 0.6) {
+      for (let i = 0; i < n; i++) {
+        const s = speed * (0.4 + rnd());
+        v.set(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize().multiplyScalar(spread).add(normal).normalize().multiplyScalar(s);
+        const sh = 0.8 + rnd() * 0.4;
+        dust.emit(pos.x, pos.y, pos.z, v.x, v.y, v.z, color[0] * sh, color[1] * sh, color[2] * sh,
+          life * (0.6 + rnd() * 0.8), size * (0.6 + rnd() * 0.8), gravity, 0, now);
+      }
+    },
+    // What is left hanging after the hit. Slow, growing, short-lived; this is what sells a hard surface.
+    smoke(pos, normal, n = 6, color = [0.5, 0.49, 0.47], size = 0.5, life = 1.2, rise = 0.5) {
+      for (let i = 0; i < n; i++) {
+        v.set((rnd() - 0.5) * 0.7, rnd() * 0.4 + rise, (rnd() - 0.5) * 0.7).addScaledVector(normal, 0.5 + rnd() * 0.5);
+        const sh = 0.85 + rnd() * 0.3;
+        dust.emit(pos.x, pos.y, pos.z, v.x, v.y, v.z, color[0] * sh, color[1] * sh, color[2] * sh,
+          life * (0.7 + rnd() * 0.6), size * (0.7 + rnd() * 0.7), -0.25, 1, now);
+      }
+    },
+    // A round into a body: a fine mist that hangs for a moment, heavier droplets thrown along the round's
+    // path, and a little spray back toward the shooter. Deliberately not additive — glowing blood reads as fire.
+    blood(pos, normal, amount = 1) {
+      const k = Math.max(0.3, Math.min(2.5, amount));
+      const DARK = [0.30, 0.03, 0.03], MIST = [0.42, 0.06, 0.06];
+      for (let i = 0; i < Math.round(10 * k); i++) {
+        v.set((rnd() - 0.5) * 1.2, (rnd() - 0.2) * 0.9, (rnd() - 0.5) * 1.2).addScaledVector(normal, 1.4 + rnd());
+        const sh = 0.8 + rnd() * 0.4;
+        dust.emit(pos.x, pos.y, pos.z, v.x, v.y, v.z, MIST[0] * sh, MIST[1] * sh, MIST[2] * sh,
+          0.32 + rnd() * 0.3, 0.13 + rnd() * 0.14, 1.2, 1, now);
+      }
+      api.debris(pos, normal, Math.round(9 * k), DARK, 5.5, 0.035, 0.55, 15, 0.7);
+    },
+    // impact by family. Anything unknown still gets the old generic puff, so callers cannot break.
     impact(pos, normal, surface) {
       switch (surface) {
-        case 'metal': api.spark(pos, normal, 14); api.light(pos, 0xffc070, 3, 0.08, 6); break;
-        case 'concrete': api.spark(pos, normal, 4, [1.0, 0.85, 0.6]); api.dustPuff(pos, normal, 8, [0.5, 0.49, 0.46], 0.45); break;
-        case 'wood': api.dustPuff(pos, normal, 8, [0.4, 0.3, 0.2], 0.35); break;
-        case 'grass': api.dustPuff(pos, normal, 6, [0.32, 0.36, 0.22], 0.5); break;
-        case 'water': api.dustPuff(pos, normal, 10, [0.6, 0.65, 0.65], 0.4); break;
+        case 'metal':
+          api.spark(pos, normal, 14); api.light(pos, 0xffc070, 3, 0.08, 6);
+          api.debris(pos, normal, 3, [0.45, 0.44, 0.42], 5, 0.03, 0.6, 14, 0.5); break;
+        case 'concrete':
+          api.spark(pos, normal, 4, [1.0, 0.85, 0.6]);
+          api.dustPuff(pos, normal, 6, [0.55, 0.54, 0.51], 0.4);
+          api.debris(pos, normal, 6, [0.52, 0.51, 0.48], 4.5, 0.045, 0.7, 13, 0.7);
+          api.smoke(pos, normal, 4, [0.58, 0.57, 0.54], 0.5, 1.3); break;
+        case 'brick':
+          api.spark(pos, normal, 2, [1.0, 0.8, 0.55]);
+          api.dustPuff(pos, normal, 7, [0.52, 0.31, 0.24], 0.42);
+          api.debris(pos, normal, 7, [0.48, 0.27, 0.20], 4.5, 0.05, 0.7, 13, 0.7); break;
+        case 'stone':
+          api.spark(pos, normal, 5, [1.0, 0.9, 0.7]);
+          api.dustPuff(pos, normal, 5, [0.48, 0.47, 0.45], 0.38);
+          api.debris(pos, normal, 8, [0.42, 0.41, 0.39], 5.5, 0.05, 0.7, 14, 0.8); break;
+        case 'wood':
+          api.dustPuff(pos, normal, 5, [0.42, 0.32, 0.21], 0.3);
+          // splinters: long-lived, thrown along the surface rather than straight back
+          api.debris(pos, normal, 9, [0.46, 0.34, 0.21], 5, 0.055, 1.1, 12, 0.9); break;
+        case 'grass':
+          api.dustPuff(pos, normal, 4, [0.34, 0.37, 0.23], 0.45);
+          api.debris(pos, normal, 8, [0.30, 0.38, 0.18], 3.6, 0.05, 1.2, 9, 1.0); break;
+        case 'foliage':
+          api.debris(pos, normal, 12, [0.26, 0.35, 0.16], 3.2, 0.06, 1.4, 7, 1.3); break;
+        case 'mud':
+          // a wet hit throws clods and almost no dust
+          api.debris(pos, normal, 10, [0.26, 0.21, 0.15], 4, 0.07, 0.8, 15, 0.8);
+          api.dustPuff(pos, normal, 3, [0.33, 0.29, 0.23], 0.35); break;
+        case 'sand':
+          api.dustPuff(pos, normal, 9, [0.62, 0.57, 0.44], 0.5);
+          api.debris(pos, normal, 8, [0.60, 0.55, 0.42], 4, 0.045, 0.9, 13, 0.6); break;
+        case 'snow':
+          api.dustPuff(pos, normal, 12, [0.86, 0.88, 0.92], 0.55);
+          api.debris(pos, normal, 8, [0.90, 0.92, 0.95], 3.4, 0.05, 1.0, 10, 0.8); break;
+        case 'water': api.splash(pos, normal, 1); break;
+        case 'cloth':
+          api.dustPuff(pos, normal, 4, [0.38, 0.36, 0.31], 0.3);
+          api.debris(pos, normal, 5, [0.40, 0.38, 0.33], 3, 0.04, 1.2, 9, 0.8); break;
+        case 'rubber':
+          api.debris(pos, normal, 6, [0.10, 0.10, 0.11], 3.6, 0.045, 0.9, 13, 0.7); break;
+        case 'flesh': api.blood(pos, normal, 1); break;
         case 'ash': api.dustPuff(pos, normal, 14, [0.12, 0.12, 0.13], 0.5); api.spark(pos, normal, 3, [0.8, 0.85, 1.0]); break;
-        case 'glass': api.spark(pos, normal, 18, [0.85, 0.95, 1.0]); break;
+        case 'glass':
+          api.spark(pos, normal, 18, [0.85, 0.95, 1.0]);
+          api.debris(pos, normal, 10, [0.72, 0.82, 0.88], 5, 0.035, 1.0, 14, 0.9); break;
         default: api.dustPuff(pos, normal, 8, [0.42, 0.38, 0.32], 0.5);
       }
+    },
+    // Water: a column of droplets straight up regardless of the surface normal, a low spreading ring, and
+    // a mist that hangs. A round into water does not behave like a round into a wall.
+    splash(pos, normal, amount = 1) {
+      const k = Math.max(0.3, Math.min(3, amount));
+      const UP = _up;
+      for (let i = 0; i < Math.round(14 * k); i++) {
+        const a = rnd() * Math.PI * 2, r = rnd() * 0.55;
+        v.set(Math.cos(a) * r * 2.4, 3.2 + rnd() * 3.4, Math.sin(a) * r * 2.4);
+        dust.emit(pos.x, pos.y, pos.z, v.x, v.y, v.z, 0.62, 0.70, 0.72, 0.5 + rnd() * 0.45, 0.05 + rnd() * 0.06, 13, 0, now);
+      }
+      // the ring: low, outward, flat
+      for (let i = 0; i < Math.round(8 * k); i++) {
+        const a = rnd() * Math.PI * 2;
+        v.set(Math.cos(a) * (2.2 + rnd()), 0.5 + rnd() * 0.5, Math.sin(a) * (2.2 + rnd()));
+        dust.emit(pos.x, pos.y + 0.02, pos.z, v.x, v.y, v.z, 0.70, 0.76, 0.78, 0.45 + rnd() * 0.3, 0.16 + rnd() * 0.1, 4, 1, now);
+      }
+      api.smoke(pos, UP, 3, [0.74, 0.78, 0.80], 0.4, 0.8, 0.3);
     },
     tracer(from, to, width = 0.02) {
       const e = tracers[trHead]; trHead = (trHead + 1) % TR;
@@ -142,22 +234,59 @@ export function createVfx(ctx) {
       e.m.lookAt(to);
       e.m.visible = true; e.m.material.opacity = 0.9; e.t = 0; e.life = 0.07;
     },
-    // scale is the weapon's flash multiplier: a ported brake throws a bigger one, a can barely any.
-    // weapons.js has always passed it; this took only (pos, dir) and every muzzle flashed the same size.
+    // A muzzle report has three parts and they do not last the same length of time: a hot core that is gone
+    // within a frame or two, propellant gas that expands and cools ahead of the muzzle over a tenth of a
+    // second, and smoke that drifts for a second or more. scale is the weapon's flash multiplier — a ported
+    // brake throws a wide one, a suppressor almost none — so a can ends up mostly smoke, which is what a
+    // suppressed weapon actually looks like.
     muzzleFlash(pos, dir, scale = 1) {
       const k = Math.max(0.25, Math.min(2.5, scale));
+      // hot core
       flashSprite.position.copy(pos).addScaledVector(dir, 0.08 * k);
       flashSprite.scale.setScalar((0.35 + rnd() * 0.2) * k);
       flashSprite.material.rotation = rnd() * 6.28;
-      flashSprite.material.opacity = Math.min(1, 0.55 + 0.45 * k); flashT = 0.05;
+      flashSprite.material.opacity = Math.min(1, 0.55 + 0.45 * k); flashT = 0.045;
       api.light(pos, 0xffc080, 14 * k, 0.07, 14);
-      api.spark(pos, dir, Math.max(2, Math.round(5 * k)), [1.0, 0.8, 0.4]);
+      // burning propellant thrown forward, tight to the bore axis and fast
+      for (let i = 0; i < Math.max(3, Math.round(9 * k)); i++) {
+        const sp = 9 + rnd() * 16;
+        v.set(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).multiplyScalar(0.22).add(dir).normalize().multiplyScalar(sp);
+        sparks.emit(pos.x, pos.y, pos.z, v.x, v.y, v.z, 1.0, 0.72 + rnd() * 0.2, 0.30 + rnd() * 0.2,
+          0.05 + rnd() * 0.09, 0.05 + rnd() * 0.05, 6, 0, now);
+      }
+      // gas: expands ahead of the muzzle and cools
+      for (let i = 0; i < Math.max(2, Math.round(5 * k)); i++) {
+        v.set((rnd() - 0.5) * 1.4, (rnd() - 0.3) * 0.9, (rnd() - 0.5) * 1.4).addScaledVector(dir, 2.6 + rnd() * 2.2);
+        dust.emit(pos.x, pos.y, pos.z, v.x, v.y, v.z, 0.52, 0.50, 0.47, 0.22 + rnd() * 0.2, 0.10 + rnd() * 0.10, -0.2, 1, now);
+      }
+      // smoke that lingers — the whole visible signature of a suppressed shot
+      const smokeN = Math.max(2, Math.round(4 / Math.max(0.5, k)));
+      for (let i = 0; i < smokeN; i++) {
+        v.set((rnd() - 0.5) * 0.5, 0.35 + rnd() * 0.5, (rnd() - 0.5) * 0.5).addScaledVector(dir, 0.7 + rnd() * 0.9);
+        const sh = 0.58 + rnd() * 0.16;
+        dust.emit(pos.x, pos.y, pos.z, v.x, v.y, v.z, sh, sh, sh * 0.98, 0.9 + rnd() * 1.0, 0.13 + rnd() * 0.12, -0.3, 1, now);
+      }
     },
     explosion(pos, radius = 3, color = 0xff9a50) {
       api.light(pos, color, 120, 0.35, radius * 8);
-      const up = new THREE.Vector3(0, 1, 0);
+      const up = _up;
+      // fireball: a short-lived bright core that expands, under the sparks rather than lost among them
+      for (let i = 0; i < 26; i++) {
+        v.set(rnd() - 0.5, rnd() * 0.7, rnd() - 0.5).normalize().multiplyScalar(3 + rnd() * 7 * radius * 0.3);
+        sparks.emit(pos.x, pos.y + 0.2, pos.z, v.x, v.y, v.z, 1.0, 0.55 + rnd() * 0.3, 0.18 + rnd() * 0.2,
+          0.12 + rnd() * 0.18, radius * (0.22 + rnd() * 0.2), 1.5, 1, now);
+      }
       api.spark(pos, up, 60, [1.0, 0.7, 0.3]);
+      // fragments thrown flat and far — this is what actually kills you and it should be visible
+      api.debris(pos, up, 26, [0.32, 0.30, 0.28], 16, 0.05, 2.4, 16, 1.1);
       api.dustPuff(pos, up, 40, [0.28, 0.25, 0.22], radius * 0.8);
+      // the column that stands after it, and the ring of dust kicked off the ground
+      api.smoke(pos, up, 14, [0.24, 0.22, 0.20], radius * 0.55, 2.6, 1.4);
+      for (let i = 0; i < 18; i++) {
+        const a = rnd() * Math.PI * 2;
+        v.set(Math.cos(a) * (5 + rnd() * 6), 0.4 + rnd() * 0.7, Math.sin(a) * (5 + rnd() * 6));
+        dust.emit(pos.x, pos.y + 0.05, pos.z, v.x, v.y, v.z, 0.40, 0.37, 0.33, 1.1 + rnd() * 0.9, radius * 0.3, 0.5, 1, now);
+      }
       ctx.post?.shake(0.8); ctx.post?.flash(0.35);
     },
     // fragment pop: cold glass shards
