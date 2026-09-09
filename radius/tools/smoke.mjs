@@ -9,6 +9,7 @@
 //   node tools/smoke.mjs --full                # production render settings (default is a fast headless mode: no MSAA, 1024 shadows)
 //   node tools/smoke.mjs --phone               # 844x390 handset viewport, touch events, on-screen controls forced on
 //   node tools/smoke.mjs --audio               # leave the browser unmuted so audio output can be measured
+//   node tools/smoke.mjs --budget 900          # wall-clock budget for the scenario (default 600s; 0 disables)
 //
 // Inside the page, window.__radius exposes the debug API (see ARCHITECTURE.md):
 //   __radius.ctx, __radius.start(), __radius.teleport(x,z), __radius.look(yaw,pitch),
@@ -49,6 +50,7 @@ const seconds = +opt('--seconds', 6);
 const W = +opt('--w', 1280), H = +opt('--h', 720);
 const scenarioPath = opt('--scenario', null);
 const prebuilt = opt('--html', null);   // run an existing bundle instead of building
+const budgetS = +opt('--budget', 600);   // wall-clock seconds a scenario may take before it is abandoned; 0 disables
 const fast = !args.includes('--full');   // --full: production render settings (MSAA, full shadow map, device pixel ratio)
 const phone = args.includes('--phone');  // --phone: handset viewport with touch events and the on-screen controls forced on
 const audio = args.includes('--audio');  // --audio: do not mute the browser, so output can actually be measured
@@ -91,16 +93,34 @@ const api = {
   async mouse(dx, dy) { await page.evaluate(([dx, dy]) => window.__radius.look(dx, dy), [dx, dy]); },
 };
 
+// A scenario that hangs used to hang forever: the run sat holding a Chromium and blocking whoever launched
+// it until their own timeout fired tens of minutes later, having produced nothing. Five such runs were once
+// found alive for up to two and a half hours on an otherwise idle machine. The usual cause is one
+// page.evaluate() doing an enormous amount of synchronous work — thousands of ticks of enemy update in a
+// single call — which took seconds when it was written and takes hours once the AI grows heavier. Chunk long
+// simulations across several api.run() calls; and if you do hang, fail in minutes instead of never.
+let watchdog = null;
+const budget = budgetS > 0
+  ? new Promise((_, rej) => { watchdog = setTimeout(() => rej(new Error(
+      `scenario exceeded its ${budgetS}s budget and was abandoned. This is almost always a single `
+      + `page.evaluate() running too much synchronous work: split the simulation across several api.run() `
+      + `calls, or raise the budget deliberately with --budget <seconds>.`)), budgetS * 1000); })
+  : new Promise(() => {});
+
 try {
-  if (scenarioPath) {
-    const mod = await import(pathToFileURL(resolve(scenarioPath)).href);
-    await (mod.default || mod.run)(page, api);
-  } else {
-    await api.start();
-    await api.wait(seconds * 1000);
-    await api.screenshot('final');
-  }
+  const work = (async () => {
+    if (scenarioPath) {
+      const mod = await import(pathToFileURL(resolve(scenarioPath)).href);
+      await (mod.default || mod.run)(page, api);
+    } else {
+      await api.start();
+      await api.wait(seconds * 1000);
+      await api.screenshot('final');
+    }
+  })();
+  await Promise.race([work, budget]);
 } catch (e) { errors.push('[scenario] ' + (e.stack || e.message)); }
+finally { if (watchdog) clearTimeout(watchdog); }
 
 const stats = await page.evaluate(() => (window.__radius && window.__radius.stats) ? window.__radius.stats() : null).catch(() => null);
 writeFileSync(resolve(outDir, 'console.log'), logs.join('\n'));
