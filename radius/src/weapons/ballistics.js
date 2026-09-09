@@ -32,7 +32,7 @@ const DECALS = 128;
 
 const GRAV = 9.81;
 const MAX_PROJ = 96;          // pooled bullets in flight
-const SEG = 9;                // metres of flight per raycast segment
+const SEG = 16;               // metres of flight per raycast segment (drop inside one is under 3 mm at rifle speed)
 const SPENT = 55;             // m/s below which a round is done doing damage
 const SYNC = 0.03;            // seconds of flight resolved inside shoot(), so close shots land on the same frame
 const SUPPRESS_R = 3.4;       // how close an enemy round has to pass to rattle the player
@@ -202,13 +202,14 @@ export function createBallistics(ctx) {
 
   // ---- suppression: how badly the player is being shot at right now ----
   let supp = 0, lastFlinch = -1;
-  function suppress(k, point) {
+  function suppress(k) {
     supp = Math.min(1.6, supp + k);
     const s = clamp01(k);
-    ctx.post.shake(0.10 + 0.42 * s);
-    // a flinch, not a nudge: the head ducks and the muzzle wanders, but never more than a hair
-    if (ctx.elapsed - lastFlinch > 0.08) {
+    // a flinch, not a nudge: the head ducks and the muzzle wanders. Rate-limited, or a belt-fed gun
+    // firing at you stacks a dozen jolts a second and the picture turns to soup.
+    if (ctx.elapsed - lastFlinch > 0.07) {
       lastFlinch = ctx.elapsed;
+      ctx.post.shake(0.10 + 0.42 * s);
       ctx.player.kick(-0.004 * s * (0.4 + Math.random()), (Math.random() - 0.5) * 0.006 * s);
     }
   }
@@ -249,10 +250,14 @@ export function createBallistics(ctx) {
     else ctx.vfx.impact(point, normal, VFX_OF[surf] || surf);
     ctx.audio.play('impact_' + (SOUND_OF[surf] || 'dirt'), { pos: point, hrtf: true, gain: 0.6 + 0.25 * vr, rate: 0.9 + Math.random() * 0.2 });
     if ((hard || surf === 'wood') && collider) placeDecal(point, normal, surf, 0.7 + 0.5 * vr);
-    // a round landing near the player is felt, not just heard
+    // a round landing near the player is felt, not just heard: grit off the wall and a jolt in the picture
     if (p && p.source === 'enemy') {
       const d = point.distanceTo(ctx.player.eye);
-      if (d < 5 && !ctx.player.dead) suppress((1 - d / 5) * 0.5, point);
+      if (d < 5 && !ctx.player.dead) {
+        const near = 1 - d / 5;
+        suppress(near * 0.5);
+        if (ctx.vfx.debris) ctx.vfx.debris(point, normal, Math.round(4 + 8 * near), hard ? [0.55, 0.53, 0.5] : [0.4, 0.34, 0.26], 6, 0.045, 0.9, 14, 0.7);
+      }
     }
     return { kind: 'world', point: point.clone(), normal: normal.clone(), surface: surf, distance: p ? p.dist : 0, damage: 0, stopped: !!stopped };
   }
@@ -285,9 +290,11 @@ export function createBallistics(ctx) {
       if (wh && (bestT < 0 || wh.distance <= bestT)) { bestT = wh.distance; bestKind = 'world'; bestEnemy = null; }
       if (bestT < 0) { p.pos.addScaledVector(dir, remain); p.dist += remain; return true; }
       p.pos.addScaledVector(dir, bestT); p.dist += bestT; travelled += bestT;
-      if (bestKind === 'enemy') { if (!hitEnemy(p, bestEnemy, _hp, dir)) return false; continue; }
+      const dAtHit = p.dist;                       // whatever the barrier costs also counts against this step
+      if (bestKind === 'enemy') { const on = hitEnemy(p, bestEnemy, _hp, dir); travelled += p.dist - dAtHit; if (!on) return false; continue; }
       if (bestKind === 'player') { hitPlayerAt(p, dir); return false; }
       const carry = hitWorld(p, wh, dir);
+      travelled += p.dist - dAtHit;
       if (carry === 'stop') return false;
       if (carry === 'ricochet') return true;      // direction changed: finish the step, carry on next one
     }
@@ -315,9 +322,9 @@ export function createBallistics(ctx) {
     // over-penetration: how much tissue is in the way, and is there anything left after it
     const cost = FLESH_HARD * (FLESH_T[zone] || 0.3) + (e.armorPieces && (zone === 'torso' || zone === 'head') ? 0.018 : 0);
     const budget = budgetOf(p.pen, vr);
+    if (cost >= budget || p.pierced >= 3) { retire(p); return false; }   // the round stays in him
     const exitT = capsuleExit(p.pos, dir, e.position, e.radius, e.height || 1.8);
     p.pos.addScaledVector(dir, exitT + 0.04); p.dist += exitT + 0.04;
-    if (cost >= budget || p.pierced >= 3) { retire(p); return false; }
     p.pierced++;
     const f = Math.max(0.25, Math.sqrt(1 - cost / budget));
     p.vel.multiplyScalar(f); p.speed *= f;
@@ -363,7 +370,7 @@ export function createBallistics(ctx) {
         _ref.normalize();
         const f = 0.35 + Math.random() * 0.3;
         p.vel.copy(_ref).multiplyScalar(p.speed * f); p.speed *= f;
-        p.damage *= 0.65; p.pen *= 0.5; p.ric++;
+        p.damage *= 0.65; p.pen *= 0.5; p.ric++; p.whiz = 0;   // it can scream past the player on the way out
         p.pos.addScaledVector(_hn, 0.03);
         p.hits.push({ kind: 'ricochet', point: wh.point.clone(), normal: _hn.clone(), surface: surf, distance: p.dist, damage: 0 });
         if (p.speed < SPENT) { retire(p); return 'stop'; }
@@ -420,7 +427,6 @@ export function createBallistics(ctx) {
       const s3 = s2 / (1 + p.drag * s2 * h);
       if (s2 > 1e-6) p.vel.multiplyScalar(s3 / s2);
       p.speed = s3;
-      p.tof += h;
       _d.copy(_seg).sub(p.pos);
       const len = _d.length();
       if (len < 1e-6) continue;
@@ -437,7 +443,7 @@ export function createBallistics(ctx) {
           const crack = p.speed > 345;
           const name = crack && ctx.audio.has('bullet_crack') ? 'bullet_crack' : 'bullet_whiz';
           ctx.audio.play(name, { pos: _tmp, hrtf: true, gain: (crack ? 0.85 : 0.5) + 0.4 * near, rate: (crack ? 1.25 : 0.85) + Math.random() * 0.2 });
-          suppress(near * (crack ? 0.55 : 0.3), _tmp);
+          suppress(near * (crack ? 0.55 : 0.3));
         }
       }
       // a round cracking past an entity rattles it too, if its class knows how to be rattled
@@ -447,6 +453,9 @@ export function createBallistics(ctx) {
       }
       const before = p.dist;
       const flying = segment(p, _d, len);
+      // time of flight counts the part of the step actually flown, not the whole step: a round that
+      // stops 1 m into a 9 m segment took an eighth of the segment's time, and the number is read back.
+      p.tof += h * clamp01((p.dist - before) / len);
       // tracer: draw only the part actually flown this step
       if (p.tracer && p.dist > before + 0.05) {
         _from.copy(p.draw.lengthSq() > 0 ? p.draw : p.prev);
@@ -480,7 +489,7 @@ export function createBallistics(ctx) {
       const isMg = opts.cls === 'mg' || !!opts.mg;
       // tracers: tracer rounds always, every fifth MG round; entities that name no ammunition get the MG rule
       const tracerMode = opts.tracer === false ? 'none' : a?.tracer ? 'all' : (isMg || !a) && opts.tracer !== false ? 'fifth' : 'none';
-      const maxDist = clamp(range * 3, 140, 700);
+      const maxDist = clamp(range * 1.8, 120, 420);   // past this the fog has swallowed it anyway
       const zeroR = opts.zeroRange ?? ZERO_BY_CLS[opts.cls] ?? 60;
       const out = [];
       _d.copy(dir); if (_d.lengthSq() < 1e-9) _d.set(0, 0, -1); _d.normalize();

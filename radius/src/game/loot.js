@@ -646,6 +646,14 @@ export function createLoot(ctx) {
 
   // ---- piles: what an entity leaves, and what the Explorer sets down ------------------------------
   const MAX_PILES = 44;
+  // A cache is a pile the save remembers. A mimic's remains are litter and go with the next Tide; what
+  // came off the Explorer is a debt with an address, and it has to still be there tomorrow morning or the
+  // walk back is not a decision. Lives in state.data.caches, restored after every populate().
+  const CACHE_TIDES = 2;      // survives the Tide that follows the death; the one after that takes it
+  const CACHE_HOURS = 96;     // and never longer than four days, whatever the Tide is doing
+  const MAX_CACHES = 3;
+  const cacheList = () => { const d = D(); if (!Array.isArray(d.caches)) d.caches = []; return d.caches; };
+  const nowHours = () => (D().day - 1) * 24 + D().hour;
   function groundAt(x, z) {
     const w = ctx.world;
     try { return w.groundHeight(x, z, w.getHeight(x, z) + 2).y; } catch { return w.getHeight(x, z); }
@@ -676,7 +684,7 @@ export function createLoot(ctx) {
     });
     objects.push(o);
     // the zone does not keep every body: past the cap the oldest emptied pile goes first
-    let piles = objects.filter((p) => p.type === 'pile' && p !== o);
+    let piles = objects.filter((p) => p.type === 'pile' && p !== o && !p.cacheId);
     while (piles.length >= MAX_PILES) {
       piles.sort((a, b) => (a.emptied === b.emptied ? a.seq - b.seq : a.emptied ? -1 : 1));
       const old = piles.shift();
@@ -698,6 +706,105 @@ export function createLoot(ctx) {
       o.pile.entries.push(entry); o.emptied = false; return o;
     }
     return spawnPile({ x, z, y: groundAt(x, z) }, [entry], { kind: 'cache', name: 'CACHE' });
+  }
+
+  // ---- caches: the debt with an address ----------------------------------------------------------
+  // dropCache() is what player/damage.js calls the moment the Explorer goes down. It writes the record
+  // into the save so it survives sleeping, reloading and one Tide, and spawns the searchable pile now.
+  let cacheSeq = 0;
+  function spawnCache(rec) {
+    const y = typeof rec.y === 'number' ? rec.y : groundAt(rec.x, rec.z);
+    const o = spawnPile({ x: rec.x, y, z: rec.z }, rec.entries, { kind: rec.kind || 'corpse', name: rec.name || 'EXPLORER 61' });
+    if (!o) return null;
+    o.cacheId = rec.id;
+    // share the array, so every Take in the loot panel lands directly in the saved record
+    o.pile.entries = rec.entries;
+    o.emptied = !rec.entries.length;
+    o.pile.onChange = () => {
+      o.emptied = !rec.entries.length;
+      o.searched = true;
+      if (!rec.entries.length) dropCacheRecord(rec.id);
+    };
+    return o;
+  }
+  function dropCacheRecord(id) {
+    const cl = cacheList();
+    const i = cl.findIndex((c) => c.id === id);
+    if (i >= 0) cl.splice(i, 1);
+  }
+  function dropCache(entries, position, opts = {}) {
+    const list = (entries || []).filter((e) => e && e.id);
+    if (!list.length) return null;
+    const d = D();
+    const x = position?.x ?? ctx.player.position.x, z = position?.z ?? ctx.player.position.z;
+    const poi = (() => { try { return ctx.world.nearestPoi(x, z)?.poi || null; } catch { return null; } })();
+    const rec = {
+      id: 'k' + (++cacheSeq) + '-' + Math.round(nowHours() * 60),
+      x, z, y: typeof position?.y === 'number' ? position.y : groundAt(x, z),
+      t0: nowHours(), tides: 0, degraded: false,
+      kind: opts.kind || 'corpse', name: (opts.name || 'EXPLORER 61').toUpperCase(),
+      poi: poi ? poi.id : null, poiName: poi ? poi.name : null,
+      entries: JSON.parse(JSON.stringify(list)),
+    };
+    const cl = cacheList();
+    cl.push(rec);
+    while (cl.length > MAX_CACHES) cl.shift();
+    try { spawnCache(rec); } catch (e) { console.warn('[loot] cache', e); }
+    ctx.events.emit('cacheDropped', rec);
+    return rec;
+  }
+  // The Tide takes what was loose and left it lying: rounds scatter, meds spoil, the hardware stays.
+  // The second Tide takes the lot.
+  function ageCaches() {
+    const cl = cacheList();
+    for (let i = cl.length - 1; i >= 0; i--) {
+      const c = cl[i];
+      c.tides = (c.tides | 0) + 1;
+      if (c.tides >= CACHE_TIDES || nowHours() - (c.t0 || 0) > CACHE_HOURS) { cl.splice(i, 1); continue; }
+      c.degraded = true;
+      for (let k = c.entries.length - 1; k >= 0; k--) {
+        const e = c.entries[k];
+        if (e.kind !== 'item' || (e.count || 1) <= 1) continue;
+        e.count = Math.max(1, Math.floor(e.count * 0.6));
+      }
+    }
+  }
+  function expireCaches() {
+    const cl = cacheList();
+    for (let i = cl.length - 1; i >= 0; i--) {
+      const c = cl[i];
+      if (!c || !Array.isArray(c.entries) || !c.entries.length) { cl.splice(i, 1); continue; }
+      if (nowHours() - (c.t0 || 0) > CACHE_HOURS) cl.splice(i, 1);
+    }
+  }
+  // Something takes an interest in a body. One mimic, placed once when the zone is rebuilt around a cache
+  // the Explorer is nowhere near — recovering your own rifle should mean going through whatever took it,
+  // with worse than it took. If population.js grows its own hook, this stands down.
+  function guardCache(rec) {
+    if (!api.cacheGuards || ctx.debug?.noEnemies) return null;
+    if (typeof ctx.population?.guardCache === 'function') { try { return ctx.population.guardCache(rec); } catch { return null; } }
+    if (!ctx.enemies?.spawn || ctx.enemies.list.length > 28) return null;
+    const B = ctx.world.map.BASE;
+    if (Math.hypot(rec.x - B.x, rec.z - B.z) < 70) return null;
+    const p = ctx.player.position;
+    if (Math.hypot(rec.x - p.x, rec.z - p.z) < 120) return null;
+    const rr = mulberry32((Math.round(rec.x * 13) ^ Math.round(rec.z * 7) ^ (D().tideLevel * 8191)) >>> 0);
+    for (let i = 0; i < 10; i++) {
+      const a = rr() * Math.PI * 2, d = 13 + rr() * 14;
+      const x = rec.x + Math.cos(a) * d, z = rec.z + Math.sin(a) * d;
+      if (ctx.world.isWater(x, z)) continue;
+      const y = groundAt(x, z);
+      if (ctx.world.pointInSolid?.(x, y + 0.7, z)) continue;
+      try { return ctx.enemies.spawn('mimic', new THREE.Vector3(x, y, z), { poi: rec.poi }); } catch { return null; }
+    }
+    return null;
+  }
+  // called after every populate(): the zone is rebuilt, the bodies go back on it
+  function restoreCaches() {
+    expireCaches();
+    for (const c of cacheList()) {
+      try { spawnCache(c); guardCache(c); } catch (e) { console.warn('[loot] restore cache', e); }
+    }
   }
 
   // when structures have not registered anything yet: a few motivated points near each POI and along the roads
@@ -817,10 +924,20 @@ export function createLoot(ctx) {
     },
     spawnPile,
     dropItem,
+    // the death ledger's half of the contract: damage.js records, loot.js keeps and decays
+    cacheGuards: true,
+    dropCache,
+    caches() { return cacheList(); },
+    nearestCache(pos = ctx.player.position) {
+      let best = null, bd = Infinity;
+      for (const c of cacheList()) { const d = Math.hypot(c.x - pos.x, c.z - pos.z); if (d < bd) { bd = d; best = c; } }
+      return best ? { cache: best, distance: bd } : null;
+    },
+    restoreCaches,
     tierAt(poiKind) { return tierOf(poiKind); },
   };
-  ctx.events.on('gameStart', () => { const f = D().flags; if (!Array.isArray(f.lootOpened)) f.lootOpened = []; if (!f.lootLeft || typeof f.lootLeft !== 'object') f.lootLeft = {}; api.populate(); });
+  ctx.events.on('gameStart', () => { const f = D().flags; if (!Array.isArray(f.lootOpened)) f.lootOpened = []; if (!f.lootLeft || typeof f.lootLeft !== 'object') f.lootLeft = {}; api.populate(); restoreCaches(); });
   // the Tide rearranges the zone: opened containers, half-searched crates and every body on the ground go with it
-  ctx.events.on('tide', () => { const f = D().flags; f.lootOpened = []; f.lootLeft = {}; api.populate(); });
+  ctx.events.on('tide', () => { const f = D().flags; f.lootOpened = []; f.lootLeft = {}; ageCaches(); api.populate(); restoreCaches(); });
   return api;
 }

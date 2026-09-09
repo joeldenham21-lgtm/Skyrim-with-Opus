@@ -203,21 +203,24 @@ function reticleMesh(kind, r, mat) {
 
 // ---------------------------------------------------------------- optics
 // body: tube | collimator | holo | acog | nspu. axis = optical axis above the anchor; relief = eye behind the eyepiece.
+// Lengths are the real bodies: a PSO-1 is 375 mm of tube and reaches from over the stock wrist to the middle of an
+// SVD's handguard, which is most of why a scoped Dragunov reads the way it does. The body is centred on its anchor, so
+// a longer scope grows both ways; the ADS eye point is clamped in applyAttachments, so length never moves the pose.
 const OPTICS = {
-  opt_okp7: { body: 'collimator', len: 0.088, r: 0.021, axis: 0.048, relief: 0.205, ret: 'dot' },
-  opt_kobra: { body: 'collimator', len: 0.096, r: 0.026, axis: 0.058, relief: 0.205, ret: 'chevron', dial: true },
-  opt_pka: { body: 'tube', len: 0.112, r: 0.0195, obj: 0, eye: 0.021, axis: 0.056, relief: 0.200, ret: 'dot', turret: 'small' },
-  opt_1p78: { body: 'tube', len: 0.138, r: 0.0195, obj: 0.024, eye: 0.022, axis: 0.058, relief: 0.185, ret: 'chevron', turret: 'small', hood: 0.020 },
-  opt_pso1: { body: 'tube', len: 0.190, r: 0.020, obj: 0.028, eye: 0.024, axis: 0.062, relief: 0.180, ret: 'pso', turret: 'drum', battery: true, hood: 0.030 },
-  opt_1p29: { body: 'tube', len: 0.172, r: 0.0205, obj: 0.025, eye: 0.024, axis: 0.062, relief: 0.182, ret: 'chevron', turret: 'drum', hood: 0.025 },
+  opt_okp7: { body: 'collimator', len: 0.095, r: 0.021, axis: 0.048, relief: 0.205, ret: 'dot' },
+  opt_kobra: { body: 'collimator', len: 0.122, r: 0.026, axis: 0.058, relief: 0.205, ret: 'chevron', dial: true },
+  opt_pka: { body: 'tube', len: 0.128, r: 0.0195, obj: 0, eye: 0.021, axis: 0.056, relief: 0.200, ret: 'dot', turret: 'small' },
+  opt_1p78: { body: 'tube', len: 0.168, r: 0.0195, obj: 0.024, eye: 0.022, axis: 0.058, relief: 0.185, ret: 'chevron', turret: 'small', hood: 0.020 },
+  opt_pso1: { body: 'tube', len: 0.330, r: 0.020, obj: 0.028, eye: 0.024, axis: 0.062, relief: 0.180, ret: 'pso', turret: 'drum', battery: true, hood: 0.030 },
+  opt_1p29: { body: 'tube', len: 0.235, r: 0.0205, obj: 0.025, eye: 0.024, axis: 0.062, relief: 0.182, ret: 'chevron', turret: 'drum', hood: 0.025 },
   opt_pu: { body: 'tube', len: 0.169, r: 0.0135, obj: 0.0155, eye: 0.017, axis: 0.022, relief: 0.180, ret: 'pu', turret: 'pu', rings: true },
   opt_t1: { body: 'tube', len: 0.064, r: 0.0165, obj: 0, eye: 0.0165, axis: 0.034, relief: 0.205, ret: 'dot', turret: 'cap' },
-  opt_eotech: { body: 'holo', len: 0.106, r: 0.026, axis: 0.037, relief: 0.205, ret: 'holo' },
-  opt_valday: { body: 'holo', len: 0.098, r: 0.025, axis: 0.036, relief: 0.205, ret: 'holo' },
-  opt_acog: { body: 'acog', len: 0.106, r: 0.019, obj: 0.0195, eye: 0.021, axis: 0.038, relief: 0.180, ret: 'acog' },
-  opt_specter: { body: 'acog', len: 0.126, r: 0.021, obj: 0.022, eye: 0.023, axis: 0.041, relief: 0.182, ret: 'chevron', lever: true },
-  opt_mark4: { body: 'tube', len: 0.252, r: 0.0195, obj: 0.031, eye: 0.023, axis: 0.046, relief: 0.185, ret: 'mildot', turret: 'target', rings: true },
-  opt_nspu: { body: 'nspu', len: 0.212, r: 0.036, obj: 0.040, eye: 0.026, axis: 0.070, relief: 0.175, ret: 'chevron', nv: true },
+  opt_eotech: { body: 'holo', len: 0.140, r: 0.026, axis: 0.037, relief: 0.205, ret: 'holo' },
+  opt_valday: { body: 'holo', len: 0.126, r: 0.025, axis: 0.036, relief: 0.205, ret: 'holo' },
+  opt_acog: { body: 'acog', len: 0.135, r: 0.019, obj: 0.0195, eye: 0.021, axis: 0.038, relief: 0.180, ret: 'acog' },
+  opt_specter: { body: 'acog', len: 0.148, r: 0.021, obj: 0.022, eye: 0.023, axis: 0.041, relief: 0.182, ret: 'chevron', lever: true },
+  opt_mark4: { body: 'tube', len: 0.310, r: 0.0195, obj: 0.031, eye: 0.023, axis: 0.046, relief: 0.185, ret: 'mildot', turret: 'target', rings: true },
+  opt_nspu: { body: 'nspu', len: 0.330, r: 0.036, obj: 0.040, eye: 0.026, axis: 0.070, relief: 0.175, ret: 'chevron', nv: true },
 };
 // A dovetail anchor sits on the left rail face; this is how far in +x the bore centreline is, by weapon family.
 const DOVETAIL_DX = { mosin: 0.016, mg: 0.0235, rifle: 0.0215, vss: 0.0205, svd: 0.0205, ak: 0.021, smg: 0.021 };
@@ -722,7 +725,7 @@ export function buildAttachment(id, opts = {}) {
 // ---------------------------------------------------------------- magazines
 // One family table; length, curve, floor plate and the visible top round come from cap and calibre.
 const MAG_FAM = {
-  pm: { w: 0.021, z: 0.028, mat: 'steelDark', pitch: 0.0068, base: 0.040, curve: 0.000, pistol: true },
+  pm: { w: 0.021, z: 0.028, mat: 'steelDark', pitch: 0.0068, base: 0.030, curve: 0.000, pistol: true },
   aps: { w: 0.023, z: 0.030, mat: 'steelDark', pitch: 0.0042, base: 0.030, curve: 0.004, pistol: true },
   tt: { w: 0.021, z: 0.036, mat: 'steelDark', pitch: 0.0072, base: 0.038, curve: 0.000, pistol: true },
   glock: { w: 0.025, z: 0.032, mat: 'polymer', pitch: 0.0042, base: 0.030, curve: 0.000, pistol: true },

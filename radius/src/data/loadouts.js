@@ -15,15 +15,15 @@ export const GEAR_CURVE = {
   grade: [-2.2, 3.2],  // exponent on an item's grade: negative picks the beaten end of a class pool, positive the good end
   bare: [0.85, 0.05],       // chance of no vest at all, times the class's own `bare`
   bareHelmet: [0.95, 0.12],
-  spares: [-1, 2],          // added to the class `mags` count
+  spares: [-1, 1.4],        // added to the class `mags` count
   grenade: [0.3, 1.6],      // multiplier on the class grenade chance
   attach: [0.3, 1.5],       // multiplier on every attachment chance
   optic: 0.62,              // above this progress a class reaches for glass; the more it lists, the surer it is
   ammo: [0.0, 0.7],         // chance of reaching for the better round
-  condition: [[25, 55], [55, 96]],      // weapon condition band, percent
+  condition: [[18, 48], [45, 88]],      // weapon condition band, percent
   dirt: [[0.25, 0.7], [0.05, 0.35]],
-  durability: [[0.35, 0.75], [0.6, 1.0]],   // fraction of an armour piece's durability left
-  magFill: [[0.3, 0.9], [0.6, 1.0]],        // fraction of a spare magazine that is loaded
+  durability: [[0.25, 0.6], [0.45, 0.9]],   // fraction of an armour piece's durability left
+  magFill: [[0.2, 0.7], [0.45, 0.95]],      // fraction of a spare magazine that is loaded
 };
 export function gearProgress({ tide = 1, security = 1, classRank = 0 } = {}) {
   const p = Math.max(0, (tide | 0) - 1) * GEAR_CURVE.tide + Math.max(0, (security | 0) - 1) * GEAR_CURVE.security + Math.max(0, classRank) * GEAR_CURVE.classRank;
@@ -33,16 +33,20 @@ export function gearProgress({ tide = 1, security = 1, classRank = 0 } = {}) {
 // ---- what is left when one folds ----
 // The ash takes some of it. A weapon is usually on the ground; sometimes it is bent scrap worth stripping.
 // Armour survives by the state it is in: a plate carrier that stopped six rounds is not worth carrying out.
+// These numbers are the price of a kill. A mimic that always left a working rifle and its plates made the
+// Committee's shop redundant inside two days: half the arsenal in the game was reachable by shooting six
+// recruits at the checkpoint. What a body should leave is what keeps you out here — rounds, a magazine, a
+// bandage — and, one time in two, a weapon that needs the workbench before it needs a target.
 export const DROPS = {
-  weapon: 0.9,              // the weapon is recoverable at all
-  ruined: [0.34, 0.08],     // of those, this many are wrecked (low condition, fouled, jammed) — by class rank 0..4
-  lost: 0.06,               // and this many go into the ash with the body
-  mag: 0.85,                // each spare magazine
-  vest: [0.25, 0.85],       // by durability left, none -> full
-  helmet: [0.2, 0.8],
-  item: 0.5,                // each entry on the class drop list
-  grenade: 0.75,
-  loose: [0, 6],            // extra loose rounds in the pockets
+  weapon: 0.62,             // the weapon is recoverable at all
+  ruined: [0.55, 0.20],     // of those, this many are wrecked (low condition, fouled, jammed) — by class rank 0..4
+  lost: 0.16,               // and this many go into the ash with the body
+  mag: 0.55,                // each spare magazine
+  vest: [0.06, 0.42],       // by durability left, none -> full: a carrier that stopped the rounds you fired is scrap
+  helmet: [0.05, 0.35],
+  item: 0.35,               // each entry on the class drop list
+  grenade: 0.55,
+  loose: [0, 5],            // extra loose rounds in the pockets
 };
 
 // weapons/armor/helmet/kit are pools; the curve picks inside them. bare: how likely this class is to go without.

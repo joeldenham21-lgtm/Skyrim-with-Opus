@@ -77,7 +77,11 @@ export default async function (page, api) {
   const g = fireGroup('762_fmj', 25, 24, 2.4, 'rifle'); if (g) { g.note = 'hip spread 2.4 deg'; log.ranges.push(g); }
   return log;
 })()`);
-  console.log(JSON.stringify(out, null, 1));
+  console.log('api.shoot returns:', out.api.returns);
+  console.log('ammo        range   n    drop     group(mean/ext)   tof      impact v');
+  for (const r of out.ranges) {
+    console.log(`  ${r.ammo.padEnd(10)} ${String(r.range).padStart(4)}m ${String(r.n).padStart(3)}  ${String(r.dropCm).padStart(7)}cm  ${String(r.groupMeanCm).padStart(6)}/${String(r.groupExtremeCm).padEnd(6)}cm ${String(r.tofMs).padStart(7)}ms ${String(r.impactSpeed).padStart(5)}m/s ${r.note || ''}`);
+  }
 
   // --- penetration bench ----------------------------------------------------
   const pen = await api.run(`(() => {

@@ -93,12 +93,17 @@ export const DSP = `
       if (rms < gate) { run = 0; prevHz = 0; continue; }
       const m = mag(d, s, N, N);
       const k0 = Math.max(2, Math.round(80 / df)), k1 = Math.min(m.length - 2, Math.round(12000 / df));
+      // Prominence against the LOCAL neighbourhood, not against the whole spectrum: a dark noise tail has a
+      // maximum bin too, and comparing it with a median taken across ten empty kilohertz calls every lowpass
+      // a bell. What marks a ringing partial is that it stands above the noise floor either side of it.
       let kp = k0, mx = 0;
       for (let k = k0; k <= k1; k++) if (m[k] > mx) { mx = m[k]; kp = k; }
       if (mx < 1e-9) { run = 0; prevHz = 0; continue; }
-      const srt = []; for (let k = k0; k <= k1; k++) srt.push(m[k]);
-      srt.sort((a, b) => a - b);
-      const med = srt[srt.length >> 1] + 1e-20;
+      const skip = Math.max(2, Math.round(70 / df)), span = Math.max(skip + 4, Math.round(700 / df));
+      const near = [];
+      for (let k = Math.max(1, kp - span); k <= Math.min(m.length - 1, kp + span); k++) if (Math.abs(k - kp) > skip) near.push(m[k]);
+      near.sort((x, y) => x - y);
+      const med = (near.length ? near[near.length >> 1] : mx) + 1e-20;
       const dB = 20 * Math.log10(mx / med);
       // parabolic interpolation for the true peak frequency
       const a0 = m[kp - 1], b0 = m[kp], c0 = m[kp + 1];

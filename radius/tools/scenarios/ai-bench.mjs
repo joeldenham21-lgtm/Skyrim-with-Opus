@@ -22,7 +22,7 @@ const TRIALS = [
   { name: 'zarya-t1', poi: 'zarya', x: -118, z: 92, look: 0.35, d: 34, n: 4, tide: 1, sec: 1, hide: 0 },
   { name: 'zarya-t3', poi: 'zarya', x: -118, z: 92, look: 0.35, d: 34, n: 4, tide: 3, sec: 5, hide: 0 },
   { name: 'chkpt-t2', poi: 'checkpoint', x: 0, z: 0, look: 0, d: 40, n: 4, tide: 2, sec: 3, hide: 0 },
-  { name: 'zarya-hid', poi: 'zarya', x: -118, z: 92, look: 0.35, d: 40, n: 4, tide: 2, sec: 3, hide: 1 },
+  { name: 'zarya-walk', poi: 'zarya', x: -118, z: 92, look: 0.35, d: 40, n: 4, tide: 2, sec: 3, walk: 1 },
 ];
 
 export const HOOKS = `(() => {
@@ -42,6 +42,10 @@ export const SETUP = (t) => `(() => {
   for (const e of ctx.enemies.list) { e.alive = false; e.removeMe = true; } ctx.enemies.removeDead(); ctx.squads.reset();
   // the squad's own skill dial is sampled every 3 s from state.data; let it catch up before anybody is formed
   for (let i = 0; i < 70; i++) ctx.squads.update(0.05);
+  // Loadouts roll on Math.random, so two builds would otherwise be compared with different guns. Seed it for
+  // the length of the spawn and put it back afterwards: same squad, same weapons, every run.
+  const R0 = Math.random; let sd = ${t.seed || 12345} | 0;
+  Math.random = () => { sd = sd + 0x6D2B79F5 | 0; let x = Math.imul(sd ^ sd >>> 15, 1 | sd); x = x + Math.imul(x ^ x >>> 7, 61 | x) ^ x; return ((x ^ x >>> 14) >>> 0) / 4294967296; };
   const f = p.forward, list = [];
   for (let i = 0; i < ${t.n}; i++) {
     const side = (i - (${t.n} - 1) / 2) * 5.5, d = ${t.d} + (i % 2) * 3;
@@ -49,27 +53,13 @@ export const SETUP = (t) => `(() => {
     const e = r.spawn('mimic', x, z, { poi: '${t.poi}', cls: i === 0 ? 'veteran' : 'regular', yaw: Math.atan2(-(p.position.x - x), -(p.position.z - z)) });
     if (e) { e.root.traverse((o) => { o.userData.__enemy = true; }); e.grenades = Math.max(e.grenades, 1); list.push(e); }
   }
+  Math.random = R0;
   window.__sq = ctx.squads.form(list, ctx.world.poi('${t.poi}')); window.__list = list;
   const M = window.__M; M.shots = 0; M.dmg = 0; M.hits = 0; M.thrown = 0; M.radio.length = 0; M.firstShot = -1; M.t0 = ctx.elapsed;
   ctx.director.notify('shot', { pos: p.position.clone(), noise: 1 });
   return { n: list.length, skill: +window.__sq.skill.toFixed(2), w: list.map((e) => e.weapon.id) };
 })()`;
 
-// hide: put the player behind the first cover point that breaks the line to every member
-export const HIDE = `(() => {
-  const ctx = window.__radius.ctx, p = ctx.player, TH = ctx.THREE;
-  const eye = new TH.Vector3();
-  for (const c of ctx.world.coverPoints) {
-    const d = Math.hypot(c.x - p.position.x, c.z - p.position.z);
-    if (d < 3 || d > 22) continue;
-    let ok = true;
-    for (const m of window.__list) { eye.set(c.x, c.y + 1.6, c.z); if (ctx.world.lineOfSight(m.eyePos(new TH.Vector3()), eye)) { ok = false; break; } }
-    if (!ok) continue;
-    window.__radius.teleport(c.x, c.z); ctx.player.update(0);
-    return { x: +c.x.toFixed(1), z: +c.z.toFixed(1) };
-  }
-  return null;
-})()`;
 
 export const RUN = (n, dt = 0.05) => `(() => {
   const ctx = window.__radius.ctx, p = ctx.player, s = window.__sq, M = window.__M, TH = ctx.THREE;
@@ -78,6 +68,14 @@ export const RUN = (n, dt = 0.05) => `(() => {
   let prevEl = -1, swaps = 0;
   for (let i = 0; i < ${n}; i++) {
     ctx.elapsed += ${dt};
+    // a player who walks: the shared picture has to keep up with him, and bel says how far behind it is
+    if (window.__walk) {
+      const a = ctx.elapsed * 0.28;
+      p.position.x += Math.cos(a) * 2.6 * ${dt}; p.position.z += Math.sin(a) * 2.6 * ${dt};
+      const g = ctx.world.groundHeight(p.position.x, p.position.z, p.position.y + 1.5); p.position.y = g.y;
+      ctx.world.resolveCapsule(p.position, 0.35, 1.8);
+      p.noise = 0.35;
+    }
     ctx.enemies.update(${dt}); ctx.squads.update(${dt}); ctx.director.update(${dt}); ctx.player.update(${dt});
     if (i % 4) continue;
     samples++;
@@ -106,6 +104,7 @@ export const RUN = (n, dt = 0.05) => `(() => {
     bel: belN ? +(bel / belN).toFixed(1) : -1, maxAng: Math.round(maxAng), behindFrac: +(behind / Math.max(1, samples)).toFixed(2),
     minD: +minD.toFixed(1), losFrac: +(losT / Math.max(1, samples)).toFixed(2),
     swaps, bounds: s.bounds | 0, refused: s.boundsRefused | 0, frags: s.fragOrders | 0, fixing: s.fixing | 0,
+    states: window.__list.filter((m) => m.alive).map((m) => m.state).join(','),
     sect: sectors, cov: covering, kind: s.contactKind || '-', radio: M.radio.length, calls: kinds,
     dir: ctx.director.state, pr: +ctx.director.pressure.toFixed(2) };
 })()`;
@@ -114,8 +113,8 @@ export default async function (page, api) {
   await boot(api);
   await api.run(HOOKS);
   for (const t of TRIALS) {
+    await api.run(`window.__walk = ${t.walk ? 1 : 0}`);
     const info = await api.run(SETUP(t));
-    if (t.hide) { const h = await api.run(RUN(40)); const at = await api.run(HIDE); console.log('  hid at', JSON.stringify(at)); }
     console.log('TRIAL', t.name, JSON.stringify(info));
     for (let k = 0; k < 4; k++) console.log('  ', JSON.stringify(await api.run(RUN(150))));
   }

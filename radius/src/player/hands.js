@@ -270,6 +270,10 @@ export function createHands(ctx) {
   const off = makeOffsets();
   let anim = null, animT = 0, animDur = 1, animFn = null;
   let bobT = 0, bobAmt = 0, lower = 0, breathe = 0, swayX = 0, swayY = 0, swayRX = 0, swayRY = 0, adsEase = 0, crouchK = 0, bipodK = 0, wallK = 0, wallTarget = 0, wallFrame = 0;
+  // sight picture: the slow wander of a held weapon, the breath the shooter can hold, and the flinch when
+  // rounds crack past. This moves the CAMERA, not the viewmodel, so the sights, the crosshair and the world
+  // all drift together and the shot goes exactly where the picture says it will.
+  let swayT = 0, swayAmp = 0, holdK = 0, holdT = 0, exhaleK = 0, hbCool = 0;
   // recoil spring (position back + rotation up), critically damped
   const kx = new THREE.Vector3(), kv = new THREE.Vector3(), kr = new THREE.Vector3(), krv = new THREE.Vector3();
   const state = { lock: false, scoped: false };
@@ -332,10 +336,11 @@ export function createHands(ctx) {
   }
 
   const api = {
-    root, pivot, holder, adsBlend: 0, gloves, bipod: false,
+    root, pivot, holder, adsBlend: 0, gloves, bipod: false, braced: false,
     get weapon() { return weapon; }, get parts() { return parts; },
     get animName() { return anim; }, get animT() { return animDur > 0 ? animT / animDur : 1; }, get animDone() { return !anim || animT >= animDur; },
     get wallBlocked() { return wallK > 0.6; }, get laserOn() { return laserOn; }, get lightOn() { return lightOn; }, get laserDistance() { return laserDist; },
+    get holdingBreath() { return holdK > 0.5; }, get breathHold() { return holdK; }, get sway() { return swayAmp; }, get swayDeg() { return swayAmp * 1.27 / Math.PI * 180; },
     setWeaponMesh(group) {
       if (weapon) { weapon.remove(gloves.right); weapon.remove(gloves.left); holder.remove(weapon); }
       if (laser.parent) laser.parent.remove(laser);
@@ -454,6 +459,51 @@ export function createHands(ctx) {
       const brY = (Math.sin(t * TAU / 3.8) * 0.0018 * motion + Math.sin(t * TAU / 1.9) * 0.0065 * breathe * motion) * steady;
       const brRX = (Math.sin(t * TAU / 3.8 + 0.6) * 0.003 * motion + Math.sin(t * TAU / 1.9 + 0.4) * 0.012 * breathe * motion) * steady;
       const brRZ = (Math.sin(t * TAU / 5.1) * 0.002 * motion + Math.sin(t * TAU / 1.9 + 1.7) * 0.01 * breathe * motion) * steady;
+      // ---- sight sway: breathing, load, fatigue, wounds, and whether you are holding your breath ----
+      {
+        const sd = ctx.state.data, inv = ctx.inventory;
+        const stam = clamp01((sd.stamina ?? 100) / 100);
+        const hurt = clamp01(1 - (sd.hp ?? 100) / 100);
+        const wgt = ctx.weapons?.current?.def?.weight || 3;
+        // holding the breath: Shift with the sights up and the feet still. It costs stamina fast and ends
+        // in a forced exhale that throws the picture wide, so it is a window, not a switch.
+        const wantHold = adsEase > 0.35 && input.enabled && input.down('sprint') && !p.sprinting && !p.dead
+          && (sd.stamina ?? 0) > 0.5 && exhaleK <= 0 && !(anim === 'draw' && animT < animDur);
+        if (wantHold) { holdT += dt; p.addStamina(-26 * dt); if ((sd.stamina ?? 0) <= 0.5) { exhaleK = 1; holdT = 0; } }
+        else holdT = 0;
+        holdK = damp(holdK, wantHold ? 1 : 0, wantHold ? 8 : 5, dt);
+        exhaleK = Math.max(0, exhaleK - dt * 0.8);
+        hbCool = Math.max(0, hbCool - dt);
+        if (adsEase > 0.6 && stam < 0.45 && !sd.flags?.breathHint && hbCool <= 0 && sd.flags) {
+          sd.flags.breathHint = true; ctx.hud?.hint?.('Hold your breath with Shift to steady the sights.', 3200);
+        }
+        let amp = 0.0016 * motion;
+        amp *= lerp(2.6, 1.0, stam);                                   // winded is the single biggest term
+        amp *= 1 + 0.8 * hurt;
+        amp *= 1 + 1.6 * clamp01((p.speed || 0) / 3.6);                // walking is not a firing position
+        amp *= p.crouched ? 0.72 : 1;
+        amp *= lerp(1, 0.18, bipodK);
+        if (api.braced && !api.bipod) amp *= 0.45;                     // rested on cover
+        amp *= lerp(0.85, 1.35, clamp01((wgt - 2) / 5));               // a PKM wanders further than a PM
+        amp *= ctx.damage ? ctx.damage.steadyMul : 1;
+        amp *= lerp(0.28, 1, adsEase);
+        amp *= lerp(1, 0.12, holdK);
+        amp *= 1 + 2.6 * exhaleK * exhaleK;
+        swayAmp = amp;
+        swayT += dt * lerp(0.75, 1.9, 1 - stam);
+        let cx = amp * (Math.sin(swayT * 0.90 + 1.7) * 0.55 + Math.sin(swayT * 2.15 + 0.4) * 0.22 + Math.sin(swayT * 0.37) * 0.5);
+        let cy = amp * (Math.sin(swayT * 0.73) * 0.55 + Math.sin(swayT * 1.87 + 2.1) * 0.20 + Math.sin(swayT * 0.29 + 1.1) * 0.5);
+        let cz = amp * Math.sin(swayT * 0.51 + 0.9) * 0.6;
+        // suppression: a round past the ear does not nudge the aim, it jolts it
+        const supp = ctx.ballistics ? (ctx.ballistics.suppression || 0) : 0;
+        if (supp > 0.01) {
+          const f = supp * 0.0055 * motion;
+          cx += (Math.sin(t * 37.1) * 0.6 + Math.sin(t * 71.3) * 0.4) * f;
+          cy += (Math.sin(t * 43.7) * 0.6 + Math.sin(t * 63.1) * 0.4) * f;
+          cz += Math.sin(t * 29.3) * f * 1.6;
+        }
+        ctx.camera.rotation.set(cx, cy, cz);
+      }
       // ---- recoil spring ----
       const K = SPRING_K, C = 30, n = Math.min(8, Math.ceil(dt * 120)), h = n > 0 ? dt / n : 0;
       for (let i = 0; i < n; i++) {

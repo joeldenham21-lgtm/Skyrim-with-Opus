@@ -13,6 +13,40 @@
 // Everything expensive (cover scoring, frustum tests, line of sight) runs here, once per squad per role tick,
 // never per member per frame; cover points are bucketed into a coarse grid so a query touches a neighbourhood
 // instead of the whole zone. Squads also own the grenade projectiles, so a thrown grenade outlives the thrower.
+//
+// ---------------------------------------------------------------------------------------------------------
+// v4 — the squad as a unit rather than four men standing near each other.
+//
+//   THE RADIO WORDS (CALLS, below). Every transfer of knowledge between two mimics, and every decision the
+//   player deserves a beat of warning about, goes through say(): a handset keyed at a rate you learn to read.
+//   Contact, he-has-moved, I-am-crossing, I-am-set, going-round, frag-out, man-down, falling-back. A call
+//   reaches only the men inside RADIO_R; past that a man is on his own. Nothing here moves information
+//   silently, which is the fairness rule stated as code.
+//
+//   BOUNDING OVERWATCH THAT IS ACTUALLY COVERED. A man does not step off until coverBound() has found a
+//   stationary man with a line onto the middle of the ground he is about to cross — and that man is handed
+//   the lane as a SECTOR, which he faces and (mimic.js wantCover) puts rounds into while his mate runs. A
+//   bound nobody can cover is refused: below a green squad's standing they cross anyway and die doing it.
+//
+//   A FLANKING ELEMENT, NOT TWO LONE FLANKERS. One side for the whole element, chosen once and kept, and
+//   nobody walks until the base is actually fixing you (`fixing` counts men of the base with a live line).
+//
+//   ORGANISATION. `org` is what a leader is worth: it drops to a fifth when he is killed and comes back over
+//   fifteen seconds as somebody else takes the picture up. No leader means no bounds, no flank, no grenade
+//   order — killing the man giving orders visibly costs them a manoeuvre.
+//
+//   THE PICTURE HAS A WIDTH. know() carries a radius, spread() grows it with age, and the sectors men are put
+//   on are as wide as the picture is vague. A squad that watched you go covers a little ground well; a squad
+//   that only heard a shot covers a lot of ground badly.
+//
+//   THE SWEEP. Losing you turns the squad into a line abreast walking the ground, one lane each, silent.
+//
+//   THE WORLD. Anomalies are fences: nothing plans a bound, a flank, a firing position or a line of retreat
+//   through one, and a squad falling back prefers a route with a field between it and you. Overwatch prefers
+//   height. A squad cut in half falls back INTO a building when the POI has one.
+//
+//   THE GRENADE IS THE SQUAD'S DECISION. When you are in a hole they cannot shoot into, the leader picks the
+//   man best placed and posts one in — after the call, not before it.
 import * as THREE from 'three';
 import { clamp, clamp01, lerp, angleDelta, DEG } from '../core/math.js';
 import { classRank } from './loadout.js';
@@ -24,7 +58,7 @@ const REINFORCE_AFTER = 30, REINFORCE_R = 160, GRENADE_CD = 40, CONVERGE_R = 120
 const AMBUSH_MAX = 110, BREAK_MORALE = 0.3, SPRING_R = 18, CELL = 20;
 const RADIO_R = 170;          // m a handset reaches; past it a man is on his own until somebody walks to him
 // the mimic only understands these order roles; `job` below is the squad's own vocabulary
-const JOB_ROLE = { point: 'base', support: 'base', flanker: 'flank', overwatch: 'watch', bound: 'flank', shaken: 'flank', ambush: 'ambush', regroup: 'regroup', breakoff: 'regroup', idle: 'idle' };
+const JOB_ROLE = { point: 'base', support: 'base', flanker: 'flank', overwatch: 'watch', bound: 'flank', shaken: 'flank', ambush: 'ambush', regroup: 'regroup', breakoff: 'regroup', sweep: 'base', idle: 'idle' };
 const cand = [], candS = [];   // scratch: top-N cover candidates, reused
 
 // =====================================================================================================
@@ -34,17 +68,18 @@ const cand = [], candS = [];   // scratch: top-N cover candidates, reused
 // before a grenade, and after two contacts he knows which one he is hearing. Nothing in this file moves
 // knowledge between two mimics without one of these playing first — that is the fairness rule, stated as code.
 // =====================================================================================================
+// `gap` is the shortest time between two of the same word: a squad chatters, it does not stammer.
 export const CALLS = {
-  contact:  { rate: 1.12, gain: 0.95, max: 110 },   // I have him
-  update:   { rate: 0.98, gain: 0.75, max: 95 },    // he has moved
-  heard:    { rate: 0.86, gain: 0.62, max: 85 },    // something over there
-  moving:   { rate: 1.22, gain: 0.85, max: 100 },   // I am crossing — cover me
-  set:      { rate: 1.04, gain: 0.70, max: 90 },    // I am in position
-  flanking: { rate: 1.34, gain: 0.92, max: 105 },   // going round
-  grenade:  { rate: 1.48, gain: 1.00, max: 130 },   // frag out
-  down:     { rate: 1.28, gain: 1.00, max: 125 },   // man down
-  falling:  { rate: 1.38, gain: 1.00, max: 125 },   // breaking contact
-  hold:     { rate: 0.94, gain: 0.55, max: 80 },    // nobody move
+  contact:  { rate: 1.12, gain: 0.95, max: 110, gap: 1.5 },   // I have him
+  update:   { rate: 0.98, gain: 0.75, max: 95, gap: 2.5 },    // he has moved
+  heard:    { rate: 0.86, gain: 0.62, max: 85, gap: 3.0 },    // something over there
+  moving:   { rate: 1.22, gain: 0.85, max: 100, gap: 4.0 },   // I am crossing — cover me
+  set:      { rate: 1.04, gain: 0.70, max: 90, gap: 4.0 },    // I am in position
+  flanking: { rate: 1.34, gain: 0.92, max: 105, gap: 8.0 },   // going round
+  grenade:  { rate: 1.48, gain: 1.00, max: 130, gap: 0 },     // frag out
+  down:     { rate: 1.28, gain: 1.00, max: 125, gap: 0 },     // man down
+  falling:  { rate: 1.38, gain: 1.00, max: 125, gap: 0 },     // breaking contact
+  hold:     { rate: 0.94, gain: 0.55, max: 80, gap: 4.0 },    // nobody move
 };
 
 // play the first registered name from a list (v2 sounds land in parallel; older names stay as fallbacks)
@@ -157,7 +192,6 @@ export function createSquads(ctx) {
           const c = cell[i];
           const dm = Math.hypot(c.x - from.x, c.z - from.z); if (dm > maxD) continue;
           const s = score(c, dm); if (s === null || s === -Infinity) continue;
-          if (anomalyAt(c.x, c.z)) continue;   // a firing position inside a field is not a firing position
           if (cand.length < 4) { let j = cand.length; cand.push(c); candS.push(s); while (j > 0 && candS[j - 1] < s) { cand[j] = cand[j - 1]; candS[j] = candS[j - 1]; cand[j - 1] = c; candS[j - 1] = s; j--; } }
           else if (s > candS[3]) { let j = 3; cand[3] = c; candS[3] = s; while (j > 0 && candS[j - 1] < s) { const tc = cand[j - 1], ts = candS[j - 1]; cand[j - 1] = c; candS[j - 1] = s; cand[j] = tc; candS[j] = ts; j--; } }
         }
@@ -166,6 +200,7 @@ export function createSquads(ctx) {
     const eye = losTo || _eye.copy(ctx.player.eye);
     for (let i = 0; i < cand.length; i++) {
       const c = cand[i];
+      if (anomalyAt(c.x, c.z)) continue;       // a firing position inside a field is not a firing position
       if (needLos === null) return c;
       if (ctx.world.lineOfSight(_v.set(c.x, c.y + losFrom, c.z), eye) === needLos) return c;
     }
@@ -199,7 +234,7 @@ export function createSquads(ctx) {
       this.flankSide = rng() < 0.5 ? 1 : -1; this.flankT = -1e9; this.flankSet = false; this.flankers = 0;
       this.bounds = 0; this.boundsRefused = 0; this.fragOrders = 0;   // read by tools/scenarios/ai-*.mjs
       this.lastSay = null; this.saidT = -1e9; this.holdCallT = -1e9;
-      this.sectorT = 0;
+      this.sectorT = 0; this.planted = false; this.saidAt = {}; this.assaultT = -1e9; this.assault = false;
       for (const m of members) this.add(m);
       this.initial = this.members.length;
       this.electLeader();
@@ -218,7 +253,7 @@ export function createSquads(ctx) {
     get alive() { let n = 0; for (const m of this.members) if (m.alive) n++; return n; }
     // the leader is elected once and kept; `leader` is null while the squad has none (it has just lost one)
     get leader() { const l = this.leaderRef; return l && l.alive && this.members.includes(l) ? l : null; }
-    get inCombat() { return this.state === 'combat' || this.state === 'regroup' || this.state === 'ambush' || this.state === 'breakoff'; }
+    get inCombat() { return this.state === 'combat' || this.state === 'regroup' || this.state === 'ambush' || this.state === 'breakoff' || this.state === 'sweep'; }
     electLeader() {
       let best = null, bs = -1;
       for (const m of this.members) { if (!m.alive) continue; const s = classRank(m.cls) * 10 + (m.maxHp || 0) * 0.05; if (s > bs) { bs = s; best = m; } }
@@ -239,9 +274,11 @@ export function createSquads(ctx) {
     // reasonably be given a chance to react to goes through here FIRST, a beat before it happens.
     say(kind, from, mult = 1) {
       const c = CALLS[kind] || CALLS.update;
+      const t = ctx.elapsed;
+      if (c.gap && t - (this.saidAt[kind] || -1e9) < c.gap) return false;
       const m = from && from.alive ? from : this.members.find((x) => x.alive && !x.stalker);
       if (!m || m.stalker) return false;
-      this.lastSay = kind; this.saidT = ctx.elapsed;
+      this.saidAt[kind] = t; this.lastSay = kind; this.saidT = t;
       m.sound('mimic_radio', { gain: c.gain * mult, max: c.max, rate: c.rate * (0.98 + rng() * 0.04) });
       this.radioT = Math.max(this.radioT, 1.4);
       return true;
@@ -334,8 +371,22 @@ export function createSquads(ctx) {
       this.roleT = 0; this.file.length = 0;
     }
 
+    // A squad put here on purpose, by population.js, on the ground the zone has watched you walk. It sits
+    // silent — no radio, no patrol — until you come inside SPRING_R, and unlike an improvised ambush it does
+    // not get bored: it was told to wait here, so it waits here.
+    plant() {
+      this.planted = true; this.state = 'ambush'; this.route = null; this.radioT = 1e9;
+      this.lastKnownT = ctx.elapsed; this.hasKnown = false; this.morale = 1;
+      for (const m of this.members) {
+        if (!m.alive) continue;
+        const o = m.orders; if (!o) continue;
+        o.job = 'ambush'; o.role = 'ambush'; o.hold = true; o.fire = false; o.hasTarget = false; o.hasSector = false;
+        m.aware = Math.min(m.aware, 0.15); m.engaged = false;
+        if (m.setState && m.state !== 'engage') m.setState('engage');
+      }
+    }
     enterAlert() { if (this.inCombat) return; this.state = 'alert'; this.combatT = 0; this.roleT = 0.4; this.knowT = lerp(1.6, 0.6, this.skill); this.radioT = Math.min(this.radioT, 1.2); }
-    enterCombat() { this.state = 'combat'; this.combatT = 0; this.roleT = 0.15; this.knowT = lerp(1.6, 0.6, this.skill); this.radioT = 0.3; this.boundT = 0; }
+    enterCombat() { this.planted = false; this.state = 'combat'; this.combatT = 0; this.roleT = 0.15; this.knowT = lerp(1.6, 0.6, this.skill); this.radioT = 0.3; this.boundT = 0; }
     // Every exit from a fight goes through here. Orders that outlive their state are what pins a mimic in
     // 'engage' forever, so the roster is always cleared, and `hard` also lets the men forget you.
     standDown(hard = false) {
@@ -434,17 +485,26 @@ export function createSquads(ctx) {
         if (awareMax < 0.15 && t - this.lastKnownT > lerp(28, 50, this.skill) && this.state !== 'ambush' && this.state !== 'breakoff') this.standDown();
       } else this.morale = Math.min(1, this.morale + dt * 0.02);
 
+      // ---- the sweep ----
+      // They have lost you and they have not given up. Rather than four men each hunting their own idea of
+      // where you went, the squad puts them on line, one lane each, and walks the ground. The lanes are as
+      // wide as the picture is vague (spread()), which is why a squad that only ever HEARD you covers a lot
+      // of ground badly and a squad that watched you go covers a little ground well.
+      if (this.state === 'combat' && !this.eyesOn && t - this.lastKnownT > 7 && this.hasKnown && this.org > 0.4 && this.morale > 0.5) {
+        this.state = 'sweep'; this.roleT = 0; this.bounding = false; this.radioT = Math.max(this.radioT, 6);
+      } else if (this.state === 'sweep' && (this.eyesOn || t - this.lastKnownT < 3)) this.enterCombat();
       // nerve: a squad cut in half falls back and sets an ambush; a squad that has lost its nerve leaves
-      if (this.state === 'combat' && this.combatT > 5) {
+      if ((this.state === 'combat' || this.state === 'sweep') && this.combatT > 5) {
         if (this.morale <= BREAK_MORALE && this.initial >= 2) this.beginBreakoff();
         else if (!this.regrouped && this.initial >= 3 && alive * 2 <= this.initial) this.beginRegroup();
       }
       // the ambush springs as one when you walk into it, not man by man
       if (this.state === 'ambush') {
         if (minD < SPRING_R && !p.dead && !p.inBase) {
-          this.state = 'combat'; this.roleT = 0; this.radioT = 0.15; this.know(p.position, t);
+          this.state = 'combat'; this.roleT = 0; this.radioT = 0.15; this.know(p.position, t, 0); this.planted = false;
+          this.contactKind = 'seen'; this.say('contact', null, 1.1);
           for (const m of this.members) if (m.alive && m.orders) { m.orders.role = 'base'; m.orders.job = 'point'; m.orders.fire = true; }
-        } else if (t - this.lastKnownT > AMBUSH_MAX) this.standDown(true);   // an ambush that nobody walks into ends
+        } else if (!this.planted && t - this.lastKnownT > AMBUSH_MAX) this.standDown(true);   // an improvised ambush that nobody walks into ends
       }
       if (this.state === 'breakoff') this.breakoffTick(dt, alive);
 
@@ -552,7 +612,23 @@ export function createSquads(ctx) {
         if (anomalyOnLine(A.x, A.z, c.x, c.z, 3)) s += 45 * sk;
         return s;
       }, false, 1.2, this.aimEye);
-      if (c) this.retreat.copy(c);
+      // A doorway is better than a hedge: if the structures agent has put an interior standing place inside
+      // this POI, and it is away from you, the squad falls back into the building rather than into open ground.
+      let inside = null;
+      if (this.poi && sk > 0.3) {
+        const spots = ctx.world.spawnSpots;
+        let bd = -1;
+        for (let i = 0; i < spots.length; i++) {
+          const sp = spots[i]; if (sp.poi !== this.poi.id || sp.kind !== 'interior') continue;
+          const q = sp.position;
+          const dp = Math.hypot(q.x - A.x, q.z - A.z), dm = Math.hypot(q.x - this.centroid.x, q.z - this.centroid.z);
+          if (dp < 25 || dm > 70) continue;
+          const sc = dp * 0.4 - dm * 0.2;
+          if (sc > bd) { bd = sc; inside = q; }
+        }
+      }
+      if (inside) this.retreat.copy(inside);
+      else if (c) this.retreat.copy(c);
       else {
         _dir.set(this.centroid.x - A.x, 0, this.centroid.z - A.z);
         if (_dir.lengthSq() < 0.1) _dir.set(1, 0, 0); _dir.normalize();
@@ -589,6 +665,25 @@ export function createSquads(ctx) {
       const clear = this.centroid.distanceTo(this.aim) > 55 || this.centroid.distanceTo(this.retreat) < 8;
       if ((clear && ctx.elapsed - this.lastKnownT > 8) || this.breakT > 45) this.standDown(true);
     }
+    // Line abreast onto the last known position: each man takes one lane, the lanes as wide as the picture is
+    // vague, the whole line walking in from the side the squad is already on. Nobody says anything.
+    orderSweep(alive) {
+      const A = this.aim, w = Math.max(7, Math.min(18, 7 + this.spread() * 0.7));
+      const base = Math.atan2(A.z - this.centroid.z, A.x - this.centroid.x);
+      const px = -Math.sin(base), pz = Math.cos(base);
+      const men = this.members.filter((m) => m.alive && m.orders);
+      const n = Math.max(1, men.length);
+      for (let i = 0; i < men.length; i++) {
+        const m = men[i], o = m.orders;
+        const off = (i - (n - 1) / 2) * w;
+        const reach = clamp(Math.hypot(A.x - m.position.x, A.z - m.position.z) - 4, 3, 45);
+        o.job = 'sweep'; o.role = 'base'; o.fire = true; o.hold = false; o.at = false; o.mv = 0; o.hasSector = false;
+        const tx = A.x + px * off, tz = A.z + pz * off;
+        if (walkable(tx, tz, o.target)) o.hasTarget = true;
+        else if (walkable(m.position.x + Math.cos(base) * Math.min(reach, 12) + px * off * 0.4, m.position.z + Math.sin(base) * Math.min(reach, 12) + pz * off * 0.4, o.target)) o.hasTarget = true;
+        else o.hasTarget = false;
+      }
+    }
     // put the squad onto one point without stacking it: each man gets his own slot around it
     spreadOnto(point, job, rad) {
       const role = JOB_ROLE[job] || 'regroup';
@@ -621,6 +716,7 @@ export function createSquads(ctx) {
         for (const m of this.members) if (m.alive && m.orders) { m.orders.job = 'ambush'; m.orders.role = 'ambush'; m.orders.hold = true; }
         return;
       }
+      if (this.state === 'sweep') { this.orderSweep(alive); return; }
       // No picture, no plan. In the second between the first man seeing you and his call landing, the squad
       // has nothing to manoeuvre against and does not pretend otherwise — he fights, the rest wait for it.
       if (!this.hasKnown && !this.eyesOn) return;
@@ -652,6 +748,10 @@ export function createSquads(ctx) {
       // steps off until the base is actually shooting (see `fixed` below). A squad without a leader does not
       // send anybody anywhere.
       const t = ctx.elapsed;
+      // The three seconds after their own grenade goes off. They do not stand and watch the smoke: the base
+      // element comes forward at half its usual range while you are still deaf, which is what makes the call
+      // before the throw worth listening for.
+      this.assault = t > this.assaultT && t < this.assaultT + 4.5 && this.org > 0.5;
       const wantFlank = n <= 2 || this.org < 0.45 ? 0 : Math.min(free.length - 1, sk > 0.55 && this.org > 0.75 ? 2 : sk > 0.15 ? 1 : 0);
       if (wantFlank > 0 && t - this.flankT > 30) { this.flankSide = rng() < 0.5 ? 1 : -1; this.flankT = t; this.flankSet = false; }
       for (let i = 0; i < wantFlank; i++) jobs.set(free.pop(), 'flanker');
@@ -664,9 +764,9 @@ export function createSquads(ctx) {
       const movers = [];
       for (const [m, j] of jobs) if (j === 'point' || j === 'support') movers.push(m);
       const gap = this.centroid.distanceTo(A);
-      const wantBound = movers.length >= 2 && sk >= 0.18 && gap > 20 && this.morale > 0.45 && this.org > 0.5;
+      const wantBound = movers.length >= 2 && sk >= 0.18 && (gap > 20 || this.assault) && this.morale > 0.45 && this.org > 0.5;
       this.groups = 2;   // two elements: one crosses, one covers. Three elements is nobody covering anybody.
-      if (wantBound && !this.bounding) { this.bounding = true; this.boundT = lerp(6.5, 3.5, sk); this.movingElement = 0; }
+      if (wantBound && !this.bounding) { this.bounding = true; this.boundT = this.assault ? 1.6 : lerp(6.5, 3.5, sk); this.movingElement = 0; }
       else if (!wantBound) this.bounding = false;
       // the men nearest the contact hold; the ones behind them come up. Split by distance, not by list order.
       if (this.bounding) { this.movingElement %= this.groups; for (let i = 0; i < movers.length; i++) movers[i].orders.element = i % this.groups; }
@@ -710,8 +810,11 @@ export function createSquads(ctx) {
           if (this.coverBound(m, o) || sk < 0.25) {
             if (o.hasTarget && o.saidMove !== 1) { o.saidMove = 1; this.say('moving', m, 0.85); }
           } else {
+            // he stays where he is and keeps shooting, which is the point: the squad's fire does not stop
+            // just because the ground ahead is not covered.
             this.boundsRefused++;
-            o.role = 'base'; o.fire = true; o.hold = true; o.hasTarget = false; o.mv = 2; o.saidMove = 0;
+            o.mv = 2; o.saidMove = 0;
+            this.orderHold(m, o, false);
           }
         } else this.orderHold(m, o, job === 'point');
       }
@@ -725,7 +828,7 @@ export function createSquads(ctx) {
       if (!o.hasTarget) return false;
       const w = ctx.world;
       _lane.set((mover.position.x + o.target.x) * 0.5, 0, (mover.position.z + o.target.z) * 0.5);
-      _lane.y = w.groundHeight(_lane.x, _lane.z, mover.position.y + 3).y + 1.1;
+      _lane.y = w.groundHeight(_lane.x, _lane.z, mover.position.y + 3).y;   // ground: consumers add their own height
       let tried = 0;
       for (const c of this.members) {
         if (!c.alive || c === mover || !c.orders) continue;
@@ -734,7 +837,8 @@ export function createSquads(ctx) {
         if (c.orders.mv === 1) continue;                      // he is crossing too; he covers nobody
         if (c.position.distanceTo(_lane) > 80) continue;
         if (tried++ >= 3) break;
-        if (!w.lineOfSight(_from.set(c.position.x, c.position.y + 1.5, c.position.z), _lane)) continue;
+        _v3.set(_lane.x, _lane.y + 1.1, _lane.z);
+        if (!w.lineOfSight(_from.set(c.position.x, c.position.y + 1.5, c.position.z), _v3)) continue;
         o.covering = c;
         c.orders.sector.copy(_lane); c.orders.hasSector = true;
         this.bounds++;
@@ -748,8 +852,9 @@ export function createSquads(ctx) {
       const A = this.aim, hold = m.profile ? m.profile.hold : [8, 30];
       o.role = 'base'; o.fire = true; o.hold = true;
       if (m.role === 'sniper') { o.hasTarget = false; return; }   // the marksman keeps his own range
-      const near = forward ? Math.max(7, hold[0] * 0.7) : Math.max(10, hold[0]);
-      const far = forward ? Math.min(40, Math.max(20, hold[1] * 0.8)) : Math.max(24, Math.min(60, hold[1]));
+      const k = this.assault ? 0.55 : 1;   // straight after their own grenade they fight from half the range
+      const near = (forward ? Math.max(7, hold[0] * 0.7) : Math.max(10, hold[0])) * k;
+      const far = (forward ? Math.min(40, Math.max(20, hold[1] * 0.8)) : Math.max(24, Math.min(60, hold[1]))) * k;
       const want = (near + far) * 0.5;
       const dA = m._dA;
       if (m.cover && m.position.distanceTo(m.cover) < 1.6 && dA > near - 2 && dA < far + 6 && m.losT >= 0 && ctx.elapsed - m.losT < 2.5) { o.target.copy(m.cover); o.hasTarget = true; o.at = true; return; }
@@ -785,7 +890,9 @@ export function createSquads(ctx) {
       const A = this.aim;
       o.role = 'watch'; o.fire = false; o.hold = true;
       if (m._dA > 26 && m._dA < 54 && m.cover && m.position.distanceTo(m.cover) < 2) { o.target.copy(m.cover); o.hasTarget = true; o.at = true; return; }
-      const c = bestCover(m.position, 40, (c, dm) => { const dp = Math.hypot(c.x - A.x, c.z - A.z); if (dp < 28 || dp > 52) return null; return -dm * 0.1 - Math.abs(dp - 40) * 0.05; }, true, 1.6, this.aimEye)
+      // height first: a man on a roof or a bank sees over what you are hiding behind, and shooting back up at
+      // him costs you the cover you are using. Two metres up is worth ten metres of range.
+      const c = bestCover(m.position, 40, (c, dm) => { const dp = Math.hypot(c.x - A.x, c.z - A.z); if (dp < 28 || dp > 52) return null; return -dm * 0.1 - Math.abs(dp - 40) * 0.05 + clamp(c.y - A.y, 0, 6) * 2.2; }, true, 1.6, this.aimEye)
         || bestCover(m.position, 40, (c, dm) => { const dp = Math.hypot(c.x - A.x, c.z - A.z); if (dp < 28 || dp > 52) return null; return -dm * 0.1; }, null);
       if (c) { o.target.copy(c); o.hasTarget = true; o.at = false; if (!m.cover) m.cover = new THREE.Vector3(); m.cover.copy(c); return; }
       _dir.set(m.position.x - A.x, 0, m.position.z - A.z); if (_dir.lengthSq() < 0.5) _dir.set(1, 0, 0); _dir.normalize();
@@ -1005,7 +1112,8 @@ export function createSquads(ctx) {
     throwGrenade(m, from, target, grenadeId) {
       const gdef = def(grenadeId) || { fuse: 3.5, radius: 7, damage: 110 };
       const cd = GRENADE_CD * lerp(1.1, 0.55, zoneSk);
-      if (m.squad) m.squad.grenadeT = cd; else m.grenadeCool = cd;
+      // the frag is not the end of the exchange, it is the start of the assault: they come in behind it
+      if (m.squad) { m.squad.grenadeT = cd; m.squad.assaultT = ctx.elapsed + (gdef.fuse || 3.5) + 0.4; } else m.grenadeCool = cd;
       return throwGrenade(m, from, target, gdef);
     },
     reset() {

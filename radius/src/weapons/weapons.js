@@ -57,6 +57,8 @@ export function createWeapons(ctx) {
   let recShots = 0, recIdle = 9, recPitch = 0, recYaw = 0;
   // barrel heat (0 cold .. >1 glowing) and the fixed zero error this particular weapon has worn in
   let heat = 0, biasX = 0, biasY = 0, hotHinted = false;
+  // rested on cover: crouched behind something with the muzzle over it
+  let braced = false, braceT = 0;
 
   // ---- ejected casings: one instanced mesh, pooled ----
   const casingMesh = new THREE.InstancedMesh(gunmesh.casingGeometry(), gunmesh.materials().brass, CASINGS);
@@ -196,10 +198,25 @@ export function createWeapons(ctx) {
     if (rec && rec.lightOn && fx && fx.light > 0) parts.push('<span class="on">weapon light</span>');
     if (rec && rec.laserOn && fx && fx.laser) parts.push('<span class="on">laser</span>');
     if (bipodActive) parts.push('<span class="on">bipod</span>');
+    else if (braced) parts.push('<span class="on">rested</span>');
+    if (hands.holdingBreath) parts.push('<span class="on">breath held</span>');
+    if (heat > 0.75) parts.push('<span class="on">barrel hot</span>');
+    if (scopeShown) parts.push(`zero ${zeroRange()} m`);
     const html = parts.join('<br>');
     if (html !== lastStatus) { lastStatus = html; hud.setStatusExtra(html, 'weapons'); }
   }
   function recomputeFx() { fx = rec ? weaponEffects(rec) : null; recomputeBias(); }
+  // Resting the weapon on a wall, a windowsill or a sandbag is the cheapest accuracy in the world and the
+  // game should reward it: crouched, still, sights up, with something solid under the muzzle.
+  function updateBrace(dt) {
+    braceT -= dt;
+    if (braceT > 0) return;
+    braceT = 0.15;
+    const p = ctx.player;
+    if (!rec || meleeHeld || !p.crouched || p.speed > 0.4 || adsBlend < 0.5 || p.pitch < -0.5) { braced = false; return; }
+    hands.muzzleWorld(_v); _n.set(0, -1, 0);
+    braced = !!ctx.world.raycast(_v, _n, 0.55);
+  }
   // Where this particular weapon actually shoots. A worn barrel and a fouled bore do not spray at random:
   // they walk the group off centre, and they always walk it the same way for the same gun, so a shooter who
   // knows his rifle can hold off — and a new one out of the crate is honest again.
@@ -353,7 +370,7 @@ export function createWeapons(ctx) {
     // Recoil is a pattern, not a coin toss. The first round of a string throws the muzzle hardest, the climb
     // flattens as the shooter loads into the weapon, and the horizontal walk is a fixed signature of this
     // weapon design — the same AKM always pulls the same way, so the pattern can be learned and fought.
-    const steady = lerp(1, 0.8, adsBlend) * (p.crouched ? 0.85 : 1) * fx.recoil * (bipodActive ? fx.proneRecoil : 1) * (ctx.damage?.steadyMul ?? 1) ** 0.5;
+    const steady = lerp(1, 0.8, adsBlend) * (p.crouched ? 0.85 : 1) * fx.recoil * (bipodActive ? fx.proneRecoil : 1) * (braced ? 0.7 : 1) * (ctx.damage?.steadyMul ?? 1) ** 0.5;
     const seed = seedOf(d.id);
     const n = recShots;
     const rise = 0.62 + 0.78 / (1 + n * 0.30);
@@ -647,7 +664,7 @@ export function createWeapons(ctx) {
     get current() { return meleeHeld ? meleeView : view; },
     get adsBlend() { return adsBlend; }, get spreadDeg() { return spreadDeg; }, get state() { return state; }, get stage() { return stage; },
     get effects() { return fx; }, get bipod() { return bipodActive; }, get zoom() { return zoomNow(); },
-    get heat() { return heat; }, get recoilDebt() { return recPitch; }, get zero() { return zeroRange(); }, get aimBias() { return [biasX, biasY]; },
+    get heat() { return heat; }, get recoilDebt() { return recPitch; }, get zero() { return zeroRange(); }, get aimBias() { return [biasX, biasY]; }, get braced() { return braced; },
     // fov ratio for look sensitivity (1 at hip, 1/zoom through a scope)
     get lookScale() { const s = ctx.state.data.settings; const base = s.fov || 75; return lastFov > 0 ? lastFov / base : 1; },
     equipSlot,
@@ -702,7 +719,7 @@ export function createWeapons(ctx) {
         // The muzzle comes back down the way it went up — but the moment the shooter moves the view himself
         // that is his aim now, not the weapon's, so the debt is written off rather than fought.
         if (!live() || (input.enabled && (Math.abs(input.dy) > 2.5 || Math.abs(input.dx) > 4))) { recPitch = 0; recYaw = 0; }
-        else if (recIdle > 0.09) {
+        else if (recIdle > 0.18) {   // long enough that a string of automatic fire climbs instead of sawing
           const k = 1 - Math.exp(-7 * dt);
           const dp = recPitch * k, dyw = recYaw * k;
           p.kick(-dp, -dyw);
@@ -759,6 +776,10 @@ export function createWeapons(ctx) {
       // ---- bipod: crouched and still ----
       const wantBipod = !!(rec && fx && fx.prone && p.crouched && p.speed < 0.3 && state !== 'reloading');
       if (wantBipod !== bipodActive) { bipodActive = wantBipod; hands.bipod = wantBipod; statusExtra(); }
+      const wasBraced = braced;
+      updateBrace(dt);
+      hands.braced = braced && !bipodActive;
+      if (braced !== wasBraced) statusExtra();
       // ---- spread ----
       const base = d ? d.moa * (fx ? fx.moa : 1) : 2;
       let mult = p.crouched ? 0.8 : 1;
@@ -768,6 +789,7 @@ export function createWeapons(ctx) {
       if (ctx.damage) mult *= ctx.damage.steadyMul;
       if (rec && rec.laserOn && fx && fx.laser) mult *= lerp(0.7, 1, adsBlend);
       if (bipodActive) mult *= fx.proneMoa;
+      else if (braced) mult *= 0.8;
       if (rec && !meleeHeld) { const a = AMMO[isBreak() ? rec.tube[0] : rec.chamber]; if (a && a.accuracy) mult *= a.accuracy; }
       // a hot barrel walks its group; rounds cracking past make a man shoot worse whatever he is holding
       if (heat > 0.5) mult *= 1 + 0.45 * (heat - 0.5);
@@ -777,6 +799,8 @@ export function createWeapons(ctx) {
       spreadDeg = base * mult + bloom;
       const px = Math.tan(spreadDeg * 0.5 * DEG) / Math.tan(fov * 0.5 * DEG) * (window.innerHeight * 0.5);
       hud.setSpread(clamp(px, 2, 260), adsBlend > 0.6);
+      // the status line only changes on transitions (hot barrel, held breath, rest); ten frames is plenty
+      if ((ctx.frame % 10) === 0) statusExtra();
       updateCasings(dt);
     },
   };

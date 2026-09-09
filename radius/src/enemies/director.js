@@ -148,6 +148,16 @@ export function createDirector(ctx) {
       return clamp01(contact.weight * (1 - (ctx.elapsed - contact.t) / life));
     },
     forgetContact() { contact.has = false; contact.weight = 0; },
+    // A visit is filed only if the zone had something on you while you were there. That is the whole fairness
+    // rule for memory: it records contacts, not footprints.
+    closeVisit() {
+      if (visit && visit.evidence >= 2) {
+        const r = poiMem.get(visit.poi) || { contacts: 0, ang: visit.ang, t: 0 };
+        r.contacts++; r.ang = visit.ang; r.t = ctx.elapsed;
+        poiMem.set(visit.poi, r);
+      }
+      visit = null;
+    },
     setState(s) {
       if (s === state) return;
       const prev = state; state = s; stateT = 0;
@@ -164,12 +174,13 @@ export function createDirector(ctx) {
           shots.push({ pos: data.pos.clone(), t, noise });
           if (shots.length > 32) shots.shift();
           lastShot = t; heat = clamp01(heat + PRESSURE.heatShot * noise); alarm = clamp01(alarm + PRESSURE.alarm.shot * noise);
+          api.noteActivity(data.pos, 'noise', noise);
           if (state !== 'COMBAT' && engaged > 0) api.setState('COMBAT');
           break;
         }
         case 'spotted':
           alarm = clamp01(alarm + PRESSURE.alarm.spotted);
-          if (data.enemy) api.report(ctx.player.position, 1, 0);
+          if (data.enemy) { api.report(ctx.player.position, 1, 0); api.noteActivity(data.enemy.position, 'seen', 1); }
           if (state === 'CALM' || state === 'UNEASE' || state === 'AFTERMATH') api.setState('HUNT');
           break;
         case 'damaged':
@@ -178,6 +189,7 @@ export function createDirector(ctx) {
           break;
         case 'kill':
           lastCombat = t; heat = clamp01(heat + PRESSURE.heatKill); alarm = clamp01(alarm + PRESSURE.alarm.kill);
+          if (data.enemy) api.noteActivity(data.enemy.position, 'blood', 1);
           if (state !== 'COMBAT') api.setState('COMBAT');
           break;
         case 'contact':
@@ -219,6 +231,29 @@ export function createDirector(ctx) {
         Math.max(0, ((d.tideLevel | 0) || 1) - 1) * PRESSURE.tide +
         Math.max(0, ((d.securityLevel | 0) || 1) - 1) * PRESSURE.security +
         night * PRESSURE.night + heat * PRESSURE.heat + (PRESSURE.state[state] || 0));
+      // ---- memory bookkeeping, once a second ----
+      memT -= dt;
+      if (memT <= 0) {
+        memT = 1;
+        for (const c of mem.values()) { c.noise *= 1 - MEM_DECAY; c.seen *= 1 - MEM_DECAY; c.blood *= 1 - MEM_DECAY * 0.4; }
+        // which place you are working, and whether it has anything on you. A visit nobody saw and nobody heard
+        // teaches the zone nothing, which is what makes a quiet approach worth making.
+        const near = ctx.world.nearestPoi ? ctx.world.nearestPoi(p.x, p.z) : null;
+        const poi = near && near.poi && near.distance < near.poi.r + 25 ? near.poi : null;
+        if (poi && (!visit || visit.poi !== poi.id)) {
+          if (visit) api.closeVisit();
+          visit = { poi: poi.id, ang: Math.atan2(p.z - poi.z, p.x - poi.x), evidence: 0, t };
+        } else if (!poi && visit) api.closeVisit();
+      }
+      // escalation: what the zone is willing to put on the board. Tide sets the ceiling; your noise and the
+      // bodies you leave decide how much of it you actually meet.
+      escT -= dt;
+      if (escT <= 0) {
+        escT = 4;
+        const tide = clamp((d.tideLevel | 0) || 1, 1, 3);
+        const earned = clamp01(totalNoise / 26) * 1.2 + clamp01(totalBlood / 10) * 1.3 + heat * 0.8;
+        escalation = Math.min(tide, Math.floor(earned));
+      }
       // scheduled unease: the zone breathes even when nothing is there
       uneaseTimer -= dt;
       if (uneaseTimer <= 0 && state === 'CALM' && !ctx.player.inBase && calmGuard <= 0) { uneaseTimer = 150 + Math.random() * 200; unease = 0.5 + Math.random() * 0.3; api.setState('UNEASE'); ctx.events.emit('directorEvent', 'unease'); }
@@ -254,5 +289,7 @@ export function createDirector(ctx) {
       tension = damp(tension, clamp01(target), state === 'COMBAT' ? 4 : 0.6, dt);
     },
   };
+  // A new game is a new zone: it has never heard of you. A Tide is not — that is the whole point of the memory.
+  ctx.events.on('gameStart', () => api.forgetAll());
   return api;
 }

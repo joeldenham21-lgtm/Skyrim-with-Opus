@@ -1,7 +1,32 @@
 // In-game HUD (DOM). Menus and base panels live in ui/menus.js and ui/panels.js.
+//
+// The rule this file is written to: fear is information, and clutter is the opposite of fear. Nothing is
+// drawn that is true all the time. The bottom-left block is a list of things that are currently wrong —
+// empty when nothing is, which is most of the time — and everything else waits behind Tab. What was added
+// for the loss economy is one line: where the kit is. It is the only line that persists across a whole
+// trip, because it is the only thing the Explorer is supposed to be thinking about on the way out.
 import { clamp01, damp, lerp } from '../core/math.js';
 
 const CARDS = [['N', 0], ['NE', 45], ['E', 90], ['SE', 135], ['S', 180], ['SW', 225], ['W', 270], ['NW', 315]];
+const CARD16 = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+const bearing16 = (dx, dz) => CARD16[Math.round((((Math.atan2(dx, -dz) * 180) / Math.PI % 360) + 360) % 360 / 22.5) % 16];
+const metres = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m / 5) * 5} m`);
+// signed angle from a to b in degrees, wrapped to (-180, 180] — so a mark 5 degrees east of north sits
+// five degrees to the right of centre instead of 355 degrees off the end of the strip
+const wrapDeg = (v) => { let x = (v + 180) % 360; if (x < 0) x += 360; return x - 180; };
+
+// The HUD's own sheet. style.css is core and shared; these three rules belong to the loss readout and
+// are injected rather than fought over.
+const HUD_CSS = `
+#status .hpline { display: block; width: 74px; height: 2px; background: rgba(217,211,196,0.18); margin: 3px 0 4px; }
+#status .hpline i { display: block; height: 100%; background: var(--red); }
+#status .kit { color: var(--amber-dim); }
+#compass .cache { position: absolute; top: 2px; transform: translateX(-50%); width: 7px; height: 7px; opacity: 0.72; }
+#compass .cache::before, #compass .cache::after { content: ''; position: absolute; background: var(--amber-dim); }
+#compass .cache::before { left: 3px; top: 0; width: 1px; height: 7px; }
+#compass .cache::after { left: 1px; top: 2px; width: 5px; height: 1px; }
+#watch .arrears { color: var(--red); }
+`;
 
 export function createHud(ctx) {
   const ui = document.getElementById('ui');
@@ -31,8 +56,31 @@ export function createHud(ctx) {
   for (let d = -360; d <= 720; d += 15) stripHtml += `<div class="tick" style="left:${d * PX}px"></div>`;
   strip.innerHTML = stripHtml;
   const mark = document.createElement('div'); mark.className = 'mark'; mark.style.display = 'none'; strip.appendChild(mark);
+  // the kit mark: a pencil cross on the compass at the bearing of what the Explorer left behind
+  const cacheMark = document.createElement('div'); cacheMark.className = 'cache'; cacheMark.style.display = 'none'; strip.appendChild(cacheMark);
+  if (!document.getElementById('hud-loss-css')) { const st = document.createElement('style'); st.id = 'hud-loss-css'; st.textContent = HUD_CSS; document.head.appendChild(st); }
 
   let spread = 4, ammoT = 0, hintT = 0, objectiveTarget = null, objectiveText = '', gameVisible = true;
+  // the walk-home readout is a whole-inventory walk and a distance query; it does not need a frame
+  let slowT = 0, kitD = 0, kitB = '', kitHas = false, kitX = 0, kitZ = 0, rounds = -1, reserve = 0;
+  function sampleSlow() {
+    const inv = ctx.inventory;
+    kitHas = false;
+    try {
+      const n = ctx.loot?.nearestCache?.(ctx.player.position);
+      if (n && n.cache) { kitHas = true; kitD = n.distance; kitX = n.cache.x; kitZ = n.cache.z; kitB = bearing16(n.cache.x - ctx.player.position.x, n.cache.z - ctx.player.position.z); }
+    } catch { kitHas = false; }
+    rounds = -1; reserve = 0;
+    try {
+      const w = ctx.weapons?.current;
+      if (w && w.def) {
+        rounds = (w.chamber ? 1 : 0) + (w.mag ? w.mag.rounds : (w.tube ? w.tube.length : 0));
+        for (const m of inv.magsForWeapon ? inv.magsForWeapon(w) : []) reserve += m.rounds || 0;
+        reserve += inv.ammoCount ? inv.ammoCount(w.def.cal) : 0;
+      }
+    } catch { rounds = -1; }
+  }
+
   ctx.events.on('playerDamaged', (amount, info) => { if (info && info.source) api.damageFrom(info.source); });
   const api = {
     // ---- prompt ----
@@ -110,11 +158,20 @@ export function createHud(ctx) {
       if (objectiveTarget) {
         const dx = objectiveTarget.x - p.position.x, dz = objectiveTarget.z - p.position.z;
         const bearing = ((Math.atan2(dx, -dz) * 180) / Math.PI + 360) % 360;
-        mark.style.display = ''; mark.style.left = `${(bearing * PX).toFixed(1)}px`;
-        // also copies for wrap
+        // Place the mark relative to the heading, not absolutely on the strip: the strip only carries one
+        // copy of the mark, so a target 5 degrees east of north while facing 355 used to be written 790 px
+        // along and slid off the mask entirely. Landing it at heading + wrapped offset keeps it on screen
+        // at every yaw, which is the whole job of a compass mark.
+        mark.style.display = ''; mark.style.left = `${((heading + wrapDeg(bearing - heading)) * PX).toFixed(1)}px`;
         const dist = Math.hypot(dx, dz);
         const dd = objective.querySelector('.dist'); if (dd) dd.textContent = dist > 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist)} m`;
       }
+      // the kit: a pencil cross at the bearing of the body, for as long as the body is out there
+      if (kitHas) {
+        const b = ((Math.atan2(kitX - p.position.x, -(kitZ - p.position.z)) * 180) / Math.PI + 360) % 360;
+        cacheMark.style.display = ''; cacheMark.style.left = `${((heading + wrapDeg(b - heading)) * PX).toFixed(1)}px`;
+      } else if (cacheMark.style.display !== 'none') cacheMark.style.display = 'none';
+      if ((slowT -= dt) <= 0) { slowT = 0.35; sampleSlow(); }
       // ammo readout timing
       ammoT -= dt; ammo.classList.toggle('hidden', ammoT <= 0);
       // watch (hold Tab)
@@ -135,14 +192,28 @@ export function createHud(ctx) {
           ${w ? `<div class="row"><span class="k">${w.def.name}</span><span>${(w.chamber ? 1 : 0) + (w.mag ? w.mag.rounds : (w.tube ? w.tube.length : 0))} · ${w.fireMode || ''}</span></div>` : ''}
           <div class="row"><span class="k">Load</span><span>${ctx.inventory.weight ? ctx.inventory.weight().toFixed(1) : '0'} / ${ctx.inventory.capacity ? ctx.inventory.capacity() : 0} kg</span></div>
           ${(() => { const v = ctx.inventory.equipped?.('vest'), h = ctx.inventory.equipped?.('helmet'); const dv = v && ctx.inventory.equippedDef('vest'), dh = h && ctx.inventory.equippedDef('helmet'); return (dv ? `<div class="row"><span class="k">${dv.name}</span><span>${Math.round(v.durability)} / ${dv.durability}</span></div>` : '') + (dh ? `<div class="row"><span class="k">${dh.name}</span><span>${Math.round(h.durability)} / ${dh.durability}</span></div>` : ''); })()}
+          <div class="row"><span class="k">Vanno</span><span>${metres(Math.hypot(p.position.x - ctx.world.map.BASE.x, p.position.z - ctx.world.map.BASE.z))}</span></div>
+          ${kitHas ? `<div class="row"><span class="k">Kit in the field</span><span>${metres(kitD)} ${kitB}</span></div>` : ''}
+          ${d.money < 0 ? '<div class="arrears">Account in arrears — the crate is closed</div>' : ''}
+          ${ctx.damage?.fracture ? '<div class="bleed">Fracture — splint</div>' : ''}
           ${d.bleeding ? '<div class="bleed">Bleeding — bandage</div>' : ''}`;
       } else {
+        // Only what is currently wrong, in the order it will kill you. Six lines is the ceiling; in a
+        // healthy hour outside the base this block is one line or none, which is what makes the moment
+        // it fills up mean something.
         const parts = [];
+        const tideS = ctx.time.tideIn();
+        if (tideS < 3600) {
+          parts.push(`<span class="${tideS < 600 ? 'bleed' : 'torch'}">tide ${ctx.time.tideInText()}</span>`);
+          parts.push(`<span class="dim">vanno ${metres(Math.hypot(p.position.x - ctx.world.map.BASE.x, p.position.z - ctx.world.map.BASE.z))}</span>`);
+        }
         if (d.bleeding) parts.push('<span class="bleed">bleeding</span>');
-        if (d.hp < 30) parts.push('<span class="lowhp">critical</span>');
-        if (d.flashlight.on) parts.push(`<span class="torch">torch ${Math.round(d.flashlight.battery)}</span>`);
-        if (ctx.time.tideIn() < 3600) parts.push('<span class="bleed">tide</span>');
-        const html = parts.join('<br>'); if (status.innerHTML !== html) status.innerHTML = html;
+        if (ctx.damage?.fracture) parts.push('<span class="bleed">leg · splint</span>');
+        if (d.hp < 55) parts.push(`<span class="${d.hp < 30 ? 'lowhp' : ''}">${d.hp < 16 ? 'failing' : d.hp < 30 ? 'critical' : 'hurt'}</span><span class="hpline"><i style="width:${Math.max(0, Math.round(d.hp))}%"></i></span>`);
+        if (rounds >= 0 && rounds + reserve <= 8) parts.push(`<span class="${rounds + reserve <= 3 ? 'bleed' : 'lowhp'}">${rounds + reserve === 0 ? 'no rounds' : `${rounds + reserve} rounds`}</span>`);
+        if (d.flashlight.on) parts.push(`<span class="${d.flashlight.battery < 20 ? 'bleed' : 'torch'}">torch ${Math.round(d.flashlight.battery)}</span>`);
+        if (kitHas) parts.push(`<span class="kit">kit ${metres(kitD)} ${kitB}</span>`);
+        const html = parts.slice(0, 6).join('<br>'); if (status.innerHTML !== html) status.innerHTML = html;
       }
       if (hintT > 0) { hintT -= dt; if (hintT <= 0) hint.classList.add('hidden'); }
       if (dmgT > 0) { dmgT -= dt; dmgArc.style.opacity = Math.min(1, dmgT / 0.5).toFixed(2); dmgArc.style.transform = `rotate(${(dmgAngle * 180 / Math.PI).toFixed(1)}deg)`; } else if (dmgArc.style.opacity !== '0') dmgArc.style.opacity = '0';

@@ -8,6 +8,17 @@
 // off-screen. Squads are formed as their members appear and keep their identity — and their patrol route —
 // across retire and return.
 //
+// v4 — the zone remembers. director.js keeps a coarse grid of what it has actually registered about you (a
+// shot heard, a body found, a sighting called in) and a per-POI record of how many contacts it has filed there
+// and the bearing you walked in on. This file reads both when it re-plans after a Tide:
+//   * a place with contacts filed against it gets a bigger garrison and patrols for certain;
+//   * its patrol ring is rotated so the route runs through the ground you were last seen or heard on;
+//   * from the second contact a group is PLANTED — silent, in cover, no radio — on the bearing you came in on;
+//   * things that are not people are bedded down on the opposite side, so breaking contact and running is not
+//     automatically a safe direction.
+// And while a fight is running, `director.escalation` (0..3) decides what the zone is willing to send after
+// you: two more men, or one of the things that are not men, arriving behind you and out of sight.
+//
 // Two things scale with the game: how many there are, and how good they are. `threat` folds the Tide level,
 // the Explorer's clearance and the number of Tides survived into 0..1; `depth` is how far a place is from
 // Vanno. Both add squads, add men to a squad, and push the class roll a tier up, so the checkpoint on day one
@@ -40,7 +51,8 @@ const TABLES = {
 export function createPopulation(ctx) {
   const rng = ctx.rng.fork(53);
   let plan = [], pending = false, seeded = false, wanderer = null, wanderT = 180 + Math.random() * 180, scanT = 0, cursor = 0;
-  let stalker = null, stalkerDay = -1, stalkerT = 0, nextSquadId = 1, patrols = 0;
+  let stalker = null, stalkerDay = -1, stalkerT = 0, nextSquadId = 1, patrols = 0, ambushes = 0;
+  let reactT = 30, reactions = 0, mixT = 2, drawn = 0;
   const squadRefs = new Map();    // squadId -> squad (alive entity group)
   const squadPlans = new Map();   // squadId -> { poi, route, loop, startAt } (survives retire/return)
   if (!ctx.squads) ctx.squads = createSquads(ctx);
@@ -135,9 +147,20 @@ export function createPopulation(ctx) {
   function poiRoute(poi, n) {
     // The structures agent's exterior spawn spots are places somebody can actually stand, so a route built
     // out of them is a route that can be walked; the ring around the middle is the fallback.
+    //
+    // Where the ring STARTS is not random once the zone has something on you: a place it has heard shooting at
+    // pulls the route round so the patrol walks past it. That is the whole of "they patrol where you operate" —
+    // no tracking, no scent, just a route drawn through the cells that have contacts filed against them.
     const spots = ctx.world.spawnSpots.filter((s) => s.poi === poi.id && s.kind === 'exterior');
     const pts = [];
-    const a0 = rng() * Math.PI * 2;
+    let a0 = rng() * Math.PI * 2;
+    const hot = ctx.director && ctx.director.hotspots ? ctx.director.hotspots(6) : [];
+    let bh = 0;
+    for (const h of hot) {
+      const d = Math.hypot(h.x - poi.x, h.z - poi.z);
+      if (d > poi.r * 1.6 || d < 4 || h.heat < bh) continue;
+      bh = h.heat; a0 = Math.atan2(h.z - poi.z, h.x - poi.x);
+    }
     for (let i = 0; i < n; i++) {
       const a = a0 + (i / n) * Math.PI * 2 + rng.range(-0.35, 0.35);
       const cx = poi.x + Math.cos(a) * poi.r * 0.65, cz = poi.z + Math.sin(a) * poi.r * 0.65;
@@ -184,9 +207,9 @@ export function createPopulation(ctx) {
     return pickClass(poi.kind, tide + bump);
   }
   // one squad: its men, its class mix, and where it stands or walks
-  function planSquad(poi, tide, T, size, used, route) {
+  function planSquad(poi, tide, T, size, used, route, opts = {}) {
     const squadId = nextSquadId++;
-    const anchor0 = route ? route.route[route.startAt | 0] : null;
+    const anchor0 = opts.at || (route ? route.route[route.startAt | 0] : null);
     let anchor = null, placed = 0;
     for (let i = 0; i < size; i++) {
       let pos = null;
@@ -200,11 +223,11 @@ export function createPopulation(ctx) {
       if (!pos) pos = (anchor && findSpot(poi, 'exterior', used, { near: anchor, nearR: 10 })) || findSpot(poi, 'exterior', used);
       if (!pos) continue;
       if (!anchor) anchor = pos;
-      plan.push({ type: 'mimic', pos, poi, squadId, extra: { cls: rollClass(poi, tide, T, i === 0) } });
+      plan.push({ type: 'mimic', pos, poi, squadId, extra: { cls: (opts.classes && opts.classes[i]) || rollClass(poi, tide, T, i === 0) } });
       placed++;
     }
     if (!placed) { nextSquadId--; return null; }
-    squadPlans.set(squadId, route ? { poi, route: route.route, loop: route.loop, startAt: route.startAt | 0 } : { poi, route: null });
+    squadPlans.set(squadId, route ? { poi, route: route.route, loop: route.loop, startAt: route.startAt | 0, ambush: !!opts.ambush } : { poi, route: null, ambush: !!opts.ambush });
     if (route) patrols++;
     return squadId;
   }
@@ -222,8 +245,14 @@ export function createPopulation(ctx) {
       nSquads += Math.floor(extra) + (rng.chance(extra % 1) ? 1 : 0);
       nSquads = Math.min(nSquads, poi.r >= 55 ? 3 : 2);
     }
-    const bump = Math.round(T * 1.6 + D * 0.7);
-    const patrolP = spec.patrol ?? 0;
+    // ---- what the zone has on this place ----
+    // Contacts filed here (somebody saw or heard you inside the POI on an earlier visit) buy the garrison one
+    // more man per squad, a certainty of patrols, and — from the second contact — a group planted silent on the
+    // bearing you walked in on last time. Come the same way twice and you walk into it.
+    const rec = ctx.director && ctx.director.poiRecord ? ctx.director.poiRecord(poi.id) : null;
+    const known = rec ? Math.min(3, rec.contacts) : 0;
+    const bump = Math.round(T * 1.6 + D * 0.7) + (known >= 1 ? 1 : 0);
+    const patrolP = known >= 1 ? Math.max(spec.patrol ?? 0, 0.85) : (spec.patrol ?? 0);
     for (let s = 0; s < nSquads; s++) {
       const size = Math.min(5, rng.int(squads[1], Math.min(5, squads[2] + bump)));
       // the first group at a place holds it; anything beyond the first walks, so a place with two groups
@@ -234,6 +263,36 @@ export function createPopulation(ctx) {
         if (r) route = { route: r.route, loop: r.loop, startAt: rng.int(0, r.route.length - 1) };
       }
       planSquad(poi, tide, T, size, used, route);
+    }
+    // the ambush on your approach: quiet, in cover, on the bearing the zone last watched you arrive on
+    if (known >= 2 && nSquads > 0) {
+      const a = rec.ang + rng.range(-0.35, 0.35);
+      const r = poi.r * rng.range(0.85, 1.1);
+      let at = null;
+      for (let k = 0; k < 10 && !at; k++) {
+        const aa = a + rng.range(-0.5, 0.5), rr = r * rng.range(0.85, 1.15);
+        const x = poi.x + Math.cos(aa) * rr, z = poi.z + Math.sin(aa) * rr;
+        if (standable(x, z)) at = new THREE.Vector3(x, groundY(x, z), z);
+      }
+      if (at) {
+        const size = 2 + (known >= 3 || T > 0.5 ? 1 : 0);
+        // one of them is there to watch the ground, not to trade rounds
+        const classes = known >= 3 ? ['sniper'] : null;
+        planSquad(poi, tide, T, size, used, null, { at, ambush: true, classes });
+        ambushes++;
+      }
+    }
+    // ---- the other side of the place ----
+    // Things that are not people, bedded down where you would go if you broke contact and ran: away from the
+    // approach the zone knows you use. Losing a firefight should not be a safe direction.
+    if (known >= 1 && nSquads > 0 && ctx.enemies.types.has('slider')) {
+      const away = (rec ? rec.ang : rng() * Math.PI * 2) + Math.PI;
+      for (let i = 0; i < (known >= 2 ? 2 : 1); i++) {
+        const aa = away + rng.range(-0.7, 0.7), rr = poi.r * rng.range(0.8, 1.15);
+        const x = poi.x + Math.cos(aa) * rr, z = poi.z + Math.sin(aa) * rr;
+        if (!standable(x, z)) continue;
+        plan.push({ type: 'slider', pos: new THREE.Vector3(x, groundY(x, z), z), poi });
+      }
     }
     for (const [type, count, kind, pack] of others) {
       if (pack) {
@@ -284,7 +343,8 @@ export function createPopulation(ctx) {
         squadRefs.set(en.squadId, s);
         const sp = squadPlans.get(en.squadId);
         if (sp && sp.route) s.setRoute(sp.route, { loop: sp.loop, startAt: sp.startAt });
-      } else s.add(e);
+        if (sp && sp.ambush) s.plant();
+      } else { s.add(e); if (s.planted) s.plant(); }
     }
     return e;
   }
@@ -312,7 +372,9 @@ export function createPopulation(ctx) {
     if (any) plan = plan.filter((en) => !en.spawned);
     for (const e of ctx.enemies.list) {
       if (!e.alive || e.removeMe || !e.census || e.aware > 0.3) continue;
-      if (e.squad && (e.squad.inCombat || e.squad.state === 'alert')) continue;
+      // a squad planted on your approach is "in combat" for the whole time it is waiting; it still has to be
+      // allowed back into the plan when you are 260 m away, or the census fills up with men sitting in bushes
+      if (e.squad && (e.squad.inCombat || e.squad.state === 'alert') && !e.squad.planted) continue;
       if (e.position.distanceTo(p) < RETIRE_R) continue;
       retire(e);
     }
@@ -364,11 +426,17 @@ export function createPopulation(ctx) {
         id: s.id, poi: s.poi?.id, state: s.state, alive: s.alive, of: s.initial,
         leader: s.leader ? s.leader.cls : null, morale: Math.round(s.morale * 100) / 100, skill: Math.round(s.skill * 100) / 100,
         bounding: s.bounding, route: s.route ? s.route.length : 0, calls: s.pending.length,
+        org: Math.round((s.org ?? 1) * 100) / 100, kind: s.contactKind, planted: !!s.planted,
+        bounds: s.bounds | 0, refused: s.boundsRefused | 0, frags: s.fragOrders | 0, fixing: s.fixing | 0,
+        spread: Math.round(s.spread ? s.spread() : 0),
         jobs: s.members.filter((m) => m.alive).map((m) => (m.orders ? m.orders.job : 'idle')),
         classes: s.members.map((m) => m.cls),
       }));
     },
-    reset() { ctx.enemies.removeAll(); ctx.squads.reset(); squadRefs.clear(); squadPlans.clear(); plan = []; cursor = 0; patrols = 0; wanderer = null; stalker = null; pending = false; seeded = false; },
+    get ambushes() { return ambushes; },
+    get reactions() { return reactions; },
+    get drawn() { return drawn; },
+    reset() { ctx.enemies.removeAll(); ctx.squads.reset(); squadRefs.clear(); squadPlans.clear(); plan = []; cursor = 0; patrols = 0; ambushes = 0; wanderer = null; stalker = null; pending = false; seeded = false; },
     // after a debug teleport: census entities that are now in the player's lap or in view go back into the plan
     // and return the normal way, out of sight, once the player has moved off
     settle() {
@@ -382,7 +450,7 @@ export function createPopulation(ctx) {
       return n;
     },
     populate() {
-      pending = false; seeded = true; plan = []; squadRefs.clear(); squadPlans.clear(); nextSquadId = 1; cursor = 0; patrols = 0;
+      pending = false; seeded = true; plan = []; squadRefs.clear(); squadPlans.clear(); nextSquadId = 1; cursor = 0; patrols = 0; ambushes = 0;
       if (ctx.debug.noEnemies) return 0;
       for (const poi of ctx.world.pois) planPoi(poi);
       planRoads();
@@ -402,6 +470,56 @@ export function createPopulation(ctx) {
         const T = threat();
         wanderT = (180 + rng() * 180) * (1 - T * 0.45);
         if (!wanderer && (ctx.time.isNight || T > 0.6) && ctx.director.state === 'UNEASE' && !ctx.player.inBase && !ctx.player.dead) spawnWanderer();
+      }
+      // ---- a firefight is a dinner bell ----
+      // Spawns and seekers already listen for gunfire on their own (they ask director.recentShotAt). Sliders
+      // and phantoms do not, and they are the two that make a firefight somewhere you cannot stay. This walks
+      // them toward the NOISE — the position of the shot, jittered, never the player's feet — and only when
+      // the shot was actually loud enough to reach them. Shooting draws the grass as well as the men in it.
+      mixT -= dt;
+      if (mixT <= 0) {
+        mixT = 1.5;
+        const D = ctx.director.state;
+        if ((D === 'COMBAT' || D === 'HUNT') && !ctx.player.inBase && !ctx.player.dead) {
+          for (const e of ctx.enemies.list) {
+            if (!e.alive || e.aware > 0.55) continue;
+            if (e.type !== 'slider' && e.type !== 'phantom') continue;
+            const s = ctx.director.nearestShot(e.position, 95, _v3);
+            if (s < 0.08) continue;
+            const j = 5 + (1 - s) * 12;
+            if (!e.lastSeenPlayer) e.lastSeenPlayer = new THREE.Vector3();
+            e.lastSeenPlayer.set(_v3.x + rng.range(-j, j), _v3.y, _v3.z + rng.range(-j, j));
+            e.lastSeenT = ctx.elapsed;
+            e.aware = Math.min(0.55, e.aware + 0.18 + s * 0.3);
+            drawn++;
+          }
+        }
+      }
+      // ---- the zone's answer ----
+      // Escalation is what the Director says it is willing to spend on you (director.js: Tide sets the ceiling,
+      // your noise and the bodies you leave decide how much of it you actually meet). A fight that has been
+      // running long enough gets a reaction: two more men at 2, and at 3 one of the things that are not men.
+      // They arrive behind you and out of sight, like everything else here.
+      reactT -= dt;
+      if (reactT <= 0) {
+        reactT = 20;
+        const esc = ctx.director.escalation | 0;
+        const D = ctx.director.state;
+        if (esc >= 2 && (D === 'COMBAT' || D === 'HUNT') && !ctx.player.inBase && !ctx.player.dead && alive() < capAlive() - 2) {
+          reactT = 150 - esc * 25;
+          const tide = ctx.state.data.tideLevel || 1, T = threat();
+          const night = ctx.time.isNight;
+          let sent = null;
+          if (esc >= 3 && tide >= 2 && ctx.enemies.types.has('seeker') && rng.chance(0.5)) sent = spawnBehind('seeker', {}, 80, 110);
+          else if (esc >= 3 && night && ctx.enemies.types.has('phantom')) sent = spawnBehind('phantom', {}, 55, 85);
+          else {
+            for (let i = 0; i < 2; i++) {
+              const e = spawnBehind('mimic', { cls: pickClass('checkpoint', tide + (rng.chance(T) ? 1 : 0)) }, 75, 105);
+              if (e) { e.aware = 0.4; sent = e; }
+            }
+          }
+          if (sent) reactions++;
+        }
       }
       // the stalker: assigned once per day, a few minutes after you are out in the zone
       stalkerT -= dt;

@@ -749,7 +749,7 @@ class Mimic extends Enemy {
     this.searchNodes = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
     this.searchN = 0; this.searchI = 0; this.overwatchT = 0; this.listenT = 0; this.overwatchPending = false;
     this.soloRole = null; this.soloRoleT = -1e9; this.flankSide = rng.chance(0.5) ? 1 : -1;
-    this.shareT = -1e9; this.litT = -1e9; this.tacReloadT = 0;
+    this.shareT = -1e9; this.litT = -1e9; this.tacReloadT = 0; this.radioSaidT = -1e9;
     this.detour = new THREE.Vector3(); this.detourT = 0; this.stuckT = 0; this.nodeT = 0;
     this._mvTarget = new THREE.Vector3(); this._mvWanted = false;
     this.lookPt = new THREE.Vector3(); this.lookValid = false;   // where it is actually looking (never through a wall)
@@ -1187,7 +1187,7 @@ class Mimic extends Enemy {
   // ---- the radio ----
   // Call the contact in. The delay and the reach are on the curve: an early mimic shouts to whoever is nearly
   // on top of it, two and a half seconds late; a late one puts the whole treeline onto you in a third of one.
-  alertPack(mult = 1) {
+  alertPack(mult = 1, quiet = false) {
     const t = this.time, s = this.skill;
     const bel = this.lastSeenPlayer; if (!bel) return;
     const R = s.shareR * mult;
@@ -1207,6 +1207,12 @@ class Mimic extends Enemy {
         e.soloRole = theirs > mine + 4 ? 'flank' : 'base'; e.soloRoleT = t; e.flankSide = side; side = -side;
       }
       if (++n >= 8) break;
+    }
+    // Nothing here moved without a noise. If the call actually reached somebody, the handset was keyed, and
+    // you can hear it: information in this game never travels silently between two of them.
+    if (n > 0 && !quiet && !this.stalker && t - this.radioSaidT > 2.5) {
+      this.radioSaidT = t;
+      this.sound('mimic_radio', { gain: 0.72, max: Math.max(70, R + 25), rate: 1.08 });
     }
   }
   muzzleWorld(out, dirOut) {
@@ -1595,7 +1601,7 @@ class Mimic extends Enemy {
     this.obsT += dt; if (this.obsT > (this.engaged ? 0.22 : 0.15)) { this.obsT = 0; this.observed = this.observedByPlayer(); }
     this.unobservedT = this.observed ? 0 : this.unobservedT + dt;
     // the contact call: not instant, and it reaches as far as this mimic is good (SKILL.share / shareR)
-    if (this.shareT > 0 && t >= this.shareT) { this.shareT = -1e9; this.alertPack(); this.sound('mimic_radio', { gain: 0.8, max: 90, rate: 1.12 }); }
+    if (this.shareT > 0 && t >= this.shareT) { this.shareT = -1e9; this.alertPack(1, true); this.radioSaidT = t; this.sound('mimic_radio', { gain: 0.8, max: 90, rate: 1.12 }); }
 
     const prevX = this.position.x, prevZ = this.position.z;
     let headYaw = 0, headPitch = 0, aim = 0, aimPitch = 0, aimYaw = 0, speed = 0, track = false, crouch = 0;
@@ -1727,7 +1733,18 @@ class Mimic extends Enemy {
         const stand = atCover ? this.posturePoint() : null;
         const moveTo = stand || this.target;
         const stop = stand ? 0.16 : 0.6;
-        if (moveTo && this.staggerT <= 0 && !ambush) {
+        // Nobody with a rifle wants to be standing on you. A shotgunner will come to arm's length; everybody
+        // else gives ground rather than closing inside four metres, which is what stops a firefight ending
+        // with four men pressed against the player's chest.
+        const minStand = this.profile.kind === 'shotgun' ? 2.4 : 4.2;
+        if (d < minStand && this.staggerT <= 0 && !ambush && role !== 'ambush') {
+          _dir.set(this.position.x - p.position.x, 0, this.position.z - p.position.z);
+          if (_dir.lengthSq() < 0.01) _dir.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
+          _dir.normalize();
+          const pt = this.walkablePoint(p.position.x + _dir.x * (minStand + 3.5), p.position.z + _dir.z * (minStand + 3.5), _v);
+          if (pt) this.moveToward(pt, SPEED.engage, dt, { stop: 0.4, face: false });
+          crouch = 0;
+        } else if (moveTo && this.staggerT <= 0 && !ambush) {
           const rem = this.moveToward(moveTo, stand ? SPEED.posture : (role === 'watch' ? SPEED.suspicious : SPEED.engage), dt, { stop, face: false });
           if (!stand && rem <= stop) { this.target = null; if (this.orders) this.orders.hasTarget = false; }
         }
@@ -1740,10 +1757,12 @@ class Mimic extends Enemy {
         const seeing = vis > 0.02 || t - this.lastVisT < 1.0;
         const ord = this.orders;
         if (seeing) this.lookPt.set(p.position.x, p.eye.y - 0.25, p.position.z);
-        else if (ord && ord.hasSector && this.suppressLeft > 0) this.lookPt.set(ord.sector.x, ord.sector.y + 0.2, ord.sector.z);
+        else if (ord && ord.hasSector && this.suppressLeft > 0) this.lookPt.set(ord.sector.x, ord.sector.y + 1.2, ord.sector.z);
         else if (this.lastSeenPlayer) this.lookPt.set(this.lastSeenPlayer.x, this.lastSeenPlayer.y + 1.4, this.lastSeenPlayer.z);
-        else if (ord && ord.hasSector) this.lookPt.set(ord.sector.x, ord.sector.y + 0.2, ord.sector.z);
-        else this.lookPt.set(p.position.x, p.eye.y - 0.25, p.position.z);
+        else if (ord && ord.hasSector) this.lookPt.set(ord.sector.x, ord.sector.y + 1.2, ord.sector.z);
+        // nothing at all: it watches its own arc, not you. A planted ambush that tracks you through a wall is
+        // not an ambush, it is a turret with a story.
+        else this.lookPt.set(this.position.x - Math.sin(this.yaw) * 20, this.position.y + 1.5, this.position.z - Math.cos(this.yaw) * 20);
         this.lookValid = true;
         this.faceToward(this.lookPt.x, this.lookPt.z, dt, seeing ? 9 : 4.5);
         // ---- is it allowed to act? base and arrived flankers are; watchers and moving flankers only when pressed ----
@@ -1817,8 +1836,8 @@ class Mimic extends Enemy {
         aim = 0.3; this.rallyT -= dt;
         if (!this.calledHelp && this.stateT > 0.4) {
           this.calledHelp = true;
-          this.alertPack(1.5);
-          this.sound('mimic_radio', { gain: 0.9, max: 110, rate: 1.28 });
+          this.alertPack(1.5, true); this.radioSaidT = t;
+          this.sound('mimic_radio', { gain: 0.9, max: 110, rate: 1.38 });   // "falling back" — the same word the squads use
         }
         if (!this.target) this.breakPoint();
         if (this.target && this.staggerT <= 0) { const rem = this.moveToward(this.target, SPEED.break, dt, { stop: 1.0 }); if (rem <= 1.0) this.target = null; }
@@ -1861,7 +1880,14 @@ class Mimic extends Enemy {
           if (dir && dir.contact && dir.contactConfidence() > 0.35 && dir.contact.t > this.lastSeenT + 1) { this.believe(dir.contact.position, dir.contact.radius, dir.contact.t, 0.7); this.searchN = 0; this.overwatchT = 0; }
         }
         if (this.wantTacticalReload(vis)) { this.reloadReturn = 'search'; if (this.beginReload()) break; }
-        if (!this.searchN) this.planSearch();
+        // The squad is sweeping and this man has been given a lane (squad.js orderSweep). He walks HIS lane,
+        // not his own guess, which is what turns four searchers into a line.
+        const so = this.orders;
+        if (so && so.job === 'sweep' && so.hasTarget) {
+          if (!this.searchN || this.searchI >= this.searchN || this.searchNodes[0].distanceToSquared(so.target) > 16) {
+            this.searchNodes[0].copy(so.target); this.searchN = 1; this.searchI = 0; this.nodeT = 0; this.overwatchPending = false;
+          }
+        } else if (!this.searchN) this.planSearch();
         if (this.overwatchT > 0) {
           // holding a firing position on the contact, saying nothing
           this.overwatchT -= dt; crouch = 0.55;
