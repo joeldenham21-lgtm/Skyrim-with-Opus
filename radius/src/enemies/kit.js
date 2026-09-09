@@ -41,7 +41,7 @@
 // own against the real world.
 import { clamp, clamp01, lerp } from '../core/math.js';
 import { mulberry32 } from '../core/rng.js';
-import { def, WEAPONS, MAGAZINES, ARMOR, AMMO } from '../data/index.js';
+import { def, WEAPONS, MAGAZINES, ARMOR, AMMO, defaultAmmo } from '../data/index.js';
 
 // =====================================================================================================
 // THE CURVE. Merged into mimic.js SKILL by the integrator (see the module header of mimic.js). A recruit at
@@ -72,6 +72,7 @@ export const GATES = {
   armorkit: 0.50,
   binos: 0.55,
   pain: 0.60,
+  pick: 0.65,
   smoke: 0.35,          // smokeW
   flare: 0.45,
   fire: 0.55,
@@ -121,7 +122,7 @@ export function setRearmHook(fn) { rearmHook = typeof fn === 'function' ? fn : n
 export const COUNT = {
   uses: 0, heals: 0, stims: 0, masks: 0, probes: 0, binos: 0, repairs: 0, foods: 0,
   smokes: 0, flashes: 0, flares: 0, throws: 0,
-  scavAttempts: 0, scavTakes: 0, scavRefused: 0, rearms: 0, swapsBack: 0,
+  scavAttempts: 0, scavTakes: 0, scavRefused: 0, rearms: 0, swapsBack: 0, picks: 0,
   rays: 0, piles: 0,
 };
 export function stats() {
@@ -170,13 +171,14 @@ export function actFor(id) {
     if (id === 'cleankit') return 'clean';
     if (id === 'repairkit') return 'repair';
     if (id === 'armorkit') return 'armorkit';
+    if (id === 'lockpick') return 'pick';
     if (d.light) return 'light';
     if (d.detect) return 'detect';
     return null;
   }
   return null;                                       // artifact, mission, key, part: never used, never taken
 }
-const GATE_OF = { heal: 'heal', pain: 'pain', stim: 'stim', food: 'food', mask: 'mask', filter: 'filter', battery: 'battery', light: 'light', clean: 'clean', repair: 'repair', armorkit: 'armorkit', binos: 'binos', probe: 'probe' };
+const GATE_OF = { heal: 'heal', pain: 'pain', stim: 'stim', food: 'food', mask: 'mask', filter: 'filter', battery: 'battery', light: 'light', clean: 'clean', repair: 'repair', armorkit: 'armorkit', binos: 'binos', probe: 'probe', pick: 'pick' };
 const THROWN_ACTS = { smoke: 1, flash: 1, flare: 1, fire: 1 };
 function gateFor(m, act) {
   if (THROWN_ACTS[act]) return row(m, 'smokeW') >= (GATES[act] ?? 1);
@@ -191,14 +193,40 @@ export function useTime(id, act) {
   if (act === 'repair') return 3.2;
   if (act === 'armorkit') return 3.6;
   if (act === 'binos') return 2.5;
+  if (act === 'pick') return 5.0;
   if (act === 'probe') return 0.9;
   return 1.4;
 }
+// Every new name has a fallback chain of names the sfx agent has already registered, so the module is audible
+// today and better the day the real generators land. audio.play returns null for a name nobody registered.
+const KIT_SND = ['mimic_kit', 'stim_use', 'reload_magout'];
 const SOUND_OF = {
-  heal: 'mimic_heal', pain: 'mimic_kit', stim: 'mimic_kit', food: 'mimic_kit', mask: 'mimic_kit',
-  filter: 'mimic_kit', battery: 'mimic_kit', clean: 'mimic_kit', repair: 'mimic_kit', armorkit: 'mimic_kit',
-  binos: 'mimic_kit', probe: 'probe_throw', scav: 'mimic_scav', throw: 'mimic_kit',
+  heal: ['mimic_heal', 'bandage_use', 'medkit_use'],
+  pain: KIT_SND, stim: KIT_SND, food: KIT_SND, mask: KIT_SND, filter: KIT_SND, battery: KIT_SND,
+  clean: KIT_SND, repair: KIT_SND, armorkit: KIT_SND, binos: KIT_SND, throw: KIT_SND,
+  pick: ['mimic_pick', 'container_open', 'door_open'],
+  probe: ['probe_throw'], scav: ['mimic_scav', 'pickup_item', 'container_open'],
 };
+const PIN_SND = ['grenade_pin', 'click'];
+const POP_SND = ['smoke_pop', 'fragment_pop', 'impact_metal'];
+const HISS_SND = ['smoke_hiss', 'gas_hiss'];
+const BANG_SND = ['flash_bang', 'grenade_explode', 'fragment_explode'];
+// play the first name that exists; opts is shared, so this allocates nothing
+function playAny(ctx, names, opts) {
+  if (!ctx.audio) return null;
+  for (let i = 0; i < names.length; i++) { const h = ctx.audio.play(names[i], opts); if (h) return h; }
+  return null;
+}
+function loopAny(ctx, names, opts) {
+  if (!ctx.audio || !ctx.audio.loop) return null;
+  for (let i = 0; i < names.length; i++) { const h = ctx.audio.loop(names[i], opts); if (h) return h; }
+  return null;
+}
+const _sopts = { pos: null, hrtf: true, gain: 1, max: 60, ref: 4, rate: 1 };
+function soundAny(m, names, gain, max, rate) {
+  _sopts.pos = m.position; _sopts.hrtf = true; _sopts.gain = gain; _sopts.max = max; _sopts.ref = 4; _sopts.rate = rate || 1;
+  return playAny(m.ctx, names, _sopts);
+}
 
 // =====================================================================================================
 // PER-MIMIC STATE. Allocated once, in the constructor.
@@ -233,6 +261,11 @@ export function speedMul(m) { const k = m.kit; return k && k.speedT > 0 ? k.spee
 export function staggerMul(m) { const k = m.kit; return k && k.painT > 0 ? 0.35 : 1; }
 export function windRegenMul(m) { const k = m.kit; return k && k.windT > 0 ? k.windMul : 1; }
 export function gasProtection(m) { const k = m.kit; return k ? k.maskFit : 0; }
+// The gate on the light mimic.js already knows how to switch on: a recruit does not think to use it, and a
+// torch coming on in a treeline is one of the loudest things the Explorer can be shown.
+export function mayLight(m) { return gateFor(m, 'light'); }
+// The glass a marksman is currently behind, for the glint mimic.js already draws.
+export function glassing(m) { const k = m.kit; return !!(k && k.binoT > 0); }
 
 // =====================================================================================================
 // THE VOICE. command.js owns the vocabulary; kit.js only needs the words that telegraph an item action, and
@@ -284,6 +317,13 @@ function findHeal(m, need) {
   }
   return best;
 }
+// the best mask in his pouch that beats what he is already wearing, or -1
+function findMaskBetter(m, have) {
+  const items = m.loadout && m.loadout.items; if (!items) return -1;
+  let best = -1, bg = have;
+  for (let i = 0; i < items.length; i++) { const d = def(items[i]); if (!d || d.kind !== 'mask') continue; if ((d.gas || 0.5) > bg) { bg = d.gas || 0.5; best = i; } }
+  return best;
+}
 function hasWorn(m, kind) {
   const worn = m.loadout && m.loadout.kit; if (!worn) return null;
   for (let i = 0; i < worn.length; i++) { const d = def(worn[i].id); if (d && d.kind === kind) return worn[i]; }
@@ -331,11 +371,12 @@ export function wantItem(m) {
   const body = m.body;                                 // traversal.js, if it is wired
   const wind = body && typeof body.wind === 'number' ? body.wind : 100;
 
-  // 1. GAS. The one thing that is killing him right now and that a pouch answers.
-  if (gateFor(m, 'mask') && k.maskFit < 0.5 && gasAt(ctx, m.position.x, m.position.z)) {
+  // 1. GAS. The one thing that is killing him right now and that a pouch answers. He fits whatever protects
+  //    him more than what is already on his face, so a man in a respirator still reaches for the GP-5.
+  if (gateFor(m, 'mask') && k.maskFit < 0.99 && gasAt(ctx, m.position.x, m.position.z)) {
     const mask = hasWorn(m, 'mask');
-    if (mask) return want(m, mask.id, 'mask', -1, 'gas');
-    const i = findAct(m, 'mask'); if (i >= 0) return want(m, lo.items[i], 'mask', i, 'gas');
+    if (mask && (def(mask.id).gas || 0.5) > k.maskFit) return want(m, mask.id, 'mask', -1, 'gas');
+    const i = findMaskBetter(m, k.maskFit); if (i >= 0) return want(m, lo.items[i], 'mask', i, 'gas');
   }
   // a fitted mask with a dead filter is a face full of nothing
   if (gateFor(m, 'filter') && k.maskFit >= 0.5) {
@@ -397,7 +438,12 @@ export function wantItem(m) {
       && (m.moveSpeed ?? 0) < 0.2 && noLine > 8) {
     const i = findAct(m, 'binos'); if (i >= 0) return want(m, lo.items[i], 'binos', i, 'glassing');
   }
-  // 10. PROBES. He knows this ground. He still throws one before he walks into it.
+  // 10. LOCKS. Somebody got here first, and it was not the Explorer. He takes nothing; he just opens it.
+  if (gateFor(m, 'pick')) {
+    const c = nearestLocked(m.position.x, m.position.z, SCAV_REACH);
+    if (c) { const i = findAct(m, 'pick'); if (i >= 0) return want(m, lo.items[i], 'pick', i, 'locked', c.x, c.z); }
+  }
+  // 11. PROBES. He knows this ground. He still throws one before he walks into it.
   if (gateFor(m, 'probe')) {
     const a = fieldAhead(m, ctx, 26);
     if (a) { const i = findAct(m, 'probe'); if (i >= 0) return want(m, lo.items[i], 'probe', i, 'field', a.position.x, a.position.z); }
@@ -447,7 +493,7 @@ export function beginUse(m, id, act, idx = -1, tx, tz) {
   k.burstSaved = m.burstLeft || 0;
   m.burstLeft = 0; m.aiming = false;
   const snd = SOUND_OF[act];
-  if (snd && typeof m.sound === 'function') m.sound(snd, { gain: act === 'heal' ? 0.62 : 0.5, max: act === 'heal' ? 30 : 24 });
+  if (snd) soundAny(m, snd, act === 'heal' ? 0.62 : 0.5, act === 'heal' ? 30 : 24);
   // a man dropping out of the fight tells the others, because they have to cover the hole he leaves
   if (act === 'heal' || act === 'pain') say(m, 'hold', 0.55);
   COUNT.uses++; k.uses++;
@@ -473,7 +519,9 @@ export function kitTick(m, dt) {
   }
   // gas burn, and the mask that answers it
   const gas = gasAt(m.ctx, m.position.x, m.position.z);
-  if (gas) { k.gasT += dt; if (k.maskFit < 0.5 && k.gasT > 1.2) { k.gasT = 0; if (typeof m.damage === 'function') m.damage(2, { kind: 'burn' }); } }
+  // a respirator halves the burn; a GP-5 stops it. The pad is a wall to them as well as to the Explorer,
+  // and a mimic who fitted his mask can hold a piece of ground the Explorer cannot.
+  if (gas) { k.gasT += dt; if (k.gasT > 1.2) { k.gasT = 0; const d2 = 2 * (1 - clamp01(k.maskFit)); if (d2 > 0.01 && typeof m.damage === 'function') m.damage(d2, { kind: 'burn' }); } }
   else k.gasT = 0;
   if (!k.verb) return false;
   k.t += dt;
@@ -546,6 +594,12 @@ function finishUse(m, id, act, idx) {
       break;
     }
     case 'binos': { k.binoT = 6; COUNT.binos++; if (m.glint) m.glint.visible = true; break; }
+    case 'pick': {
+      const c = nearestLocked(k.throwX, k.throwZ, 3.0);
+      if (c && c.o) { c.o.locked = false; c.o.forced = true; COUNT.picks++; }
+      spendUses(lo, id, idx);
+      break;
+    }
     case 'probe': {
       // the probe is thrown, not swallowed: it flies, it lands, and what it lands in lights up
       throwThing(m, 'probe', id, k.throwX, k.throwZ);
@@ -582,7 +636,7 @@ export function throwKit(m, act, tx, tz) {
   k.throwX = tx; k.throwZ = tz;
   m.burstLeft = 0; m.aiming = false;
   say(m, act === 'flash' || act === 'smoke' ? 'flush' : 'moving', 0.9);
-  if (typeof m.sound === 'function') m.sound('grenade_pin', { gain: 0.7, max: 40, rate: 0.85 });
+  soundAny(m, PIN_SND, 0.7, 40, 0.85);
   COUNT.throws++; k.throws++;
   return true;
 }
@@ -618,7 +672,7 @@ function throwThing(m, act, id, tx, tz) {
   t.x = fromX; t.y = fromY; t.z = fromZ;
   t.vx = (dx / dist) * v * ca; t.vy = v * sa; t.vz = (dz / dist) * v * ca;
   t.fuse = act === 'probe' ? 1e9 : (d.fuse || 2.0);
-  if (act === 'probe' && typeof m.sound === 'function') m.sound('probe_throw', { gain: 0.5, max: 30 });
+  if (act === 'probe') soundAny(m, SOUND_OF.probe, 0.5, 30);
   return t;
 }
 function stepThrown(t, dt) {
@@ -639,7 +693,7 @@ function stepThrown(t, dt) {
 }
 function landProbe(t) {
   const ctx = t.ctx;
-  if (ctx.audio) ctx.audio.play('probe_land', { pos: { x: t.x, y: t.y, z: t.z }, hrtf: true, gain: 0.5, max: 40 });
+  playAny(ctx, ['probe_land', 'impact_metal'], { pos: { x: t.x, y: t.y, z: t.z }, hrtf: true, gain: 0.5, max: 40 });
   const list = ctx.anomalies && ctx.anomalies.list;
   if (list) for (let i = 0; i < list.length; i++) {
     const a = list[i]; if (!a || !a.position) continue;
@@ -658,20 +712,20 @@ function detonate(t) {
   if (t.act === 'smoke') {
     const rec = { position: { x: pos.x, y: pos.y + SMOKE.rise, z: pos.z }, radius: d.radius || SMOKE.radius, t: d.smoke || SMOKE.life };
     ctx.world.smoke.push(rec);
-    const hiss = ctx.audio && ctx.audio.loop ? ctx.audio.loop('smoke_hiss', { pos: rec.position, hrtf: true, gain: 0.5, max: 60 }) : null;
+    const hiss = loopAny(ctx, HISS_SND, { pos: rec.position, hrtf: true, gain: 0.5, max: 60 });
     CLOUDS.push({ rec, hiss, ctx });
-    if (ctx.audio) ctx.audio.play('smoke_pop', { pos, hrtf: true, gain: 0.8, max: 120 });
+    playAny(ctx, POP_SND, { pos, hrtf: true, gain: 0.8, max: 120 });
     if (ctx.vfx) ctx.vfx.smoke(pos, UP, 18, [0.62, 0.61, 0.58], 1.6, 4.0, 0.6);
     ctx.director?.noteActivity?.(pos, 'noise', 0.4);
   } else if (t.act === 'flash') {
     flashBang(ctx, pos, d.radius || FLASH.radius, t.src);
   } else if (t.act === 'flare') {
     FIRES.push({ x: pos.x, z: pos.z, r: 0, dps: 0, t: (d.light ? d.light[0] : FLARE.life), ctx, light: true, blink: 0 });
-    if (ctx.audio) ctx.audio.play('probe_trigger', { pos, hrtf: true, gain: 0.5, max: 90, rate: 0.7 });
+    playAny(ctx, ['probe_trigger', 'arc_zap'], { pos, hrtf: true, gain: 0.5, max: 90, rate: 0.7 });
   } else if (t.act === 'fire') {
     const f = d.fire || [20, 14];
     FIRES.push({ x: pos.x, z: pos.z, r: d.radius || 4, dps: f[0], t: f[1], ctx, light: false, blink: 0 });
-    if (ctx.audio) ctx.audio.play('grenade_explode', { pos, hrtf: true, gain: 0.7, max: 180, rate: 0.75 });
+    playAny(ctx, ['grenade_explode', 'fragment_explode'], { pos, hrtf: true, gain: 0.7, max: 180, rate: 0.75 });
     if (ctx.vfx) ctx.vfx.explosion(pos, d.radius || 4, 0xff8a3c);
   }
 }
@@ -681,7 +735,7 @@ function detonate(t) {
 function playerAt(ctx) { return ctx.player; }
 
 function flashBang(ctx, pos, radius, src) {
-  if (ctx.audio) ctx.audio.play('flash_bang', { pos, hrtf: true, gain: 1.0, max: 260, ref: 8 });
+  playAny(ctx, BANG_SND, { pos, hrtf: true, gain: 1.0, max: 260, ref: 8 });
   if (ctx.vfx) { ctx.vfx.light(pos, 0xffffff, 260, 0.16, radius * 7); ctx.vfx.spark(pos, UP, 14, [1, 1, 1]); }
   const list = ctx.enemies && ctx.enemies.list;
   if (list) for (let i = 0; i < list.length; i++) {
@@ -794,6 +848,28 @@ function scoreEntry(m, e, sc) {
   return -1;
 }
 
+// Locked containers, for the one item in the catalogue that has nothing to do with a fight. The integrator
+// feeds these from game/loot.js's registerContainer; until it does, the capability is inert rather than wrong.
+// Forcing one TAKES NOTHING — it is texture, not theft: the Explorer walks up on a locker somebody else got
+// to first, with everything still in it.
+const LOCKED = [];
+export function registerContainer(o, x, z) {
+  if (!o || !o.pile) return null;
+  const rec = { o, x, z };
+  LOCKED.push(rec);
+  while (LOCKED.length > PILE_MAX) LOCKED.shift();
+  return rec;
+}
+export function nearestLocked(x, z, r) {
+  let best = null, bd = r;
+  for (let i = 0; i < LOCKED.length; i++) {
+    const c = LOCKED[i]; if (!c.o || !c.o.locked) continue;
+    const d = Math.hypot(c.x - x, c.z - z); if (d < bd) { bd = d; best = c; }
+  }
+  return best;
+}
+export function lockedCount() { let n = 0; for (const c of LOCKED) if (c.o && c.o.locked) n++; return n; }
+
 // One attempt per mimic per SCAV_EVERY seconds, out of contact, within reach of a body he is already near.
 // Returns true if the kit owns the frame (he is crouched over it).
 export function scavengeTick(m, dt, opts) {
@@ -829,7 +905,7 @@ export function scavengeTick(m, dt, opts) {
   k.pile = p; k.pileI = bi;
   k.verb = 'scav'; k.id = null; k.t = 0; k.dur = SCAV_TIME; k.idx = -1;
   m.burstLeft = 0; m.aiming = false;
-  if (typeof m.sound === 'function') m.sound('mimic_scav', { gain: 0.5, max: 26 });
+  soundAny(m, SOUND_OF.scav, 0.5, 26);
   if (k.diverted) { k.diverted = false; if (typeof m.setTarget === 'function') m.setTarget(null); }
   return true;
 }
@@ -913,15 +989,17 @@ export function rearm(m, w) {
   m.weapon = w;
   m.wdef = wd;
   m.magCap = w.mag ? (MAGAZINES[w.mag.id]?.cap || 30) : (wd.internal || 6);
-  const ammoId = (w.mag && w.mag.ammo) || w.chamber || (w.tube && w.tube.length ? w.tube[w.tube.length - 1] : null);
-  if (ammoId && AMMO[ammoId]) { m.ammoId = ammoId; m.ammo = AMMO[ammoId]; }
-  lo.ammoId = m.ammoId || lo.ammoId;
+  // whatever is actually in it, and failing that the plain load for the calibre. A mimic must never end up
+  // holding a rifle and believing it is feeding the last gun's rounds into it.
+  let ammoId = (w.mag && w.mag.ammo) || w.chamber || (w.tube && w.tube.length ? w.tube[w.tube.length - 1] : null);
+  if (!ammoId || !AMMO[ammoId] || AMMO[ammoId].cal !== wd.cal) ammoId = defaultAmmo(wd.cal);
+  if (ammoId && AMMO[ammoId]) { m.ammoId = ammoId; m.ammo = AMMO[ammoId]; lo.ammoId = ammoId; }
   m.shotNames = [`shot_${w.id}`, `shot_${wd.build || w.id}`, 'shot_akm'];
   // spare magazines that no longer fit anything are still carried (and still dropped); they are just dead weight
   m.kit.rearms++; COUNT.rearms++;
   if (rearmHook) { try { rearmHook(m, w); } catch (e) { console.warn('kit.rearm hook failed', e); } }
   say(m, 'set', 0.6);
-  if (typeof m.sound === 'function') m.sound('weapon_draw', { gain: 0.6, max: 30 });
+  soundAny(m, ['weapon_draw'], 0.6, 30);
   return true;
 }
 
@@ -1017,7 +1095,7 @@ export function kitFrame(ctx, dt) { if (ctx.frame === lastFrame) return; lastFra
 export function resetKit() {
   for (let i = 0; i < THROWN.length; i++) THROWN[i].live = false;
   for (const c of CLOUDS) { if (c.hiss) c.hiss.stop(0.05); const w = c.ctx.world.smoke, j = w.indexOf(c.rec); if (j >= 0) w.splice(j, 1); }
-  CLOUDS.length = 0; FIRES.length = 0; PILES.length = 0;
+  CLOUDS.length = 0; FIRES.length = 0; PILES.length = 0; LOCKED.length = 0;
   flashBlur = 0; flashCtx = null; lastFrame = -1; losFrame = -1;
   for (const key in COUNT) COUNT[key] = 0;
 }
